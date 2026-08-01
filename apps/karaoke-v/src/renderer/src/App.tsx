@@ -10,5 +10,5 @@ export function App() {
       </header>
       <main className="flex flex-1 items-center justify-center">Hello World</main>
     </div>
-  );
+  )
 }
