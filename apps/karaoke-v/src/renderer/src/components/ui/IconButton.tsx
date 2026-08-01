@@ -10,7 +10,7 @@ export function IconButton({
   return (
     <button
       type={type}
-      className={`inline-flex aspect-square items-center justify-center text-white opacity-50 transition-opacity hover:opacity-80 active:opacity-100 ${className}`.trim()}
+      className={`inline-flex aspect-square items-center justify-center text-white opacity-50 outline-none transition-opacity hover:opacity-80 active:opacity-100 ${className}`.trim()}
       {...props}
     />
   )

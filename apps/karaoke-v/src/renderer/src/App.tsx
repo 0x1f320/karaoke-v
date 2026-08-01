@@ -1,5 +1,7 @@
 import type { PianoRoll } from "@karaoke-v/macos-helper"
 import { useEffect, useRef } from "react"
+import { Settings } from "./components/Settings"
+import { Toolbar } from "./components/Toolbar"
 
 // Interval between full note reads. Note positions are corrected per-frame from
 // the viewport read, so this only bounds how stale the note SET can be (edits,
@@ -8,7 +10,20 @@ const NOTE_READ_GAP_MS = 30
 // Back-off when SynthV / the piano roll isn't found.
 const NOT_FOUND_RETRY_MS = 500
 
+// One renderer bundle serves every window; each is loaded with the hash naming
+// its view, the overlay with no hash.
 export function App() {
+  switch (window.location.hash) {
+    case "#toolbar":
+      return <Toolbar />
+    case "#settings":
+      return <Settings />
+    default:
+      return <Overlay />
+  }
+}
+
+function Overlay() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -23,6 +38,16 @@ export function App() {
     // horizontally via contentX, vertically via the reference chip's y (refY).
     // Both are exact pixel deltas read atomically at paint time.
     let read: PianoRoll | null = null
+
+    // Bounding boxes are a debug visualization. Default off, and off until the
+    // stored value arrives, so nothing flashes on startup.
+    let debug = false
+    window.preferences.get().then((p) => {
+      debug = p.debug
+    })
+    const unsubscribe = window.preferences.onChange((p) => {
+      debug = p.debug
+    })
 
     let alive = true
 
@@ -59,6 +84,12 @@ export function App() {
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, w, h)
+
+      // Boxes are all this draws for now, so with debug off the cleared canvas
+      // is the whole frame.
+      if (!debug) {
+        return
+      }
 
       // Atomic cheap read at paint time — position data is as fresh as possible.
       const vp = window.overlay.getViewport()
@@ -103,6 +134,7 @@ export function App() {
     return () => {
       alive = false
       cancelAnimationFrame(raf)
+      unsubscribe()
     }
   }, [])
 
