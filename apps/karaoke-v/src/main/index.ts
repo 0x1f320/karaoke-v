@@ -1,15 +1,19 @@
 import path from "node:path"
 import { app, BrowserWindow } from "electron"
+import { type StickStatus, startStick } from "./stick"
 
 let win: BrowserWindow | null = null
+let stopStick: (() => void) | null = null
+let lastStatus: StickStatus = { state: "waiting" }
 
 const BACKGROUND = "#2D2B2E"
 const TITLE_BAR_HEIGHT = 40
+const WINDOW = { width: 300, height: 600 }
 
 function createWindow(): void {
   win = new BrowserWindow({
-    width: 300,
-    height: 600,
+    width: WINDOW.width,
+    height: WINDOW.height,
     backgroundColor: BACKGROUND,
     resizable: false,
     // Drop the minimize/maximize (zoom) buttons — only close remains. On macOS the
@@ -32,6 +36,18 @@ function createWindow(): void {
     },
   })
 
+  const sendStatus = (): void => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("stick-status", lastStatus)
+    }
+  }
+  win.webContents.on("did-finish-load", sendStatus)
+
+  stopStick = startStick(win, WINDOW, (status) => {
+    lastStatus = status
+    sendStatus()
+  })
+
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
@@ -46,6 +62,10 @@ app.whenReady().then(() => {
       createWindow()
     }
   })
+})
+
+app.on("before-quit", () => {
+  stopStick?.()
 })
 
 app.on("window-all-closed", () => {

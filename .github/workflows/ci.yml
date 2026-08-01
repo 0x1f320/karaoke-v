@@ -41,3 +41,33 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  macos-native:
+    name: macOS Native Addon
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          # electron-rebuild needs Electron's headers, not the runtime binary.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+      # Compiles the Objective-C++ addon (src/stick.mm) for the Node ABI.
+      - name: Build (node-gyp)
+        run: pnpm build
+
+      # Recompiles it against the Electron ABI — the path dev/start use at runtime.
+      - name: Rebuild for Electron ABI
+        run: pnpm --filter @karaoke-v/app rebuild:native
