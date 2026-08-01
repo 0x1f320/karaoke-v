@@ -1,78 +1,92 @@
 import path from "node:path"
+import * as macHelper from "@karaoke-v/macos-helper"
 import { app, BrowserWindow } from "electron"
-import { disableWindowAnimations, type StickStatus, startStick } from "./stick"
+
+// The main process only manages the overlay window: it covers the whole SynthV
+// window (tracked event-driven by the native stick observer) and is otherwise
+// inert. All per-frame work — AX reads and drawing — happens in the renderer,
+// which reads the addon directly through the preload bridge. This removes the
+// AX → main → renderer hops (and per-frame setBounds) from the hot path.
 
 let win: BrowserWindow | null = null
-let stopStick: (() => void) | null = null
-let lastStatus: StickStatus = { state: "waiting" }
-
-const BACKGROUND = "#2D2B2E"
-const WINDOW = { width: 72, height: 600 }
 
 function createWindow(): void {
   win = new BrowserWindow({
-    width: WINDOW.width,
-    height: WINDOW.height,
-    backgroundColor: BACKGROUND,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    // Fully frameless: no system title bar and no window controls (macOS traffic
-    // lights included). The panel is a narrow strip stuck to the target window.
+    width: 800,
+    height: 400,
+    show: false,
+    transparent: true,
     frame: false,
-    // Square corners — macOS rounds frameless windows by default.
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    focusable: false,
+    skipTaskbar: true,
+    fullscreenable: false,
     roundedCorners: false,
-    // Float above normal windows so a focused window (and its shadow) can't
-    // cover the panel; showInactive keeps it from stealing focus.
-    alwaysOnTop: true,
+    backgroundColor: "#00000000",
     webPreferences: {
       preload: path.join(__dirname, "..", "preload", "index.js"),
       contextIsolation: true,
+      // The preload requires the native AX addon.
+      sandbox: false,
+      // The overlay is never focused; without this Electron throttles its
+      // rendering (rAF/timers) as a background window, causing scroll lag.
+      backgroundThrottling: false,
     },
   })
 
-  // "floating" level sits just above ordinary windows — enough to clear a
-  // focused window's shadow without jumping over system UI.
+  win.setIgnoreMouseEvents(true, { forward: true })
   win.setAlwaysOnTop(true, "floating")
-
-  // No fade when the panel is shown/hidden on occlusion.
-  disableWindowAnimations(win)
-
-  const sendStatus = (): void => {
-    if (win && !win.isDestroyed()) {
-      win.webContents.send("stick-status", lastStatus)
-    }
+  if (process.platform === "darwin") {
+    try {
+      macHelper.disableAnimations(win.getNativeWindowHandle())
+    } catch {}
   }
-  win.webContents.on("did-finish-load", sendStatus)
-
-  stopStick = startStick(win, WINDOW, (status) => {
-    lastStatus = status
-    sendStatus()
-  })
 
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
+    win.webContents.openDevTools({ mode: "detach" })
   } else {
     win.loadFile(path.join(__dirname, "..", "renderer", "index.html"))
   }
 }
 
 app.whenReady().then(() => {
+  if (process.platform === "darwin" && app.dock) {
+    app.dock.hide()
+  }
   createWindow()
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-    }
+  if (process.platform !== "darwin") {
+    return
+  }
+  macHelper.start({
+    target: "synth",
+    onFrame: (f) => {
+      if (!win || win.isDestroyed()) {
+        return
+      }
+      win.setBounds(
+        { x: Math.round(f.x), y: Math.round(f.y), width: Math.round(f.w), height: Math.round(f.h) },
+        false,
+      )
+      if (!win.isVisible()) {
+        win.showInactive()
+      }
+    },
+    onStatus: (s) => {
+      if (!win || win.isDestroyed()) {
+        return
+      }
+      if (s.state !== "attached" && win.isVisible()) {
+        win.hide()
+      }
+    },
   })
 })
 
 app.on("before-quit", () => {
-  stopStick?.()
+  macHelper.stop()
 })
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit()
-  }
-})
+app.on("window-all-closed", () => app.quit())

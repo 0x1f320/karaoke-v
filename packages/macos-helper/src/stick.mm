@@ -15,6 +15,9 @@
 #import <napi.h>
 #import <string>
 
+#import "ax.h"
+#import "pianoroll.h"
+
 namespace {
 
 // Fraction of the target that must be covered by front windows to count as hidden.
@@ -95,25 +98,6 @@ NSRunningApplication *findApp() {
     }
   }
   return nil;
-}
-
-bool axFrame(AXUIElementRef el, CGRect *out) {
-  CFTypeRef posVal = nullptr;
-  CFTypeRef sizeVal = nullptr;
-  if (AXUIElementCopyAttributeValue(el, kAXPositionAttribute, &posVal) != kAXErrorSuccess ||
-      AXUIElementCopyAttributeValue(el, kAXSizeAttribute, &sizeVal) != kAXErrorSuccess) {
-    if (posVal) CFRelease(posVal);
-    if (sizeVal) CFRelease(sizeVal);
-    return false;
-  }
-  CGPoint p = CGPointZero;
-  CGSize s = CGSizeZero;
-  AXValueGetValue((AXValueRef)posVal, kAXValueTypeCGPoint, &p);
-  AXValueGetValue((AXValueRef)sizeVal, kAXValueTypeCGSize, &s);
-  CFRelease(posVal);
-  CFRelease(sizeVal);
-  *out = CGRectMake(p.x, p.y, s.width, s.height);
-  return true;
 }
 
 AXUIElementRef copyCurrentWindow() {
@@ -446,6 +430,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("start", Napi::Function::New(env, Start));
   exports.Set("stop", Napi::Function::New(env, Stop));
   exports.Set("disableAnimations", Napi::Function::New(env, DisableAnimations));
+  RegisterPianoRoll(env, exports);
   return exports;
 }
 

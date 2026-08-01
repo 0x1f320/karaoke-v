@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@karaoke-v/macos-helper": "workspace:*",
+    "lucide-react": "^1.28.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

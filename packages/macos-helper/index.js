@@ -47,6 +47,36 @@ function stop() {
 }
 
 /**
+ * One-shot read of the target's piano-roll geometry (global screen points).
+ * A full AX walk is ~50ms — poll modestly, not per-frame.
+ * @param {string} [target="synthesizer"] case-insensitive substring of the app name
+ * @returns {null | { canvas: {x,y,w,h}, contentX: number, contentW: number, notes: {x,y,w,h}[] }}
+ */
+function getPianoRoll(target = "synthesizer") {
+  return loadNative().getPianoRoll(target)
+}
+
+/**
+ * Like getPianoRoll but runs the AX walk off the main thread — refresh notes
+ * without hitching. Resolves to the geometry or null.
+ * @param {string} [target="synthesizer"]
+ * @returns {Promise<null | { canvas: {x,y,w,h}, contentX: number, contentW: number, notes: {x,y,w,h}[] }>}
+ */
+function getPianoRollAsync(target = "synthesizer") {
+  return loadNative().getPianoRollAsync(target)
+}
+
+/**
+ * Cheap read of the viewport (canvas rect + scroll/zoom) from cached elements —
+ * safe to call per-frame. Returns null until getPianoRoll has run, or if the
+ * cached elements went stale (call getPianoRoll again to re-resolve).
+ * @returns {null | { canvas: {x,y,w,h}, contentX: number, contentW: number }}
+ */
+function getViewport() {
+  return loadNative().getViewport()
+}
+
+/**
  * Disable AppKit's automatic show/hide/order animations for a window.
  * @param {Buffer} view result of BrowserWindow.getNativeWindowHandle()
  */
@@ -54,4 +84,4 @@ function disableAnimations(view) {
   loadNative().disableAnimations(view)
 }
 
-module.exports = { start, stop, disableAnimations }
+module.exports = { start, stop, disableAnimations, getPianoRoll, getPianoRollAsync, getViewport }
