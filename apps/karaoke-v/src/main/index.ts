@@ -2,12 +2,13 @@ import path from "node:path"
 import * as macHelper from "@karaoke-v/macos-helper"
 import { app, BrowserWindow } from "electron"
 
-let win: BrowserWindow | null = null
-let pollTimer: ReturnType<typeof setInterval> | null = null
+// The main process only manages the overlay window: it covers the whole SynthV
+// window (tracked event-driven by the native stick observer) and is otherwise
+// inert. All per-frame work — AX reads and drawing — happens in the renderer,
+// which reads the addon directly through the preload bridge. This removes the
+// AX → main → renderer hops (and per-frame setBounds) from the hot path.
 
-// P1: poll the piano-roll geometry and mirror it. A full AX read is ~50ms so we
-// poll modestly for now; the efficient cached reader comes in P2.
-const POLL_MS = 250
+let win: BrowserWindow | null = null
 
 function createWindow(): void {
   win = new BrowserWindow({
@@ -27,10 +28,14 @@ function createWindow(): void {
     webPreferences: {
       preload: path.join(__dirname, "..", "preload", "index.js"),
       contextIsolation: true,
+      // The preload requires the native AX addon.
+      sandbox: false,
+      // The overlay is never focused; without this Electron throttles its
+      // rendering (rAF/timers) as a background window, causing scroll lag.
+      backgroundThrottling: false,
     },
   })
 
-  // Transparent, click-through overlay that floats over the piano roll.
   win.setIgnoreMouseEvents(true, { forward: true })
   win.setAlwaysOnTop(true, "floating")
   if (process.platform === "darwin") {
@@ -47,50 +52,41 @@ function createWindow(): void {
   }
 }
 
-function poll(): void {
-  if (!win || win.isDestroyed()) {
-    return
-  }
-  let pr: macHelper.PianoRoll | null = null
-  if (process.platform === "darwin") {
-    try {
-      pr = macHelper.getPianoRoll("synth")
-    } catch {}
-  }
-  if (!pr) {
-    if (win.isVisible()) {
-      win.hide()
-    }
-    return
-  }
-  const { canvas } = pr
-  win.setBounds(
-    {
-      x: Math.round(canvas.x),
-      y: Math.round(canvas.y),
-      width: Math.round(canvas.w),
-      height: Math.round(canvas.h),
-    },
-    false,
-  )
-  if (!win.isVisible()) {
-    win.showInactive()
-  }
-  win.webContents.send("piano-roll", pr)
-}
-
 app.whenReady().then(() => {
   if (process.platform === "darwin" && app.dock) {
     app.dock.hide()
   }
   createWindow()
-  pollTimer = setInterval(poll, POLL_MS)
+  if (process.platform !== "darwin") {
+    return
+  }
+  macHelper.start({
+    target: "synth",
+    onFrame: (f) => {
+      if (!win || win.isDestroyed()) {
+        return
+      }
+      win.setBounds(
+        { x: Math.round(f.x), y: Math.round(f.y), width: Math.round(f.w), height: Math.round(f.h) },
+        false,
+      )
+      if (!win.isVisible()) {
+        win.showInactive()
+      }
+    },
+    onStatus: (s) => {
+      if (!win || win.isDestroyed()) {
+        return
+      }
+      if (s.state !== "attached" && win.isVisible()) {
+        win.hide()
+      }
+    },
+  })
 })
 
 app.on("before-quit", () => {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-  }
+  macHelper.stop()
 })
 
 app.on("window-all-closed", () => app.quit())
