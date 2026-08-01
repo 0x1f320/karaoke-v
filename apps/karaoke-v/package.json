@@ -7,7 +7,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "rebuild:native": "electron-rebuild -f -o @karaoke-v/macos-helper",
-    "dev": "pnpm rebuild:native && electron-vite dev",
+    "dev": "pnpm rebuild:native && electron-vite dev --watch",
     "build": "electron-vite build",
     "start": "pnpm rebuild:native && electron ."
   },
