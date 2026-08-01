@@ -1,30 +1,14 @@
-import { css, Global } from "@emotion/react";
-import styled from "@emotion/styled";
-
-const globalStyles = css`
-  html,
-  body,
-  #root {
-    margin: 0;
-    height: 100%;
-  }
-
-  #root {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-`;
-
-const Title = styled.h1`
-  font-family: system-ui, sans-serif;
-`;
-
 export function App() {
   return (
-    <>
-      <Global styles={globalStyles} />
-      <Title>Hello World</Title>
-    </>
+    <div className="flex h-full flex-col">
+      {/* Full-width draggable title bar. Native window controls (macOS traffic
+          lights / Windows overlay) float over their corners and stay clickable. */}
+      <header className="app-drag relative h-10 flex-none select-none">
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[13px] font-medium text-neutral-300">
+          karaoke-v
+        </span>
+      </header>
+      <main className="flex flex-1 items-center justify-center">Hello World</main>
+    </div>
   );
 }
