@@ -43,7 +43,7 @@ jobs:
         run: pnpm build
 
   macos-native:
-    name: macOS native addon
+    name: macOS Native Addon
     runs-on: macos-latest
     steps:
       - name: Checkout
