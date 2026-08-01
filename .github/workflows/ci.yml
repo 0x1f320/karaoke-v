@@ -12,6 +12,7 @@ concurrency:
 
 jobs:
   ci:
+    name: Checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
