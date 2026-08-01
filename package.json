@@ -1,0 +1,28 @@
+{
+  "name": "karaoke-v",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Electron + React app (hello world), Turborepo + pnpm workspace.",
+  "packageManager": "pnpm@10.15.0",
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "dev": "turbo run dev --filter @karaoke-v/app",
+    "lint": "biome lint .",
+    "check": "biome check .",
+    "format": "biome format --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.5",
+    "turbo": "^2.5.0",
+    "typescript": "^5.6.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@swc/core",
+      "esbuild",
+      "electron"
+    ]
+  }
+}
