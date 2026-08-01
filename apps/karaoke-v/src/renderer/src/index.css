@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+@theme {
+  --color-app: #2d2b2e;
+  --color-titlebar: #1c1a1c;
+  --color-fg: #e6e6e6;
+  /* Secondary text: the title bar's label, setting descriptions, inactive nav. */
+  --color-muted: #a39da6;
+  --color-border: #3a373b;
+  /* Same blue the overlay draws its notes in. */
+  --color-accent: #50b4ff;
+  /* Tailwind's scale bottoms out at text-xs (12px); the 24px title bar wants
+     smaller. */
+  --text-2xs: 0.625rem;
+}
+
 @layer base {
   html,
   body,
@@ -8,9 +22,32 @@
     margin: 0;
   }
 
-  /* Transparent — this is a click-through overlay over SynthV's piano roll. */
+  /* Transparent for the click-through overlay window; the toolbar window
+     paints its own bg-app background on its root element. */
   body {
     background: transparent;
     overflow: hidden;
+  }
+
+  /* Tailwind's preflight resets buttons to cursor: default. Anything clickable
+     in this app gets the pointer instead — including labels that wrap a
+     control, which is how Switch is built. */
+  button,
+  select,
+  summary,
+  [role="button"],
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="color"],
+  input[type="range"],
+  input[type="file"],
+  label:has(input:not(:disabled)) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled,
+  input:disabled {
+    cursor: default;
   }
 }
