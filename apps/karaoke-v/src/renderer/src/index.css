@@ -1,9 +1,5 @@
 @import "tailwindcss";
 
-@theme {
-  --color-app: #2d2b2e;
-}
-
 @layer base {
   html,
   body,
@@ -12,10 +8,9 @@
     margin: 0;
   }
 
+  /* Transparent — this is a click-through overlay over SynthV's piano roll. */
   body {
-    background-color: var(--color-app);
-    color: #e6e6e6;
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    -webkit-font-smoothing: antialiased;
+    background: transparent;
+    overflow: hidden;
   }
 }

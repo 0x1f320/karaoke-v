@@ -1,78 +1,96 @@
 import path from "node:path"
+import * as macHelper from "@karaoke-v/macos-helper"
 import { app, BrowserWindow } from "electron"
-import { disableWindowAnimations, type StickStatus, startStick } from "./stick"
 
 let win: BrowserWindow | null = null
-let stopStick: (() => void) | null = null
-let lastStatus: StickStatus = { state: "waiting" }
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
-const BACKGROUND = "#2D2B2E"
-const WINDOW = { width: 72, height: 600 }
+// P1: poll the piano-roll geometry and mirror it. A full AX read is ~50ms so we
+// poll modestly for now; the efficient cached reader comes in P2.
+const POLL_MS = 250
 
 function createWindow(): void {
   win = new BrowserWindow({
-    width: WINDOW.width,
-    height: WINDOW.height,
-    backgroundColor: BACKGROUND,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    // Fully frameless: no system title bar and no window controls (macOS traffic
-    // lights included). The panel is a narrow strip stuck to the target window.
+    width: 800,
+    height: 400,
+    show: false,
+    transparent: true,
     frame: false,
-    // Square corners — macOS rounds frameless windows by default.
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    focusable: false,
+    skipTaskbar: true,
+    fullscreenable: false,
     roundedCorners: false,
-    // Float above normal windows so a focused window (and its shadow) can't
-    // cover the panel; showInactive keeps it from stealing focus.
-    alwaysOnTop: true,
+    backgroundColor: "#00000000",
     webPreferences: {
       preload: path.join(__dirname, "..", "preload", "index.js"),
       contextIsolation: true,
     },
   })
 
-  // "floating" level sits just above ordinary windows — enough to clear a
-  // focused window's shadow without jumping over system UI.
+  // Transparent, click-through overlay that floats over the piano roll.
+  win.setIgnoreMouseEvents(true, { forward: true })
   win.setAlwaysOnTop(true, "floating")
-
-  // No fade when the panel is shown/hidden on occlusion.
-  disableWindowAnimations(win)
-
-  const sendStatus = (): void => {
-    if (win && !win.isDestroyed()) {
-      win.webContents.send("stick-status", lastStatus)
-    }
+  if (process.platform === "darwin") {
+    try {
+      macHelper.disableAnimations(win.getNativeWindowHandle())
+    } catch {}
   }
-  win.webContents.on("did-finish-load", sendStatus)
-
-  stopStick = startStick(win, WINDOW, (status) => {
-    lastStatus = status
-    sendStatus()
-  })
 
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
+    win.webContents.openDevTools({ mode: "detach" })
   } else {
     win.loadFile(path.join(__dirname, "..", "renderer", "index.html"))
   }
 }
 
-app.whenReady().then(() => {
-  createWindow()
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+function poll(): void {
+  if (!win || win.isDestroyed()) {
+    return
+  }
+  let pr: macHelper.PianoRoll | null = null
+  if (process.platform === "darwin") {
+    try {
+      pr = macHelper.getPianoRoll("synth")
+    } catch {}
+  }
+  if (!pr) {
+    if (win.isVisible()) {
+      win.hide()
     }
-  })
+    return
+  }
+  const { canvas } = pr
+  win.setBounds(
+    {
+      x: Math.round(canvas.x),
+      y: Math.round(canvas.y),
+      width: Math.round(canvas.w),
+      height: Math.round(canvas.h),
+    },
+    false,
+  )
+  if (!win.isVisible()) {
+    win.showInactive()
+  }
+  win.webContents.send("piano-roll", pr)
+}
+
+app.whenReady().then(() => {
+  if (process.platform === "darwin" && app.dock) {
+    app.dock.hide()
+  }
+  createWindow()
+  pollTimer = setInterval(poll, POLL_MS)
 })
 
 app.on("before-quit", () => {
-  stopStick?.()
-})
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit()
+  if (pollTimer) {
+    clearInterval(pollTimer)
   }
 })
+
+app.on("window-all-closed", () => app.quit())

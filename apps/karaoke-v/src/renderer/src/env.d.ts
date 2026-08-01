@@ -1,9 +1,9 @@
-import type { StickStatus } from "../../shared/stick-status"
+import type { PianoRoll } from "@karaoke-v/macos-helper"
 
 declare global {
   interface Window {
-    stick: {
-      onStatus(callback: (status: StickStatus) => void): void
+    overlay: {
+      onPianoRoll(callback: (frame: PianoRoll) => void): void
     }
   }
 }

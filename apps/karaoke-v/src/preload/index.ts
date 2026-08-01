@@ -1,8 +1,8 @@
+import type { PianoRoll } from "@karaoke-v/macos-helper"
 import { contextBridge, ipcRenderer } from "electron"
-import type { StickStatus } from "../shared/stick-status"
 
-contextBridge.exposeInMainWorld("stick", {
-  onStatus: (callback: (status: StickStatus) => void) => {
-    ipcRenderer.on("stick-status", (_event, status: StickStatus) => callback(status))
+contextBridge.exposeInMainWorld("overlay", {
+  onPianoRoll: (callback: (frame: PianoRoll) => void) => {
+    ipcRenderer.on("piano-roll", (_event, frame: PianoRoll) => callback(frame))
   },
 })
