@@ -47,6 +47,16 @@ function stop() {
 }
 
 /**
+ * One-shot read of the target's piano-roll geometry (global screen points).
+ * A full AX walk is ~50ms — poll modestly, not per-frame.
+ * @param {string} [target="synthesizer"] case-insensitive substring of the app name
+ * @returns {null | { canvas: {x,y,w,h}, contentX: number, contentW: number, notes: {x,y,w,h}[] }}
+ */
+function getPianoRoll(target = "synthesizer") {
+  return loadNative().getPianoRoll(target)
+}
+
+/**
  * Disable AppKit's automatic show/hide/order animations for a window.
  * @param {Buffer} view result of BrowserWindow.getNativeWindowHandle()
  */
@@ -54,4 +64,4 @@ function disableAnimations(view) {
   loadNative().disableAnimations(view)
 }
 
-module.exports = { start, stop, disableAnimations }
+module.exports = { start, stop, disableAnimations, getPianoRoll }
