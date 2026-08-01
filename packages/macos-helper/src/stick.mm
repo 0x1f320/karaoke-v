@@ -14,7 +14,9 @@
 #import <ApplicationServices/ApplicationServices.h>
 #import <napi.h>
 #import <string>
-#import <vector>
+
+#import "ax.h"
+#import "pianoroll.h"
 
 namespace {
 
@@ -96,25 +98,6 @@ NSRunningApplication *findApp() {
     }
   }
   return nil;
-}
-
-bool axFrame(AXUIElementRef el, CGRect *out) {
-  CFTypeRef posVal = nullptr;
-  CFTypeRef sizeVal = nullptr;
-  if (AXUIElementCopyAttributeValue(el, kAXPositionAttribute, &posVal) != kAXErrorSuccess ||
-      AXUIElementCopyAttributeValue(el, kAXSizeAttribute, &sizeVal) != kAXErrorSuccess) {
-    if (posVal) CFRelease(posVal);
-    if (sizeVal) CFRelease(sizeVal);
-    return false;
-  }
-  CGPoint p = CGPointZero;
-  CGSize s = CGSizeZero;
-  AXValueGetValue((AXValueRef)posVal, kAXValueTypeCGPoint, &p);
-  AXValueGetValue((AXValueRef)sizeVal, kAXValueTypeCGSize, &s);
-  CFRelease(posVal);
-  CFRelease(sizeVal);
-  *out = CGRectMake(p.x, p.y, s.width, s.height);
-  return true;
 }
 
 AXUIElementRef copyCurrentWindow() {
@@ -443,151 +426,11 @@ Napi::Value DisableAnimations(const Napi::CallbackInfo &info) {
   return env.Undefined();
 }
 
-// ---------- Piano-roll reader (one-shot AX snapshot for the overlay) ----------
-// Walks the target's AX tree once and returns the piano-roll geometry: the
-// visible canvas rect, the content group's scroll offset (contentX) + total
-// width (contentW, the zoom scale), and the visible note rects — all in global
-// screen points. A full walk is ~50ms so callers should poll modestly, not 60fps.
-
-NSString *prRole(AXUIElementRef el) {
-  CFTypeRef v = nullptr;
-  if (AXUIElementCopyAttributeValue(el, kAXRoleAttribute, &v) == kAXErrorSuccess && v) {
-    if (CFGetTypeID(v) == CFStringGetTypeID()) {
-      return (__bridge_transfer NSString *)v;
-    }
-    CFRelease(v);
-  }
-  return @"";
-}
-
-struct PianoRoll {
-  CGRect content = CGRectZero;  // widest AXGroup = scrollable content
-  CGFloat contentArea = 0;
-  CGRect hbar = CGRectNull;  // horizontal scrollbar (lowest)
-  CGRect vbar = CGRectNull;  // vertical scrollbar (rightmost)
-  std::vector<CGRect> notes;
-};
-
-void prWalk(AXUIElementRef el, int depth, PianoRoll &d) {
-  if (depth > 30) {
-    return;
-  }
-  NSString *role = prRole(el);
-  CGRect f;
-  if (axFrame(el, &f)) {
-    CGFloat area = f.size.width * f.size.height;
-    if ([role isEqualToString:@"AXGroup"] && area > d.contentArea) {
-      d.contentArea = area;
-      d.content = f;
-    }
-    if ([role isEqualToString:@"AXScrollBar"]) {
-      if (f.size.width > f.size.height) {
-        if (CGRectIsNull(d.hbar) || f.origin.y > d.hbar.origin.y) d.hbar = f;
-      } else if (CGRectIsNull(d.vbar) || f.origin.x > d.vbar.origin.x) {
-        d.vbar = f;
-      }
-    }
-    // Note-shaped groups (one lane tall). Collect loosely here; filter to the
-    // canvas rect below so left-edge / short notes aren't dropped by hardcoded bounds.
-    if ([role isEqualToString:@"AXGroup"] && f.size.height >= 20 && f.size.height <= 28 &&
-        f.size.width >= 4 && f.origin.y > 400) {
-      d.notes.push_back(f);
-    }
-  }
-  CFTypeRef ch = nullptr;
-  if (AXUIElementCopyAttributeValue(el, kAXChildrenAttribute, &ch) == kAXErrorSuccess && ch) {
-    NSArray *arr = (__bridge_transfer NSArray *)ch;
-    for (id c in arr) {
-      prWalk((__bridge AXUIElementRef)c, depth + 1, d);
-    }
-  }
-}
-
-Napi::Value GetPianoRoll(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
-  std::string needle = (info.Length() > 0 && info[0].IsString())
-                           ? info[0].As<Napi::String>().Utf8Value()
-                           : "synthesizer";
-  NSString *n = [NSString stringWithUTF8String:needle.c_str()].lowercaseString;
-  NSRunningApplication *app = nil;
-  for (NSRunningApplication *a in NSWorkspace.sharedWorkspace.runningApplications) {
-    if (a.activationPolicy != NSApplicationActivationPolicyRegular) continue;
-    if ([(a.localizedName ?: @"").lowercaseString containsString:n]) {
-      app = a;
-      break;
-    }
-  }
-  if (!app) return env.Null();
-
-  AXUIElementRef axApp = AXUIElementCreateApplication(app.processIdentifier);
-  PianoRoll d;
-  prWalk(axApp, 0, d);
-  CFRelease(axApp);
-  if (d.contentArea == 0 || CGRectIsNull(d.hbar) || CGRectIsNull(d.vbar)) {
-    return env.Null();
-  }
-
-  double cx = d.hbar.origin.x;                  // visible left
-  double cy = d.content.origin.y;               // note-area top
-  double cw = d.vbar.origin.x - cx;             // to the vertical scrollbar
-  double chh = d.hbar.origin.y - cy;            // to the horizontal scrollbar
-
-  auto num = [&](double v) { return Napi::Number::New(env, v); };
-  Napi::Object out = Napi::Object::New(env);
-  Napi::Object canvas = Napi::Object::New(env);
-  canvas.Set("x", num(cx));
-  canvas.Set("y", num(cy));
-  canvas.Set("w", num(cw));
-  canvas.Set("h", num(chh));
-  out.Set("canvas", canvas);
-  out.Set("contentX", num(d.content.origin.x));
-  out.Set("contentW", num(d.content.size.width));
-  // Keep note groups within the piano-roll canvas (intersect horizontally so
-  // partially-scrolled-off notes still count; sit in the canvas' vertical band).
-  // Require ~full lane height to drop odd short header elements.
-  std::vector<CGRect> inCanvas;
-  for (const CGRect &r : d.notes) {
-    if (r.size.height < 22) continue;
-    if (r.origin.x + r.size.width > cx && r.origin.x < cx + cw && r.origin.y >= cy - 2 &&
-        r.origin.y < cy + chh) {
-      inCanvas.push_back(r);
-    }
-  }
-  // Each note renders as two stacked boxes at the same x/w: a phoneme box above
-  // and the note body below. Keep the body = the box that has no twin directly
-  // below it (its own height down); that drops the phoneme boxes.
-  std::vector<CGRect> visible;
-  for (const CGRect &r : inCanvas) {
-    bool twinBelow = false;
-    for (const CGRect &o : inCanvas) {
-      if (fabs(o.origin.x - r.origin.x) < 2 && fabs(o.size.width - r.size.width) < 2 &&
-          fabs(o.origin.y - (r.origin.y + r.size.height)) < 4) {
-        twinBelow = true;
-        break;
-      }
-    }
-    if (!twinBelow) {
-      visible.push_back(r);
-    }
-  }
-  Napi::Array notes = Napi::Array::New(env, visible.size());
-  for (size_t i = 0; i < visible.size(); i++) {
-    Napi::Object no = Napi::Object::New(env);
-    no.Set("x", num(visible[i].origin.x));
-    no.Set("y", num(visible[i].origin.y));
-    no.Set("w", num(visible[i].size.width));
-    no.Set("h", num(visible[i].size.height));
-    notes[i] = no;
-  }
-  out.Set("notes", notes);
-  return out;
-}
-
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("start", Napi::Function::New(env, Start));
   exports.Set("stop", Napi::Function::New(env, Stop));
   exports.Set("disableAnimations", Napi::Function::New(env, DisableAnimations));
-  exports.Set("getPianoRoll", Napi::Function::New(env, GetPianoRoll));
+  RegisterPianoRoll(env, exports);
   return exports;
 }
 
