@@ -1,14 +1,13 @@
 import path from "node:path"
 import { app, BrowserWindow } from "electron"
-import { type StickStatus, startStick } from "./stick"
+import { disableWindowAnimations, type StickStatus, startStick } from "./stick"
 
 let win: BrowserWindow | null = null
 let stopStick: (() => void) | null = null
 let lastStatus: StickStatus = { state: "waiting" }
 
 const BACKGROUND = "#2D2B2E"
-const TITLE_BAR_HEIGHT = 40
-const WINDOW = { width: 300, height: 600 }
+const WINDOW = { width: 72, height: 600 }
 
 function createWindow(): void {
   win = new BrowserWindow({
@@ -16,25 +15,29 @@ function createWindow(): void {
     height: WINDOW.height,
     backgroundColor: BACKGROUND,
     resizable: false,
-    // Drop the minimize/maximize (zoom) buttons — only close remains. On macOS the
-    // native traffic lights can't be removed individually, so these grey them out.
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
-    // Frameless look, but keep the native window controls:
-    // macOS shows the traffic lights; Windows/Linux draw controls via titleBarOverlay.
-    titleBarStyle: "hidden",
-    titleBarOverlay: {
-      color: BACKGROUND,
-      symbolColor: "#e6e6e6",
-      height: TITLE_BAR_HEIGHT,
-    },
-    trafficLightPosition: { x: 14, y: (TITLE_BAR_HEIGHT - 16) / 2 },
+    // Fully frameless: no system title bar and no window controls (macOS traffic
+    // lights included). The panel is a narrow strip stuck to the target window.
+    frame: false,
+    // Square corners — macOS rounds frameless windows by default.
+    roundedCorners: false,
+    // Float above normal windows so a focused window (and its shadow) can't
+    // cover the panel; showInactive keeps it from stealing focus.
+    alwaysOnTop: true,
     webPreferences: {
       preload: path.join(__dirname, "..", "preload", "index.js"),
       contextIsolation: true,
     },
   })
+
+  // "floating" level sits just above ordinary windows — enough to clear a
+  // focused window's shadow without jumping over system UI.
+  win.setAlwaysOnTop(true, "floating")
+
+  // No fade when the panel is shown/hidden on occlusion.
+  disableWindowAnimations(win)
 
   const sendStatus = (): void => {
     if (win && !win.isDestroyed()) {
