@@ -1,10 +1,10 @@
-import path from "node:path";
-import { app, BrowserWindow } from "electron";
+import path from "node:path"
+import { app, BrowserWindow } from "electron"
 
-let win: BrowserWindow | null = null;
+let win: BrowserWindow | null = null
 
-const BACKGROUND = "#2D2B2E";
-const TITLE_BAR_HEIGHT = 40;
+const BACKGROUND = "#2D2B2E"
+const TITLE_BAR_HEIGHT = 40
 
 function createWindow(): void {
   win = new BrowserWindow({
@@ -30,26 +30,26 @@ function createWindow(): void {
       preload: path.join(__dirname, "..", "preload", "index.js"),
       contextIsolation: true,
     },
-  });
+  })
 
   if (process.env.ELECTRON_RENDERER_URL) {
-    win.loadURL(process.env.ELECTRON_RENDERER_URL);
+    win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
-    win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
+    win.loadFile(path.join(__dirname, "..", "renderer", "index.html"))
   }
 }
 
 app.whenReady().then(() => {
-  createWindow();
+  createWindow()
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+      createWindow()
     }
-  });
-});
+  })
+})
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
-    app.quit();
+    app.quit()
   }
-});
+})
