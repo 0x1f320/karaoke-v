@@ -2,6 +2,7 @@ import type { PianoRoll } from "@karaoke-v/macos-helper"
 import { useEffect, useRef } from "react"
 import { Settings } from "./components/Settings"
 import { Toolbar } from "./components/Toolbar"
+import { NoteRenderer, type Rgba } from "./render/noteRenderer"
 
 // Interval between full note reads. Note positions are corrected per-frame from
 // the viewport read, so this only bounds how stale the note SET can be (edits,
@@ -9,6 +10,10 @@ import { Toolbar } from "./components/Toolbar"
 const NOTE_READ_GAP_MS = 30
 // Back-off when SynthV / the piano roll isn't found.
 const NOT_FOUND_RETRY_MS = 500
+
+const FILL: Rgba = [80 / 255, 180 / 255, 255 / 255, 0.25]
+const STROKE: Rgba = [120 / 255, 210 / 255, 255 / 255, 0.9]
+const BORDER_PX = 1
 
 // One renderer bundle serves every window; each is loaded with the hash naming
 // its view, the overlay with no hash.
@@ -28,10 +33,10 @@ function Overlay() {
 
   useEffect(() => {
     const canvas = canvasRef.current
-    const ctx = canvas?.getContext("2d")
-    if (!canvas || !ctx) {
+    if (!canvas) {
       return
     }
+    const renderer = new NoteRenderer(canvas)
 
     // Latest accepted full read. Notes are absolute screen coords as of read
     // time; the draw loop shifts them by how far scroll has moved since —
@@ -73,36 +78,50 @@ function Overlay() {
     pump()
 
     let raf = 0
+    // The note set only reaches the GPU when the pump accepts a new read; every
+    // other frame is one transform update and a re-render.
+    let uploaded: PianoRoll | null = null
     const draw = () => {
       raf = requestAnimationFrame(draw)
       const dpr = window.devicePixelRatio || 1
       const w = window.innerWidth
       const h = window.innerHeight
-      if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
-        canvas.width = Math.floor(w * dpr)
-        canvas.height = Math.floor(h * dpr)
-      }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      ctx.clearRect(0, 0, w, h)
 
-      // Boxes are all this draws for now, so with debug off the cleared canvas
-      // is the whole frame.
-      if (!debug) {
-        return
-      }
-
-      // Atomic cheap read at paint time — position data is as fresh as possible.
-      const vp = window.overlay.getViewport()
-      if (!vp || !read) {
-        return
-      }
+      // Boxes are all this draws for now, so with debug off there is nothing to
+      // position and the AX read is skipped entirely.
+      // Otherwise: atomic cheap read at paint time, so position data is as fresh
+      // as possible.
+      const vp = debug ? window.overlay.getViewport() : null
 
       // Scroll movement since the accepted read, in exact pixels. Without a live
       // vertical reference the y position is unknowable — draw nothing rather
       // than notes one lane off (the pump restores the reference within ~50ms).
-      if (vp.refY === undefined) {
+      // Unlike a 2D context, the scene persists until it is re-rendered, so this
+      // still has to render an empty frame to clear what was drawn last.
+      if (!vp || !read || vp.refY === undefined) {
+        if (uploaded) {
+          renderer.clear()
+          uploaded = null
+        }
+        renderer.draw({
+          width: w,
+          height: h,
+          dpr,
+          offsetX: 0,
+          offsetY: 0,
+          clip: { x: 0, y: 0, w: 0, h: 0 },
+          fill: FILL,
+          stroke: STROKE,
+          border: BORDER_PX,
+        })
         return
       }
+
+      if (uploaded !== read) {
+        renderer.setNotes(read.notes)
+        uploaded = read
+      }
+
       const dx = vp.contentX - read.contentX
       const dy = vp.refY - read.refY
 
@@ -111,23 +130,17 @@ function Overlay() {
       // over the phoneme lane, piano keys, or toolbars.
       const ox = window.screenX
       const oy = window.screenY
-      const cx = vp.canvas.x - ox
-      const cy = vp.canvas.y - oy
-      ctx.save()
-      ctx.beginPath()
-      ctx.rect(cx, cy, vp.canvas.w, vp.canvas.h)
-      ctx.clip()
-
-      ctx.fillStyle = "rgba(80, 180, 255, 0.25)"
-      ctx.strokeStyle = "rgba(120, 210, 255, 0.9)"
-      ctx.lineWidth = 1
-      for (const n of read.notes) {
-        const x = n.x + dx - ox
-        const y = n.y + dy - oy
-        ctx.fillRect(x, y, n.w, n.h)
-        ctx.strokeRect(x + 0.5, y + 0.5, n.w - 1, n.h - 1)
-      }
-      ctx.restore()
+      renderer.draw({
+        width: w,
+        height: h,
+        dpr,
+        offsetX: dx - ox,
+        offsetY: dy - oy,
+        clip: { x: vp.canvas.x - ox, y: vp.canvas.y - oy, w: vp.canvas.w, h: vp.canvas.h },
+        fill: FILL,
+        stroke: STROKE,
+        border: BORDER_PX,
+      })
     }
     raf = requestAnimationFrame(draw)
 
@@ -135,6 +148,7 @@ function Overlay() {
       alive = false
       cancelAnimationFrame(raf)
       unsubscribe()
+      renderer.dispose()
     }
   }, [])
 
