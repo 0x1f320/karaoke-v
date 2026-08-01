@@ -1,12 +1,14 @@
 // Native macOS addon: tracks a target app's main window in-process and emits its
 // screen frame so the JS side can stick an Electron window to it.
 //
-// An AXObserver (or a CGWindowList poll fallback when Accessibility isn't
-// granted) fires as the target moves; we forward the target's frame — top-left
-// origin, global points, exactly what Electron's win.setBounds() expects — over
-// a thread-safe function. No child process, no pipe. Positioning is left to
-// Electron so multi-monitor display mapping stays correct. Status changes
-// (attached / waiting / hidden / permission) are forwarded on a second callback.
+// An AXObserver (or a CGWindowList poll when Accessibility isn't granted) drives
+// smooth position updates; a CGWindowList pass gates visibility — the target is
+// "visible" only when it's on-screen (not minimized / on another Space) and not
+// significantly covered by a window in front. When it isn't visible we emit
+// HIDE so the panel gets hidden instead of floating over nothing.
+//
+// Frames are top-left origin, global points — exactly what Electron's
+// win.setBounds() expects. No child process, no pipe.
 
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
@@ -14,6 +16,9 @@
 #import <string>
 
 namespace {
+
+// Fraction of the target that must be covered by front windows to count as hidden.
+constexpr CGFloat kOcclusionThreshold = 0.15;
 
 Napi::ThreadSafeFunction gFrameFn;
 Napi::ThreadSafeFunction gStatusFn;
@@ -23,6 +28,7 @@ AXUIElementRef gWinEl = nullptr;
 pid_t gPid = 0;
 NSString *gNeedle = nil;
 bool gTrusted = false;
+bool gVisible = false;
 CFRunLoopTimerRef gTimer = nullptr;
 std::string gLastKey;
 CGRect gLastFrame = CGRectNull;
@@ -68,6 +74,14 @@ void emitStatus(const std::string &state, const std::string &mode) {
       delete d;
     });
   }
+}
+
+// Force the next visible frame to re-emit even if the coordinates are unchanged
+// (e.g. after unhiding), so the renderer's window is repositioned + shown.
+void markHidden(const std::string &state) {
+  gVisible = false;
+  gLastFrame = CGRectNull;
+  emitStatus(state, "");
 }
 
 NSRunningApplication *findApp() {
@@ -127,68 +141,109 @@ AXUIElementRef copyCurrentWindow() {
   return nullptr;
 }
 
-bool pollTargetFrame(CGRect *out) {
+CGRect boundsOf(NSDictionary *entry) {
+  CFDictionaryRef bd = (__bridge CFDictionaryRef)entry[(__bridge NSString *)kCGWindowBounds];
+  CGRect r = CGRectNull;
+  if (bd) {
+    CGRectMakeWithDictionaryRepresentation(bd, &r);
+  }
+  return r;
+}
+
+int layerOf(NSDictionary *entry) {
+  NSNumber *layer = entry[(__bridge NSString *)kCGWindowLayer];
+  return layer ? layer.intValue : -1;
+}
+
+pid_t pidOf(NSDictionary *entry) {
+  NSNumber *pid = entry[(__bridge NSString *)kCGWindowOwnerPID];
+  return pid ? (pid_t)pid.intValue : 0;
+}
+
+// Is the target on-screen and not significantly covered? Fills *out with its
+// CGWindowList frame. On-screen windows are ordered front-to-back.
+bool evaluateVisibility(CGRect *out) {
+  pid_t myPid = (pid_t)NSProcessInfo.processInfo.processIdentifier;
   CGWindowListOption opts = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
   CFArrayRef list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID);
   if (!list) {
     return false;
   }
-  bool found = false;
-  CGFloat bestArea = 0;
   CFIndex count = CFArrayGetCount(list);
+
+  CFIndex targetIdx = -1;
+  CGRect targetBounds = CGRectZero;
+  CGFloat bestArea = 0;
   for (CFIndex i = 0; i < count; i++) {
     NSDictionary *e = (__bridge NSDictionary *)(CFDictionaryRef)CFArrayGetValueAtIndex(list, i);
-    NSNumber *pid = e[(__bridge NSString *)kCGWindowOwnerPID];
-    if (!pid || pid.intValue != gPid) {
+    if (pidOf(e) != gPid || layerOf(e) != 0) {
       continue;
     }
-    NSNumber *layer = e[(__bridge NSString *)kCGWindowLayer];
-    if (!layer || layer.intValue != 0) {
-      continue;
-    }
-    CFDictionaryRef boundsDict = (__bridge CFDictionaryRef)e[(__bridge NSString *)kCGWindowBounds];
-    CGRect r;
-    if (!boundsDict || !CGRectMakeWithDictionaryRepresentation(boundsDict, &r)) {
-      continue;
-    }
+    CGRect r = boundsOf(e);
     CGFloat area = r.size.width * r.size.height;
     if (area > bestArea) {
       bestArea = area;
-      *out = r;
-      found = true;
+      targetBounds = r;
+      targetIdx = i;
+    }
+  }
+  if (targetIdx < 0) {
+    CFRelease(list);  // minimized / another Space / off-screen
+    return false;
+  }
+
+  const CGFloat total = targetBounds.size.width * targetBounds.size.height;
+  CGFloat covered = 0;
+  for (CFIndex i = 0; i < targetIdx; i++) {  // windows in front of the target
+    NSDictionary *e = (__bridge NSDictionary *)(CFDictionaryRef)CFArrayGetValueAtIndex(list, i);
+    pid_t pid = pidOf(e);
+    if (pid == gPid || pid == myPid || layerOf(e) != 0) {
+      continue;  // skip the target's own windows and our panel
+    }
+    CGRect inter = CGRectIntersection(boundsOf(e), targetBounds);
+    if (!CGRectIsNull(inter)) {
+      covered += inter.size.width * inter.size.height;
     }
   }
   CFRelease(list);
-  return found;
+
+  *out = targetBounds;
+  return total <= 0 || (covered / total) <= kOcclusionThreshold;
 }
 
-void pushFrame() {
+// Full visibility + position pass. Emits a frame (attached) when the target is
+// visible, otherwise HIDE / WAIT.
+void reevaluate() {
   NSRunningApplication *app =
       gPid ? [NSRunningApplication runningApplicationWithProcessIdentifier:gPid] : nil;
   if (!app || app.terminated) {
-    emitStatus("waiting", "");
+    markHidden("waiting");
     return;
   }
   if (app.hidden) {
-    emitStatus("hidden", "");
+    markHidden("hidden");
     return;
   }
-  CGRect target;
-  bool ok = false;
+
+  CGRect frame;
+  if (!evaluateVisibility(&frame)) {
+    markHidden("hidden");
+    return;
+  }
+  gVisible = true;
+
+  // Prefer the AX frame for precision; fall back to the CGWindowList bounds.
   if (gTrusted) {
     if (!gWinEl) {
       gWinEl = copyCurrentWindow();
     }
-    ok = gWinEl && axFrame(gWinEl, &target);
-  } else {
-    ok = pollTargetFrame(&target);
+    CGRect axf;
+    if (gWinEl && axFrame(gWinEl, &axf)) {
+      frame = axf;
+    }
   }
-  if (ok) {
-    emitFrame(target);
-    emitStatus("attached", gTrusted ? "ax" : "poll");
-  } else {
-    emitStatus("hidden", "");
-  }
+  emitFrame(frame);
+  emitStatus("attached", gTrusted ? "ax" : "poll");
 }
 
 void teardownObserver() {
@@ -225,21 +280,26 @@ void rebindWindow() {
 
 void observerCallback(AXObserverRef, AXUIElementRef element, CFStringRef notification, void *) {
   if (CFEqual(notification, kAXWindowMiniaturizedNotification)) {
-    emitStatus("hidden", "");
+    markHidden("hidden");
     return;
   }
   if (CFEqual(notification, kAXWindowDeminiaturizedNotification)) {
-    pushFrame();
+    reevaluate();
     return;
   }
   if (CFEqual(notification, kAXUIElementDestroyedNotification) ||
       CFEqual(notification, kAXFocusedWindowChangedNotification) ||
       CFEqual(notification, kAXMainWindowChangedNotification)) {
     rebindWindow();
-    pushFrame();
+    reevaluate();
     return;
   }
-  CGRect r;  // moved / resized
+  // moved / resized — only follow while the target is visible (occlusion is
+  // gated by the timer's reevaluate()).
+  if (!gVisible) {
+    return;
+  }
+  CGRect r;
   if (axFrame(element, &r)) {
     emitFrame(r);
     emitStatus("attached", "ax");
@@ -266,6 +326,7 @@ void clearTarget() {
     gAppEl = nullptr;
   }
   gPid = 0;
+  gVisible = false;
   gLastFrame = CGRectNull;
 }
 
@@ -284,7 +345,7 @@ void resolve() {
       bindObserver();
     }
   }
-  pushFrame();
+  reevaluate();
 }
 
 void timerCallback(CFRunLoopTimerRef, void *) {
@@ -298,7 +359,7 @@ void timerCallback(CFRunLoopTimerRef, void *) {
     emitStatus("waiting", "");
     return;
   }
-  pushFrame();  // poll driver when untrusted; safety re-sync when trusted
+  reevaluate();  // occlusion + visibility pass (and position resync)
 }
 
 void stopTracking() {
@@ -347,7 +408,9 @@ Napi::Value Start(const Napi::CallbackInfo &info) {
 
   resolve();
 
-  CFTimeInterval interval = gTrusted ? 0.25 : 1.0 / 60.0;
+  // AX mode: 10Hz occlusion/visibility check (AX events drive smooth position).
+  // Poll mode: 60Hz drives everything.
+  CFTimeInterval interval = gTrusted ? 0.1 : 1.0 / 60.0;
   CFRunLoopTimerContext ctx = {0, nullptr, nullptr, nullptr, nullptr};
   gTimer = CFRunLoopTimerCreate(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + interval, interval,
                                 0, 0, timerCallback, &ctx);
@@ -360,9 +423,29 @@ Napi::Value Stop(const Napi::CallbackInfo &info) {
   return info.Env().Undefined();
 }
 
+// Turn off AppKit's automatic window animations (the fade on show/hide/order)
+// for the given window, so the panel appears and disappears instantly.
+Napi::Value DisableAnimations(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsBuffer()) {
+    Napi::TypeError::New(env, "disableAnimations(viewHandle) requires a Buffer")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  Napi::Buffer<uint8_t> viewBuf = info[0].As<Napi::Buffer<uint8_t>>();
+  void **handle = reinterpret_cast<void **>(viewBuf.Data());
+  NSView *view = (__bridge NSView *)(*handle);
+  NSWindow *win = view.window;
+  if (win) {
+    win.animationBehavior = NSWindowAnimationBehaviorNone;
+  }
+  return env.Undefined();
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("start", Napi::Function::New(env, Start));
   exports.Set("stop", Napi::Function::New(env, Stop));
+  exports.Set("disableAnimations", Napi::Function::New(env, DisableAnimations));
   return exports;
 }
 

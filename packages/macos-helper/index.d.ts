@@ -25,3 +25,5 @@ export interface StartOptions {
 export function start(options: StartOptions): void
 /** Stop tracking and release resources. */
 export function stop(): void
+/** Disable AppKit's automatic show/hide/order animations for a window. */
+export function disableAnimations(view: Buffer): void

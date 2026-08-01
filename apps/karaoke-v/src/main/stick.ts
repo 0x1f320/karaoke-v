@@ -4,8 +4,18 @@ import type { StickStatus } from "../shared/stick-status"
 
 export type { StickStatus }
 
+// Turn off the macOS fade when the window is shown/hidden (e.g. on occlusion).
+export function disableWindowAnimations(win: BrowserWindow): void {
+  if (process.platform !== "darwin") {
+    return
+  }
+  try {
+    macHelper.disableAnimations(win.getNativeWindowHandle())
+  } catch {}
+}
+
 // Gap between the target window's edge and our panel, in points.
-const GAP = 0
+const GAP = 8
 
 type Side = "right" | "left"
 

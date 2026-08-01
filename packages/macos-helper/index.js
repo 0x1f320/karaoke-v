@@ -46,4 +46,12 @@ function stop() {
   }
 }
 
-module.exports = { start, stop }
+/**
+ * Disable AppKit's automatic show/hide/order animations for a window.
+ * @param {Buffer} view result of BrowserWindow.getNativeWindowHandle()
+ */
+function disableAnimations(view) {
+  loadNative().disableAnimations(view)
+}
+
+module.exports = { start, stop, disableAnimations }
