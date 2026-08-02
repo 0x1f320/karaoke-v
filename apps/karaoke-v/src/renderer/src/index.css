@@ -11,6 +11,8 @@
   --color-border: #3a373b;
   /* Same blue the overlay draws its notes in. */
   --color-accent: #50b4ff;
+  /* Deleting, and nothing else — it is the one colour in here that means stop. */
+  --color-danger: #ff5f57;
   /* Tailwind's scale bottoms out at text-xs (12px); the 24px title bar wants
      smaller. */
   --text-2xs: 0.625rem;

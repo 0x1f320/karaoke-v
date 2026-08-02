@@ -1,25 +1,34 @@
-import { Check, SlidersHorizontal, Sparkles, Undo2 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { BookmarkPlus, Check, SlidersHorizontal, Sparkles, Trash2, Undo2 } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 import {
+  DEFAULT_EFFECTS,
+  type EffectPreset,
+  type EffectSettings,
   GLOW_LIMITS,
   type GlowPreferences,
   mergePreferences,
   PARTICLE_LIMITS,
   type ParticleDirection,
   type ParticlePreferences,
+  PRESET_LIMITS,
   type Preferences,
   type PreferencesPatch,
+  sameEffects,
 } from "../../../shared/preferences"
 import { EffectPreview } from "./EffectPreview"
 import { Button } from "./ui/Button"
 import { ColorInput } from "./ui/ColorInput"
+import { Dialog, DialogActions } from "./ui/Dialog"
 import { EffectAccordion } from "./ui/EffectAccordion"
+import { IconButton } from "./ui/IconButton"
 import { NavItem } from "./ui/NavItem"
 import { ScrollArea } from "./ui/ScrollArea"
 import { Segmented } from "./ui/Segmented"
+import { Select } from "./ui/Select"
 import { SettingRow } from "./ui/SettingRow"
 import { Slider } from "./ui/Slider"
 import { Switch } from "./ui/Switch"
+import { TextInput } from "./ui/TextInput"
 
 // Left-hand nav sections. Adding a section means adding an entry here and a
 // case in SectionBody.
@@ -35,46 +44,42 @@ const DIRECTION_OPTIONS: readonly { value: ParticleDirection; label: string }[] 
   { value: "radial", label: "방사형" },
 ]
 
-/** Same values, field by field. Every preference is a flat scalar. */
-function sameValues<T extends object>(a: T, b: T): boolean {
-  return (Object.keys(a) as (keyof T)[]).every((key) => a[key] === b[key])
-}
+// Picker entries that are not presets. Neither can collide with a preset id:
+// those are UUIDs.
+const DEFAULT_ENTRY = "default"
+/** Shown only while the draft matches nothing on the list, and never selectable. */
+const CUSTOM_ENTRY = "custom"
 
 export function Settings() {
   const [active, setActive] = useState<SectionId>("general")
-  // `saved` is what is on disk; `draft` is what the controls show. The effect
-  // groups edit the draft alone and reach disk only through 저장, so tuning is
-  // something you can back out of — the overlay is not repainted per slider tick
-  // either, only when the values are committed.
-  const [saved, setSaved] = useState<Preferences | null>(null)
-  const [draft, setDraft] = useState<Preferences | null>(null)
+  // One state, and it is the live one: every control writes straight through,
+  // so what this panel shows is what the overlay is drawing. Whether a setting
+  // is kept is a separate question, and the only thing that asks it is the
+  // preset bar — see EffectsSection.
+  const [prefs, setPrefs] = useState<Preferences | null>(null)
+  // Our own writes come back as broadcasts, and out of step with the local
+  // state: mid-drag, adopting the echo of the update before last would snap the
+  // slider backwards. So while any write of ours is outstanding the local value
+  // is the truth; once things are quiet, another window's change is welcome.
+  const outstanding = useRef(0)
   const section = SECTIONS.find((s) => s.id === active)
 
   useEffect(() => {
-    window.preferences.get().then((p) => {
-      setSaved(p)
-      setDraft(p)
-    })
-    // A broadcast means someone committed. Adopt the stored value, but keep any
-    // effect edits in flight: the immediate controls (below) are what normally
-    // trigger this, and they must not throw away unsaved tuning.
+    window.preferences.get().then(setPrefs)
     return window.preferences.onChange((p) => {
-      setSaved(p)
-      setDraft((d) => (d ? { ...d, debug: p.debug } : p))
+      if (outstanding.current === 0) {
+        setPrefs(p)
+      }
     })
   }, [])
 
-  // The immediate path, for controls with nothing to preview and no group to
-  // commit: applied locally first so they respond at once, then written.
+  // Applied locally first so the control responds at once, then written.
   const update = (patch: PreferencesPatch) => {
-    setSaved((p) => (p ? mergePreferences(p, patch) : p))
-    setDraft((p) => (p ? mergePreferences(p, patch) : p))
-    window.preferences.update(patch)
-  }
-
-  // The draft path: edits live here until 저장 writes them.
-  const edit = (patch: PreferencesPatch) => {
-    setDraft((p) => (p ? mergePreferences(p, patch) : p))
+    setPrefs((p) => (p ? mergePreferences(p, patch) : p))
+    outstanding.current += 1
+    window.preferences.update(patch).finally(() => {
+      outstanding.current -= 1
+    })
   }
 
   return (
@@ -98,21 +103,7 @@ export function Settings() {
         <h1 className="flex-none select-none px-6 pt-5 pb-2 text-base font-medium">
           {section?.label}
         </h1>
-        {draft && saved && (
-          <SectionBody
-            id={active}
-            draft={draft}
-            saved={saved}
-            update={update}
-            edit={edit}
-            onSave={() =>
-              window.preferences.update({ particles: draft.particles, glow: draft.glow })
-            }
-            onRevert={() =>
-              setDraft((d) => (d ? { ...d, particles: saved.particles, glow: saved.glow } : d))
-            }
-          />
-        )}
+        {prefs && <SectionBody id={active} prefs={prefs} update={update} />}
       </main>
     </div>
   )
@@ -120,22 +111,12 @@ export function Settings() {
 
 function SectionBody({
   id,
-  draft,
-  saved,
+  prefs,
   update,
-  edit,
-  onSave,
-  onRevert,
 }: {
   id: SectionId
-  draft: Preferences
-  saved: Preferences
-  /** Write straight through. */
+  prefs: Preferences
   update: (patch: PreferencesPatch) => void
-  /** Change the draft only. */
-  edit: (patch: PreferencesPatch) => void
-  onSave: () => void
-  onRevert: () => void
 }) {
   switch (id) {
     case "general":
@@ -147,7 +128,7 @@ function SectionBody({
               description="디버깅에 도움을 줄 수 있는 정보를 화면에 표시 합니다."
             >
               <Switch
-                checked={draft.debug}
+                checked={prefs.debug}
                 onChange={(e) => update({ debug: e.currentTarget.checked })}
               />
             </SettingRow>
@@ -155,33 +136,34 @@ function SectionBody({
         </ScrollArea>
       )
     case "effects":
-      return (
-        <EffectsSection
-          prefs={draft}
-          saved={saved}
-          update={edit}
-          onSave={onSave}
-          onRevert={onRevert}
-        />
-      )
+      return <EffectsSection prefs={prefs} update={update} />
   }
 }
 
+// The picker says what is applied; the bar underneath asks whether to keep it.
+// Every control here takes effect the moment it is touched — what the bar
+// offers is somewhere to put the result, not permission to have it.
 function EffectsSection({
   prefs,
-  saved,
   update,
-  onSave,
-  onRevert,
 }: {
   prefs: Preferences
-  saved: Preferences
   update: (patch: PreferencesPatch) => void
-  onSave: () => void
-  onRevert: () => void
 }) {
-  const { particles, glow } = prefs
-  const dirty = !sameValues(particles, saved.particles) || !sameValues(glow, saved.glow)
+  const { particles, glow, presets, activePreset } = prefs
+  // Where the current values came from, and so what 저장 overwrites and
+  // 되돌리기 returns to. null is the built-in defaults, which cannot be
+  // overwritten — edits made against them can only become a preset of their own.
+  const origin = presets.find((p) => p.id === activePreset) ?? null
+  const basis = origin ?? DEFAULT_EFFECTS
+  const drifted = !sameEffects(prefs, basis)
+  // Which dialog is up, if any. Only one can be, so this is a single slot.
+  const [dialog, setDialog] = useState<"save" | "delete" | null>(null)
+  // The unnamed values are a place you can be, so they have to be a place you
+  // can get back to: leaving them for a preset stows them for the session, and
+  // 사용자 지정 stays on the list until they are picked back up. Without this,
+  // trying another preset to compare would quietly discard the tuning.
+  const [stash, setStash] = useState<(EffectSettings & { origin: string | null }) | null>(null)
   // Tracked as what the user has closed, so a group is open unless they said
   // otherwise — including any group added later.
   const [collapsed, setCollapsed] = useState<Partial<Record<"glow" | "particles", boolean>>>({})
@@ -193,6 +175,70 @@ function EffectsSection({
 
   const setParticles = (patch: Partial<ParticlePreferences>) => update({ particles: patch })
   const setGlow = (patch: Partial<GlowPreferences>) => update({ glow: patch })
+
+  // A preset is named only while the values still are that preset; the moment
+  // they drift, the picker says so rather than going on claiming a preset that
+  // is not what you are hearing.
+  const entry = drifted ? CUSTOM_ENTRY : (origin?.id ?? DEFAULT_ENTRY)
+
+  const applyEntry = (id: string) => {
+    if (id === CUSTOM_ENTRY) {
+      if (stash) {
+        update({ particles: stash.particles, glow: stash.glow, activePreset: stash.origin })
+        setStash(null)
+      }
+      return
+    }
+    if (drifted) {
+      setStash({ particles, glow, origin: activePreset })
+    }
+    const picked = presets.find((p) => p.id === id) ?? null
+    const next = picked ?? DEFAULT_EFFECTS
+    update({ particles: next.particles, glow: next.glow, activePreset: picked?.id ?? null })
+  }
+
+  /** Back to what the origin holds, staying on it. */
+  const revert = () => update({ particles: basis.particles, glow: basis.glow })
+
+  /** Put the current values back on the preset they came from. */
+  const overwriteOrigin = () => {
+    if (origin) {
+      update({
+        presets: presets.map((p) => (p.id === origin.id ? { ...p, particles, glow } : p)),
+      })
+    }
+  }
+
+  const savePreset = (name: string) => {
+    // Same name means the same preset: two entries reading alike in the picker
+    // would leave no way to tell which is which.
+    const existing = presets.find((p) => p.name.toLowerCase() === name.toLowerCase())
+    const id = existing?.id ?? crypto.randomUUID()
+    update({
+      presets: existing
+        ? presets.map((p) => (p.id === id ? { ...p, particles, glow } : p))
+        : [...presets, { id, name, particles, glow }],
+      // Saved and selected in one move: the values are that preset now, so
+      // leaving the picker on 사용자 지정 would be a lie.
+      activePreset: id,
+    })
+    setDialog(null)
+  }
+
+  const deleteOrigin = () => {
+    if (origin) {
+      // Nothing is left pointing at it — dropping to 기본 설정 is the same
+      // landing the picker would give, and mergePreferences would clear a
+      // dangling id anyway.
+      update({
+        presets: presets.filter((p) => p.id !== origin.id),
+        particles: DEFAULT_EFFECTS.particles,
+        glow: DEFAULT_EFFECTS.glow,
+        activePreset: null,
+      })
+    }
+    setDialog(null)
+  }
 
   const particleSlider = (key: keyof typeof PARTICLE_LIMITS, readout: string) => (
     <Slider
@@ -213,14 +259,49 @@ function EffectsSection({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
+      {/* The picker sits under the preview rather than in the list below,
+          because it is not one more setting: it sets all of them at once, and
+          what it changes is the thing directly above it. */}
       <div className="flex-none px-6 pb-4">
         <EffectPreview particles={particles} glow={glow} />
+        <div className="mt-2 flex items-center gap-1.5">
+          <Select
+            className="min-w-0 flex-1"
+            aria-label="프리셋"
+            value={entry}
+            onChange={(e) => applyEntry(e.currentTarget.value)}
+          >
+            {/* The values that belong to no preset. On the list whenever there
+                are any — the ones in effect now, or the ones set aside when a
+                preset was tried out. */}
+            {(drifted || stash) && <option value={CUSTOM_ENTRY}>사용자 지정</option>}
+            <option value={DEFAULT_ENTRY}>기본 설정</option>
+            {presets.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.name}
+              </option>
+            ))}
+          </Select>
+          {/* Only for what the picker is actually naming: while the values have
+              drifted it reads 사용자 지정, and a delete that reached past that
+              to the preset behind it would be a trap. */}
+          <IconButton
+            tone="danger"
+            className="size-7 flex-none rounded disabled:opacity-20"
+            disabled={drifted || !origin}
+            title="프리셋 삭제"
+            aria-label="프리셋 삭제"
+            onClick={() => setDialog("delete")}
+          >
+            <Trash2 size={14} strokeWidth={1.75} aria-hidden="true" />
+          </IconButton>
+        </div>
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
         {/* Extra room at the bottom while the bar is up, so the last row can
             still be scrolled out from under it. */}
-        <div className={`px-6 ${dirty ? "pb-20" : "pb-5"}`}>
+        <div className={`px-6 ${drifted ? "pb-20" : "pb-5"}`}>
           <EffectAccordion
             title="하이라이트"
             description="노트가 시작될 때 터지고, 소리가 나는 동안 유지되는 빛입니다."
@@ -327,24 +408,126 @@ function EffectsSection({
       </ScrollArea>
 
       {/* Floats over the list rather than taking a strip out of it, and only
-          once there is something to commit. The gradient is what keeps the rows
-          passing underneath legible; it is click-through, so only the text and
-          the two buttons take the pointer. */}
-      {dirty && (
+          once the values have drifted off the preset they came from. It is not
+          asking whether to apply them — they are already applied — only where
+          to keep them. The gradient is what keeps the rows passing underneath
+          legible; it is click-through, so only the text and the buttons take
+          the pointer. */}
+      {drifted && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-2 bg-linear-to-t from-app from-55% to-transparent px-6 pt-10 pb-5">
           <span className="pointer-events-auto mr-auto select-none text-xs text-muted">
-            저장하지 않은 변경 사항이 있습니다.
+            {origin ? `'${origin.name}'에서 변경되었습니다.` : "기본 설정에서 변경되었습니다."}
           </span>
-          <Button className="pointer-events-auto" onClick={onRevert}>
+          <Button className="pointer-events-auto" onClick={revert}>
             <Undo2 size={13} strokeWidth={2} aria-hidden="true" />
             되돌리기
           </Button>
-          <Button className="pointer-events-auto" tone="primary" onClick={onSave}>
-            <Check size={13} strokeWidth={2.5} aria-hidden="true" />
-            저장
+          <Button
+            className="pointer-events-auto"
+            disabled={presets.length >= PRESET_LIMITS.count}
+            onClick={() => setDialog("save")}
+          >
+            <BookmarkPlus size={13} strokeWidth={2} aria-hidden="true" />
+            별도 프리셋으로 저장
           </Button>
+          {/* Absent rather than disabled on the defaults: there is no such
+              thing as overwriting them, so offering it greyed out would only
+              pose a question with no answer. */}
+          {origin && (
+            <Button className="pointer-events-auto" tone="primary" onClick={overwriteOrigin}>
+              <Check size={13} strokeWidth={2.5} aria-hidden="true" />
+              저장
+            </Button>
+          )}
         </div>
       )}
+
+      {dialog === "save" && (
+        <SavePresetDialog presets={presets} onSave={savePreset} onClose={() => setDialog(null)} />
+      )}
+      {dialog === "delete" && origin && (
+        <Dialog
+          title="프리셋 삭제"
+          description={`'${origin.name}'을(를) 삭제합니다. 되돌릴 수 없습니다.`}
+          onClose={() => setDialog(null)}
+        >
+          <DialogActions>
+            <Button onClick={() => setDialog(null)}>취소</Button>
+            <Button tone="danger" onClick={deleteOrigin}>
+              삭제
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
     </div>
+  )
+}
+
+/** Names the current values and puts them on the preset list as their own entry. */
+function SavePresetDialog({
+  presets,
+  onSave,
+  onClose,
+}: {
+  presets: EffectPreset[]
+  onSave: (name: string) => void
+  onClose: () => void
+}) {
+  // Suggested rather than blank: naming a look is work, and most of the time
+  // the number is answer enough.
+  const [name, setName] = useState(() => {
+    const taken = new Set(presets.map((p) => p.name))
+    let n = presets.length + 1
+    while (taken.has(`프리셋 ${n}`)) {
+      n += 1
+    }
+    return `프리셋 ${n}`
+  })
+
+  const trimmed = name.trim().slice(0, PRESET_LIMITS.nameLength)
+  const overwriting = presets.some((p) => p.name.toLowerCase() === trimmed.toLowerCase())
+
+  return (
+    <Dialog
+      title="별도 프리셋으로 저장"
+      description="지금 적용된 이펙트 설정을 이름 붙여 보관합니다."
+      onClose={onClose}
+    >
+      {/* A form, so Enter submits the way it does in every other dialog. */}
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (trimmed) {
+            onSave(trimmed)
+          }
+        }}
+      >
+        <div className="flex flex-col gap-1.5">
+          <TextInput
+            // The dialog exists to take this one value; anything else to focus
+            // first would just be in the way.
+            autoFocus
+            value={name}
+            maxLength={PRESET_LIMITS.nameLength}
+            placeholder="프리셋 이름"
+            aria-label="프리셋 이름"
+            onChange={(e) => setName(e.currentTarget.value)}
+            onFocus={(e) => e.currentTarget.select()}
+          />
+          {overwriting && (
+            <p className="select-none text-2xs text-muted">
+              같은 이름의 프리셋이 이미 있습니다. 덮어쓰게 됩니다.
+            </p>
+          )}
+        </div>
+        <DialogActions>
+          <Button onClick={onClose}>취소</Button>
+          <Button type="submit" tone="primary" disabled={!trimmed}>
+            {overwriting ? "덮어쓰기" : "저장"}
+          </Button>
+        </DialogActions>
+      </form>
+    </Dialog>
   )
 }
