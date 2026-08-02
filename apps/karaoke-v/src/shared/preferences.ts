@@ -43,6 +43,13 @@ export type GlowPreferences = {
   flash: number
   /** Radius as a multiple of the note's height. */
   size: number
+  /**
+   * How hard the light trembles while a note sounds, 0..1 — the onset flash
+   * carried on as a shiver instead of a single strike. Zero holds it steady.
+   */
+  jitter: number
+  /** How often the tremble picks a new value, per second. */
+  jitterRate: number
   /** "#rrggbb". */
   color: string
 }
@@ -72,6 +79,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
     level: 0.5,
     flash: 0.11,
     size: 2.2,
+    jitter: 0.35,
+    jitterRate: 12,
     color: "#ff78c8",
   },
 }
@@ -91,6 +100,8 @@ export const GLOW_LIMITS = {
   level: { min: 0, max: 1, step: 0.05 },
   flash: { min: 0.02, max: 0.5, step: 0.01 },
   size: { min: 0.5, max: 5, step: 0.1 },
+  jitter: { min: 0, max: 1, step: 0.05 },
+  jitterRate: { min: 2, max: 30, step: 1 },
 } as const
 
 /** A partial update. Nested groups may be partial too — one slider at a time. */

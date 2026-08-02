@@ -5,12 +5,17 @@ import { type Container, Sprite, Texture } from "pixi.js"
 // Two envelopes drive one sprite: a burst that spikes at each note onset and
 // decays fast, and a sustain that holds while the note sounds and releases when
 // it stops. Their sum is the brightness — which is what makes an onset read as a
-// strike rather than a light being switched on.
+// strike rather than a light being switched on. Jitter then shivers that sum,
+// so the strike can be carried on for as long as the note lasts.
 
 /** Time constant of the sustain rising and releasing, seconds. */
 const SUSTAIN_TAU = 0.16
 /** Below this the sprite is not worth drawing. */
 const CUTOFF = 0.01
+/** How much of the brightness full jitter may swallow, and give back. */
+const JITTER_DEPTH = 0.9
+/** Full jitter's sideways shake, as a fraction of the note's height. */
+const JITTER_SHAKE = 0.14
 
 export interface GlowParams {
   enabled: boolean
@@ -22,6 +27,10 @@ export interface GlowParams {
   flash: number
   /** Radius at unit brightness, as a multiple of the note's height. */
   size: number
+  /** How hard the light trembles while a note sounds, 0..1. */
+  jitter: number
+  /** New tremble values per second. */
+  jitterRate: number
 }
 
 interface CoordinateFrame {
@@ -50,6 +59,28 @@ function makeGlowTexture(size = 256): Texture {
   return Texture.from(canvas)
 }
 
+/**
+ * A random walk in -1..1. A fresh target is drawn `rate` times a second and
+ * eased into, so what comes out shivers rather than flickering at random —
+ * white noise at these amplitudes just reads as a blur.
+ */
+class Tremble {
+  private from = 0
+  private to = Math.random() * 2 - 1
+  private phase = 0
+
+  next(dt: number, rate: number): number {
+    this.phase += dt * Math.max(rate, 0)
+    while (this.phase >= 1) {
+      this.phase -= 1
+      this.from = this.to
+      this.to = Math.random() * 2 - 1
+    }
+    const t = this.phase * this.phase * (3 - 2 * this.phase)
+    return this.from + (this.to - this.from) * t
+  }
+}
+
 export class GlowFlash {
   private readonly sprite: Sprite
   private burst = 0
@@ -59,6 +90,10 @@ export class GlowFlash {
   private lastX = 0
   private lastY = 0
   private lastHeight = 24
+  // One walk each, so the shake does not simply track the brightness.
+  private readonly flicker = new Tremble()
+  private readonly shakeX = new Tremble()
+  private readonly shakeY = new Tremble()
 
   constructor(layer: Container) {
     this.sprite = new Sprite(makeGlowTexture())
@@ -92,7 +127,16 @@ export class GlowFlash {
       this.lastHeight = at.spread
     }
 
-    const intensity = this.sustain + this.burst
+    // The walks are stepped whether or not they are used, so turning jitter up
+    // mid-note starts from wherever the shiver would have been by now.
+    const tremor = Math.max(params.jitter, 0)
+    const flicker = 1 + tremor * JITTER_DEPTH * this.flicker.next(dt, params.jitterRate)
+    const shakeX = tremor * JITTER_SHAKE * this.shakeX.next(dt, params.jitterRate)
+    const shakeY = tremor * JITTER_SHAKE * this.shakeY.next(dt, params.jitterRate)
+
+    // Jitter rides on the envelopes rather than adding to them, so the release
+    // still takes the shiver down with it.
+    const intensity = (this.sustain + this.burst) * flicker
     if (intensity < CUTOFF) {
       this.sprite.visible = false
       return
@@ -100,7 +144,10 @@ export class GlowFlash {
 
     this.sprite.visible = true
     this.sprite.tint = params.color
-    this.sprite.position.set(this.lastX, this.lastY)
+    this.sprite.position.set(
+      this.lastX + shakeX * this.lastHeight,
+      this.lastY + shakeY * this.lastHeight,
+    )
     this.sprite.alpha = Math.min(intensity, 1)
     // Swelling with brightness sells the strike more than brightness alone.
     const radius = this.lastHeight * params.size * (0.7 + 0.5 * Math.min(intensity, 1.5))
