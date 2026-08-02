@@ -336,8 +336,9 @@ function EffectsSection({
             )}
             <SettingRow label="색상" description="빛을 칠할 색상입니다.">
               <ColorInput
+                aria-label="빛 색상"
                 value={glow.color}
-                onChange={(e) => setGlow({ color: e.currentTarget.value })}
+                onChange={(color) => setGlow({ color })}
               />
             </SettingRow>
           </EffectAccordion>
@@ -400,8 +401,9 @@ function EffectsSection({
             </SettingRow>
             <SettingRow label="색상" description="파티클을 칠할 색상입니다.">
               <ColorInput
+                aria-label="파티클 색상"
                 value={particles.color}
-                onChange={(e) => setParticles({ color: e.currentTarget.value })}
+                onChange={(color) => setParticles({ color })}
               />
             </SettingRow>
           </EffectAccordion>
