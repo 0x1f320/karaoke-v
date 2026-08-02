@@ -73,7 +73,10 @@ jobs:
         run: pnpm --filter @karaoke-v/app rebuild:native
   windows-native:
     name: Windows Native Addon
-    runs-on: windows-latest
+    # Pinned: node-gyp probes for Visual Studio through PowerShell and does not
+    # recognise the VS 18 that windows-latest now ships, so it reports finding no
+    # toolchain at all.
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v4
