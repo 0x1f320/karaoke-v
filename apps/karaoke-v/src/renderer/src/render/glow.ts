@@ -24,6 +24,12 @@ export interface GlowParams {
   size: number
 }
 
+interface CoordinateFrame {
+  contentX: number
+  contentW: number
+  refY: number
+}
+
 /** A soft radial falloff. A gradient reads far better than stacked circles at this size. */
 function makeGlowTexture(size = 256): Texture {
   const canvas = document.createElement("canvas")
@@ -97,9 +103,10 @@ export class GlowFlash {
   }
 
   /** Follow the note set into a new AX read's coordinate frame. */
-  rebase(dx: number, dy: number): void {
-    this.lastX += dx
-    this.lastY += dy
+  rebase(from: CoordinateFrame, to: CoordinateFrame): void {
+    const scaleX = from.contentW > 0 && to.contentW > 0 ? to.contentW / from.contentW : 1
+    this.lastX = to.contentX + (this.lastX - from.contentX) * scaleX
+    this.lastY += to.refY - from.refY
   }
 
   dispose(): void {
