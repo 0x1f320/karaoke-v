@@ -24,23 +24,26 @@ export function locateNote(
   view: TransportView,
   vp: Viewport,
   rects: readonly Rect[],
-  /** Scroll drift between the AX read and now — rects are in read-time coords. */
-  shiftX: number,
+  /** Transform from the AX read's x coordinates into current global x coordinates. */
+  xform: { scaleX: number; offsetX: number },
 ): Rect | null {
-  const { mapping, contentX } = view
-  const scrolled = vp.contentX - contentX
-  const expectedX = vp.canvas.x + (note.onB - mapping.viewLeft) * mapping.perBlick + scrolled
-  const expectedW = (note.offB - note.onB) * mapping.perBlick
+  const { mapping } = view
+  const zoomX = view.contentW > 0 && vp.contentW > 0 ? vp.contentW / view.contentW : 1
+  const anchorX = view.canvasX + (note.onB - mapping.viewLeft) * mapping.perBlick
+  const expectedX = vp.contentX + (anchorX - view.contentX) * zoomX
+  const expectedW = (note.offB - note.onB) * mapping.perBlick * zoomX
   const widthSlack = Math.max(4, expectedW * WIDTH_TOLERANCE)
   const limit = Math.max(MIN_SLIP_PX, expectedW * 0.5)
 
   let best: Rect | null = null
   let bestSlip = Number.POSITIVE_INFINITY
   for (const rect of rects) {
-    if (Math.abs(rect.w - expectedW) > widthSlack) {
+    const rectW = rect.w * xform.scaleX
+    if (Math.abs(rectW - expectedW) > widthSlack) {
       continue
     }
-    const slip = Math.abs(rect.x + shiftX - expectedX)
+    const rectX = rect.x * xform.scaleX + xform.offsetX
+    const slip = Math.abs(rectX - expectedX)
     if (slip < bestSlip) {
       bestSlip = slip
       best = rect

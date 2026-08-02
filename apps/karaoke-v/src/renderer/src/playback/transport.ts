@@ -21,6 +21,10 @@ export interface TransportView {
   mapping: BridgeViewMapping
   /** Horizontal scroll at the moment the anchor was taken. */
   contentX: number
+  /** Horizontal zoom scale at the moment the anchor was taken. */
+  contentW: number
+  /** Canvas x at the moment the anchor was taken. */
+  canvasX: number
 }
 
 export class Transport {
@@ -115,7 +119,14 @@ export class Transport {
     // all rather than one that quietly points a note somewhere else.
     if (live && payload.px) {
       const vp = window.overlay.getViewport()
-      this.viewState = vp ? { mapping: payload.px, contentX: vp.contentX } : null
+      this.viewState = vp
+        ? {
+            mapping: payload.px,
+            contentX: vp.contentX,
+            contentW: vp.contentW,
+            canvasX: vp.canvas.x,
+          }
+        : null
     } else if (!live) {
       this.viewState = null
     }

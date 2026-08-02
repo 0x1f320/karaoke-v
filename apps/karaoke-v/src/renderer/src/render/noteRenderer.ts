@@ -29,6 +29,8 @@ export interface DrawParams {
   /** Added to every note's origin — the scroll delta plus the window origin. */
   offsetX: number
   offsetY: number
+  /** Horizontal zoom ratio between the current viewport and the AX read. */
+  scaleX: number
   /** Nothing draws outside this rect (window-local CSS px). */
   clip: { x: number; y: number; w: number; h: number }
   fill: Rgba
@@ -173,10 +175,13 @@ export class NoteRenderer {
     return texture
   }
 
-  /** Shift live effects into a new AX read's coordinate frame. */
-  rebaseEffects(dx: number, dy: number): void {
-    this.particles?.rebase(dx, dy)
-    this.glow?.rebase(dx, dy)
+  /** Move live effects into a new AX read's coordinate frame. */
+  rebaseEffects(
+    from: { contentX: number; contentW: number; refY: number },
+    to: { contentX: number; contentW: number; refY: number },
+  ): void {
+    this.particles?.rebase(from, to)
+    this.glow?.rebase(from, to)
   }
 
   /** Replace the note set. Geometry is rebuilt on the next draw, not here. */
@@ -276,6 +281,7 @@ export class NoteRenderer {
     }
 
     // The only per-frame work on a plain scroll: one transform.
+    this.content.scale.set(p.scaleX, 1)
     this.content.position.set(p.offsetX, p.offsetY)
 
     this.stepEffects(p)

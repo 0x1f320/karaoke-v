@@ -19,6 +19,10 @@ const NOTE_READ_GAP_MS = 30
 // Back-off when SynthV / the piano roll isn't found.
 const NOT_FOUND_RETRY_MS = 500
 
+function horizontalScale(currentW: number, readW: number): number {
+  return currentW > 0 && readW > 0 ? currentW / readW : 1
+}
+
 // One renderer bundle serves every window; each is loaded with the hash naming
 // its view, the overlay with no hash.
 export function App() {
@@ -74,9 +78,9 @@ function Overlay() {
 
     // Note pump: continuous off-thread walks, each replacing the set wholesale —
     // no cross-read cache to go stale or corrupt on track switches/edits. Reads
-    // taken while vertical scroll was moving (yStable false) are discarded: their
-    // per-chip y values are mutually skewed and unusable. The stale set stays
-    // correct meanwhile because scroll shifts it uniformly via refY/contentX.
+    // taken while scroll/zoom was moving (xStable/yStable false) are discarded:
+    // their per-chip coordinates are mutually skewed and unusable. The stale set
+    // stays correct meanwhile because draw() maps it through live viewport data.
     const pump = async () => {
       while (alive) {
         let pr: PianoRoll | null = null
@@ -85,10 +89,11 @@ function Overlay() {
         } catch {}
         if (!pr) {
           read = null
-        } else if (pr.yStable) {
+        } else if (pr.xStable && pr.yStable) {
           read = pr
         }
-        await new Promise((r) => setTimeout(r, pr ? NOTE_READ_GAP_MS : NOT_FOUND_RETRY_MS))
+        const gap = pr ? (pr.xStable && pr.yStable ? NOTE_READ_GAP_MS : 0) : NOT_FOUND_RETRY_MS
+        await new Promise((r) => setTimeout(r, gap))
       }
     }
     pump()
@@ -130,6 +135,7 @@ function Overlay() {
           dpr,
           offsetX: 0,
           offsetY: 0,
+          scaleX: 1,
           clip: { x: 0, y: 0, w: 0, h: 0 },
           fill: FILL,
           stroke: STROKE,
@@ -147,7 +153,7 @@ function Overlay() {
       // Live particles are positioned in the current read's frame, so they have
       // to move with it when the pump replaces the set mid-flight.
       if (based && based !== read) {
-        renderer.rebaseEffects(read.contentX - based.contentX, read.refY - based.refY)
+        renderer.rebaseEffects(based, read)
       }
       based = read
 
@@ -159,7 +165,8 @@ function Overlay() {
         uploaded = wanted
       }
 
-      const dx = vp.contentX - read.contentX
+      const scaleX = horizontalScale(vp.contentW, read.contentW)
+      const contentOffsetX = vp.contentX - read.contentX * scaleX
       const dy = vp.refY - read.refY
 
       // Which note is sounding, and which rect is it? The bridge answers the
@@ -173,7 +180,7 @@ function Overlay() {
         const note = transport.noteAt(seconds)
         if (note) {
           onset = note.onB
-          hit = locateNote(note, view, vp, read.notes, dx)
+          hit = locateNote(note, view, vp, read.notes, { scaleX, offsetX: contentOffsetX })
           const span = note.offS - note.onS
           progress = span > 0 ? Math.min(Math.max((seconds - note.onS) / span, 0), 1) : 0
         }
@@ -194,8 +201,9 @@ function Overlay() {
         width: w,
         height: h,
         dpr,
-        offsetX: dx - ox,
+        offsetX: contentOffsetX - ox,
         offsetY: dy - oy,
+        scaleX,
         clip: { x: vp.canvas.x - ox, y: vp.canvas.y - oy, w: vp.canvas.w, h: vp.canvas.h },
         fill: FILL,
         stroke: STROKE,

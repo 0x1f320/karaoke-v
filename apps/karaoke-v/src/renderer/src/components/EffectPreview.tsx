@@ -73,6 +73,7 @@ export function EffectPreview({
         dpr: window.devicePixelRatio || 1,
         offsetX: 0,
         offsetY: 0,
+        scaleX: 1,
         clip: { x: 0, y: 0, w, h },
         fill: FILL,
         stroke: STROKE,

@@ -49,6 +49,12 @@ interface Particle {
   size: number
 }
 
+interface CoordinateFrame {
+  contentX: number
+  contentW: number
+  refY: number
+}
+
 function between(min: number, max: number): number {
   return min + Math.random() * (max - min)
 }
@@ -127,12 +133,14 @@ export class ParticleField {
   }
 
   /** Follow the note set into a new AX read's coordinate frame. */
-  rebase(dx: number, dy: number): void {
-    if (dx === 0 && dy === 0) {
+  rebase(from: CoordinateFrame, to: CoordinateFrame): void {
+    const scaleX = from.contentW > 0 && to.contentW > 0 ? to.contentW / from.contentW : 1
+    const dy = to.refY - from.refY
+    if (scaleX === 1 && from.contentX === to.contentX && dy === 0) {
       return
     }
     for (const p of this.live) {
-      p.sprite.x += dx
+      p.sprite.x = to.contentX + (p.sprite.x - from.contentX) * scaleX
       p.sprite.y += dy
     }
   }
