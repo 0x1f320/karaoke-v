@@ -21,6 +21,8 @@ export function particleParams(prefs: ParticlePreferences): ParticleParams {
     enabled: prefs.enabled,
     rate: prefs.rate,
     life: prefs.life,
+    direction: prefs.direction,
+    angle: prefs.angle,
     spreadX: prefs.spreadX,
     spreadY: prefs.spreadY,
     originX: prefs.originX,

@@ -4,6 +4,7 @@ import {
   type GlowPreferences,
   mergePreferences,
   PARTICLE_LIMITS,
+  type ParticleDirection,
   type ParticlePreferences,
   type Preferences,
   type PreferencesPatch,
@@ -13,6 +14,7 @@ import { ColorInput } from "./ui/ColorInput"
 import { EffectAccordion } from "./ui/EffectAccordion"
 import { NavItem } from "./ui/NavItem"
 import { ScrollArea } from "./ui/ScrollArea"
+import { Segmented } from "./ui/Segmented"
 import { SettingRow } from "./ui/SettingRow"
 import { Slider } from "./ui/Slider"
 import { Switch } from "./ui/Switch"
@@ -25,6 +27,11 @@ const SECTIONS = [
 ] as const
 
 type SectionId = (typeof SECTIONS)[number]["id"]
+
+const DIRECTION_OPTIONS: readonly { value: ParticleDirection; label: string }[] = [
+  { value: "directional", label: "한 방향" },
+  { value: "radial", label: "방사형" },
+]
 
 export function Settings() {
   const [active, setActive] = useState<SectionId>("general")
@@ -101,6 +108,9 @@ function EffectsSection({
 }) {
   const { particles, glow } = prefs
   const [open, setOpen] = useState({ glow: true, particles: true })
+  // The two spread sliders mean different things per mode, so their rows are
+  // labelled from it.
+  const radial = particles.direction === "radial"
 
   const setParticles = (patch: Partial<ParticlePreferences>) => update({ particles: patch })
   const setGlow = (patch: Partial<GlowPreferences>) => update({ glow: patch })
@@ -171,10 +181,36 @@ function EffectsSection({
           <SettingRow label="지속 시간" description="파티클 하나가 사라지기까지 걸리는 시간입니다.">
             {particleSlider("life", `${particles.life.toFixed(2)}초`)}
           </SettingRow>
-          <SettingRow label="가로 확산" description="파티클이 좌우로 퍼지는 폭입니다.">
+          <SettingRow label="확산 방향" description="파티클이 퍼져 나가는 방식입니다.">
+            <Segmented
+              value={particles.direction}
+              options={DIRECTION_OPTIONS}
+              onChange={(direction) => setParticles({ direction })}
+            />
+          </SettingRow>
+          {particles.direction === "directional" && (
+            <SettingRow label="각도" description="0°가 위쪽이고, 시계 방향으로 돕니다.">
+              {particleSlider("angle", `${Math.round(particles.angle)}°`)}
+            </SettingRow>
+          )}
+          <SettingRow
+            label={radial ? "가로 반경" : "가로 확산"}
+            description={
+              radial
+                ? "파티클이 좌우로 퍼져 나가는 반경입니다."
+                : "파티클이 진행 방향과 직각으로 퍼지는 폭입니다."
+            }
+          >
             {particleSlider("spreadX", `${Math.round(particles.spreadX)}px`)}
           </SettingRow>
-          <SettingRow label="세로 확산" description="파티클이 위로 솟아오르는 높이입니다.">
+          <SettingRow
+            label={radial ? "세로 반경" : "이동 거리"}
+            description={
+              radial
+                ? "파티클이 위아래로 퍼져 나가는 반경입니다."
+                : "파티클이 진행 방향으로 나아가는 거리입니다."
+            }
+          >
             {particleSlider("spreadY", `${Math.round(particles.spreadY)}px`)}
           </SettingRow>
           <SettingRow label="시작점 너비" description="파티클이 생겨나는 지점의 가로 폭입니다.">

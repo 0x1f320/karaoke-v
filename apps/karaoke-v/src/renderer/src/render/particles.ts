@@ -1,4 +1,5 @@
 import { type Container, Sprite, type Texture } from "pixi.js"
+import type { ParticleDirection } from "../../../shared/preferences"
 
 // Sparks thrown off wherever the playhead is crossing a note.
 //
@@ -11,12 +12,15 @@ const MAX_PARTICLES = 600
 
 /** Spread of individual lifetimes around the configured one. */
 const LIFE_JITTER = 0.3
-/** Slowest launch as a fraction of the fastest, so the rise is not a solid front. */
-const RISE_JITTER = 0.65
+/** Slowest launch as a fraction of the fastest, so the front is not a solid wall. */
+const LAUNCH_JITTER = 0.65
 /**
  * Downward pull, as a multiple of spreadY / life². Tying it to the settings
  * rather than fixing it in px/s² keeps the arc the same shape when the sliders
  * move — otherwise a long lifetime turns the spray into a fountain.
+ *
+ * Directional only: a radial burst reads as a burst because it is symmetric, and
+ * gravity would collapse it into a fountain.
  */
 const ARC = 0.9
 const SIZE_MIN = 2.5
@@ -28,9 +32,12 @@ export interface ParticleParams {
   rate: number
   /** Seconds one spark lasts. */
   life: number
-  /** Sideways reach over a lifetime, px. */
+  direction: ParticleDirection
+  /** Degrees clockwise from straight up; directional only. */
+  angle: number
+  /** Sideways reach over a lifetime, px — across `angle`, or the x radius. */
   spreadX: number
-  /** Upward reach over a lifetime, px. */
+  /** Reach along `angle` over a lifetime, px — or the y radius. */
   spreadY: number
   /** Width of the band sparks are born along, px. */
   originX: number
@@ -57,6 +64,34 @@ interface CoordinateFrame {
 
 function between(min: number, max: number): number {
   return min + Math.random() * (max - min)
+}
+
+/**
+ * A spark's launch velocity, px/s.
+ *
+ * Directional builds it from two reaches — spreadY along the aim, spreadX across
+ * it — so angle 0 (straight up) is exactly the old fixed behaviour. Radial spends
+ * the same two numbers as the radii of the ellipse the burst fills.
+ */
+function launch(params: ParticleParams, life: number): { vx: number; vy: number } {
+  if (params.direction === "radial") {
+    const theta = between(0, Math.PI * 2)
+    const reach = between(LAUNCH_JITTER, 1)
+    return {
+      vx: (Math.cos(theta) * params.spreadX * reach) / life,
+      vy: (Math.sin(theta) * params.spreadY * reach) / life,
+    }
+  }
+  const theta = (params.angle * Math.PI) / 180
+  // Clockwise from up: (0, -1) at 0°, (1, 0) at 90°. Across is that turned 90°.
+  const alongX = Math.sin(theta)
+  const alongY = -Math.cos(theta)
+  const along = (between(LAUNCH_JITTER, 1) * params.spreadY) / life
+  const across = (between(-1, 1) * params.spreadX) / life
+  return {
+    vx: alongX * along - alongY * across,
+    vy: alongY * along + alongX * across,
+  }
 }
 
 export class ParticleField {
@@ -86,7 +121,7 @@ export class ParticleField {
    */
   emit(x: number, y: number, height: number, count: number, params: ParticleParams): void {
     const life = Math.max(params.life, 0.01)
-    const gravity = (ARC * params.spreadY) / (life * life)
+    const gravity = params.direction === "radial" ? 0 : (ARC * params.spreadY) / (life * life)
 
     for (let i = 0; i < count; i++) {
       const sprite = this.pool.pop()
@@ -99,10 +134,11 @@ export class ParticleField {
         x + between(-params.originX / 2, params.originX / 2),
         y + between(-height / 2, height / 2),
       )
+      const { vx, vy } = launch(params, life)
       this.live.push({
         sprite,
-        vx: (between(-1, 1) * params.spreadX) / life,
-        vy: (-between(RISE_JITTER, 1) * params.spreadY) / life,
+        vx,
+        vy,
         gravity,
         age: 0,
         life: life * between(1 - LIFE_JITTER, 1 + LIFE_JITTER),
