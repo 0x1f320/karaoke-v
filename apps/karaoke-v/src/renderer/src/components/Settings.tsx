@@ -24,7 +24,7 @@ import { IconButton } from "./ui/IconButton"
 import { NavItem } from "./ui/NavItem"
 import { ScrollArea } from "./ui/ScrollArea"
 import { Segmented } from "./ui/Segmented"
-import { Select } from "./ui/Select"
+import { Select, SelectItem } from "./ui/Select"
 import { SettingRow } from "./ui/SettingRow"
 import { Slider } from "./ui/Slider"
 import { Switch } from "./ui/Switch"
@@ -128,8 +128,9 @@ function SectionBody({
               description="디버깅에 도움을 줄 수 있는 정보를 화면에 표시 합니다."
             >
               <Switch
+                aria-label="디버깅 모드 활성화"
                 checked={prefs.debug}
-                onChange={(e) => update({ debug: e.currentTarget.checked })}
+                onCheckedChange={(debug) => update({ debug })}
               />
             </SettingRow>
           </div>
@@ -245,7 +246,7 @@ function EffectsSection({
       {...PARTICLE_LIMITS[key]}
       value={particles[key]}
       readout={readout}
-      onChange={(e) => setParticles({ [key]: e.currentTarget.valueAsNumber })}
+      onValueChange={(value) => setParticles({ [key]: value })}
     />
   )
   const glowSlider = (key: keyof typeof GLOW_LIMITS, readout: string) => (
@@ -253,7 +254,7 @@ function EffectsSection({
       {...GLOW_LIMITS[key]}
       value={glow[key]}
       readout={readout}
-      onChange={(e) => setGlow({ [key]: e.currentTarget.valueAsNumber })}
+      onValueChange={(value) => setGlow({ [key]: value })}
     />
   )
 
@@ -269,17 +270,17 @@ function EffectsSection({
             className="min-w-0 flex-1"
             aria-label="프리셋"
             value={entry}
-            onChange={(e) => applyEntry(e.currentTarget.value)}
+            onValueChange={applyEntry}
           >
             {/* The values that belong to no preset. On the list whenever there
                 are any — the ones in effect now, or the ones set aside when a
                 preset was tried out. */}
-            {(drifted || stash) && <option value={CUSTOM_ENTRY}>사용자 지정</option>}
-            <option value={DEFAULT_ENTRY}>기본 설정</option>
+            {(drifted || stash) && <SelectItem value={CUSTOM_ENTRY}>사용자 지정</SelectItem>}
+            <SelectItem value={DEFAULT_ENTRY}>기본 설정</SelectItem>
             {presets.map((preset) => (
-              <option key={preset.id} value={preset.id}>
+              <SelectItem key={preset.id} value={preset.id}>
                 {preset.name}
-              </option>
+              </SelectItem>
             ))}
           </Select>
           {/* Only for what the picker is actually naming: while the values have
@@ -354,7 +355,7 @@ function EffectsSection({
                 by unrelated sliders would read as unrelated settings. */}
             <SettingRow label="확산 방향" description="파티클이 퍼져 나가는 방식입니다.">
               <Segmented
-                name="particle-direction"
+                aria-label="확산 방향"
                 value={particles.direction}
                 options={DIRECTION_OPTIONS}
                 onChange={(direction) => setParticles({ direction })}

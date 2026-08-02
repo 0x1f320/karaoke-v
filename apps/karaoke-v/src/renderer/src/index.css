@@ -1,6 +1,4 @@
 @import "tailwindcss";
-/* Overlay scrollbars for the settings window; see ui/ScrollArea.tsx. */
-@import "overlayscrollbars/overlayscrollbars.css";
 
 @theme {
   --color-app: #2d2b2e;
@@ -16,6 +14,33 @@
   /* Tailwind's scale bottoms out at text-xs (12px); the 24px title bar wants
      smaller. */
   --text-2xs: 0.625rem;
+
+  --animate-collapse-down: collapse-down 200ms ease-out;
+  --animate-collapse-up: collapse-up 200ms ease-out;
+
+  /* Radix measures the folded-away content and hands the height over in this
+     variable; nothing else in the app knows how tall a group is. */
+  @keyframes collapse-down {
+    from {
+      height: 0;
+      opacity: 0;
+    }
+    to {
+      height: var(--radix-collapsible-content-height);
+      opacity: 1;
+    }
+  }
+
+  @keyframes collapse-up {
+    from {
+      height: var(--radix-collapsible-content-height);
+      opacity: 1;
+    }
+    to {
+      height: 0;
+      opacity: 0;
+    }
+  }
 }
 
 @layer base {
@@ -34,22 +59,18 @@
   }
 
   /* Tailwind's preflight resets buttons to cursor: default. Anything clickable
-     in this app gets the pointer instead — including labels that wrap a
-     control, which is how Switch is built. */
+     in this app gets the pointer instead. */
   button,
   select,
   summary,
   [role="button"],
-  input[type="checkbox"],
-  input[type="radio"],
   input[type="color"],
-  input[type="range"],
-  input[type="file"],
-  label:has(input:not(:disabled)) {
+  input[type="file"] {
     cursor: pointer;
   }
 
   button:disabled,
+  button[data-disabled],
   select:disabled,
   input:disabled {
     cursor: default;
