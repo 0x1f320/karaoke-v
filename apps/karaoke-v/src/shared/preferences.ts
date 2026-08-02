@@ -84,6 +84,12 @@ export type EffectPreset = EffectSettings & {
 export type Preferences = {
   /** Draw note bounding boxes on the overlay. */
   debug: boolean
+  /**
+   * Master switch for the note effects, owned by the toolbar. Off silences
+   * glow and particles whatever their own `enabled` says — that pair stays as
+   * the user left it, so flipping this back on restores the same look.
+   */
+  effects: boolean
   particles: ParticlePreferences
   glow: GlowPreferences
   /** User-saved looks, in the order they appear in the picker. */
@@ -100,6 +106,7 @@ export type Preferences = {
 
 export const DEFAULT_PREFERENCES: Preferences = {
   debug: false,
+  effects: true,
   particles: {
     enabled: true,
     rate: 90,
@@ -163,6 +170,7 @@ export const GLOW_LIMITS = {
 /** A partial update. Nested groups may be partial too — one slider at a time. */
 export type PreferencesPatch = {
   debug?: boolean
+  effects?: boolean
   particles?: Partial<ParticlePreferences>
   glow?: Partial<GlowPreferences>
   /** The whole list, always: adding, renaming and deleting all rewrite it. */
@@ -179,6 +187,7 @@ export type PreferencesPatch = {
 export function mergePreferences(base: Preferences, patch: PreferencesPatch): Preferences {
   const next: Preferences = {
     debug: patch.debug ?? base.debug,
+    effects: patch.effects ?? base.effects,
     particles: { ...base.particles, ...patch.particles },
     glow: { ...base.glow, ...patch.glow },
     presets: patch.presets ?? base.presets,
@@ -294,9 +303,15 @@ export function sanitizePreferences(input: unknown): PreferencesPatch {
   if (typeof input !== "object" || input === null) {
     return out
   }
-  const { debug, particles, glow, presets, activePreset } = input as Record<string, unknown>
+  const { debug, effects, particles, glow, presets, activePreset } = input as Record<
+    string,
+    unknown
+  >
   if (typeof debug === "boolean") {
     out.debug = debug
+  }
+  if (typeof effects === "boolean") {
+    out.effects = effects
   }
   if (typeof activePreset === "string" || activePreset === null) {
     out.activePreset = activePreset

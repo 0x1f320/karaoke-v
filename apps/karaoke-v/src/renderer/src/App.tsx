@@ -59,12 +59,13 @@ function Overlay() {
     let glow = glowParams(DEFAULT_PREFERENCES.glow)
     const adopt = (p: {
       debug: boolean
+      effects: boolean
       particles: ParticlePreferences
       glow: GlowPreferences
     }) => {
       debug = p.debug
-      particles = particleParams(p.particles)
-      glow = glowParams(p.glow)
+      particles = { ...particleParams(p.particles), enabled: p.effects && p.particles.enabled }
+      glow = { ...glowParams(p.glow), enabled: p.effects && p.glow.enabled }
     }
     window.preferences.get().then(adopt)
     const unsubscribe = window.preferences.onChange(adopt)

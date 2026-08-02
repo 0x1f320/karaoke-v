@@ -11,16 +11,19 @@ const TONES = {
   danger: "text-danger opacity-75 hover:opacity-100",
 } as const
 
+const ON = "text-accent opacity-100"
+
 export function IconButton({
   tone = "default",
+  on = false,
   className = "",
   type = "button",
   ...props
-}: ComponentProps<"button"> & { tone?: keyof typeof TONES }) {
+}: ComponentProps<"button"> & { tone?: keyof typeof TONES; on?: boolean }) {
   return (
     <button
       type={type}
-      className={`inline-flex aspect-square items-center justify-center outline-none transition-opacity active:opacity-100 ${TONES[tone]} ${className}`.trim()}
+      className={`inline-flex aspect-square items-center justify-center outline-none transition-opacity active:opacity-100 ${on ? ON : TONES[tone]} ${className}`.trim()}
       {...props}
     />
   )
