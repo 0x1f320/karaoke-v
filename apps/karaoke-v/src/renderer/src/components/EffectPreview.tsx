@@ -17,6 +17,10 @@ const NOTE_HEIGHT = 24
 const NOTE_INSET_X = 28
 /** Pitch step between consecutive notes. */
 const NOTE_STEP_Y = 20
+/** The playhead line — white, so it reads against any effect colour. */
+const PLAYHEAD_CSS = "rgba(255, 255, 255, 0.85)"
+/** CSS px; off the Tailwind scale, so it is set inline. */
+const PLAYHEAD_WIDTH = 1.5
 
 export function EffectPreview({
   particles,
@@ -26,6 +30,10 @@ export function EffectPreview({
   glow: GlowPreferences
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
+  // A DOM line rather than a Pixi one: the overlay never draws a playhead —
+  // SynthV has its own — so this stays a preview affordance and out of the
+  // shared renderer.
+  const headRef = useRef<HTMLDivElement>(null)
   // Read inside the loop rather than captured, so moving a slider takes effect
   // without tearing down the scene.
   const prefsRef = useRef({ particles, glow })
@@ -116,6 +124,14 @@ export function EffectPreview({
       if (sounding) {
         lastStrike = strike
       }
+
+      const head = headRef.current
+      if (head) {
+        // Centred on the emission point rather than starting at it, so the
+        // line straddles where the particles actually come from.
+        head.style.transform = `translateX(${headX - PLAYHEAD_WIDTH / 2}px)`
+        head.style.opacity = sounding ? "1" : "0"
+      }
     }
     raf = requestAnimationFrame(draw)
 
@@ -126,8 +142,13 @@ export function EffectPreview({
   }, [])
 
   return (
-    <div className="overflow-hidden rounded-md border border-border bg-titlebar">
+    <div className="relative overflow-hidden rounded-md border border-border bg-titlebar">
       <div ref={hostRef} className="block h-32 w-full" />
+      <div
+        ref={headRef}
+        className="pointer-events-none absolute inset-y-0 left-0 opacity-0"
+        style={{ background: PLAYHEAD_CSS, width: PLAYHEAD_WIDTH }}
+      />
     </div>
   )
 }
