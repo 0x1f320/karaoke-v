@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react"
 
-// One entry in a sidebar nav. `active` marks the current section.
+// One entry in a sidebar nav. `active` marks the current section. Children lay
+// out in a row, so an icon can sit before the label.
 export function NavItem({
   active = false,
   className = "",
@@ -11,7 +12,7 @@ export function NavItem({
   return (
     <button
       type={type}
-      className={`rounded px-3 py-1.5 text-left text-sm outline-none transition-colors ${tone} ${className}`.trim()}
+      className={`flex items-center gap-2 rounded px-3 py-1.5 text-left text-sm outline-none transition-colors ${tone} ${className}`.trim()}
       {...props}
     />
   )
