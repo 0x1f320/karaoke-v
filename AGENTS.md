@@ -22,3 +22,9 @@ Examples:
 - `feat(app): render playback controls`
 - `fix(app): correct window sizing on macOS`
 - `chore(project): configure turbo remote cache`
+
+## Language
+
+Anything written into the repository or posted to GitHub is in **English**: commit
+messages, PR titles, and **PR bodies**. This holds no matter which language the work is
+being discussed in — a Korean conversation still produces an English PR body.
