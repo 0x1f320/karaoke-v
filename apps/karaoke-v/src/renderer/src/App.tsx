@@ -116,8 +116,12 @@ function Overlay() {
 
       // Boxes are a debug visualization but the playing-note effect is not, so
       // the viewport is read whenever either has something to show — atomically
-      // at paint time, so position data is as fresh as possible.
-      const vp = debug || transport.playing ? window.overlay.getViewport() : null
+      // at paint time, so position data is as fresh as possible. Effects already
+      // in flight count as something to show: stopping playback stops feeding
+      // them, but they still have to be drawn (and kept aligned to scroll) until
+      // they have faded out on their own.
+      const vp =
+        debug || transport.playing || renderer.effectsActive ? window.overlay.getViewport() : null
 
       // Scroll movement since the accepted read, in exact pixels. Without a live
       // vertical reference the y position is unknowable — draw nothing rather

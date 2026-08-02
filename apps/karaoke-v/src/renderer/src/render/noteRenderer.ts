@@ -116,6 +116,15 @@ export class NoteRenderer {
     return this.app !== null
   }
 
+  /**
+   * True while an effect still has something in flight. The draw loop keeps
+   * feeding real viewport data until this goes false, so that stopping playback
+   * lets the last sparks and the glow release instead of cutting them off.
+   */
+  get effectsActive(): boolean {
+    return (this.particles?.active ?? false) || (this.glow?.active ?? false)
+  }
+
   /** Container for future effect layers. Null until init resolves. */
   get effects(): Container | null {
     return this.effectsLayer

@@ -147,6 +147,11 @@ export class ParticleField {
     }
   }
 
+  /** True while sparks are still in flight. */
+  get active(): boolean {
+    return this.live.length > 0
+  }
+
   update(dt: number): void {
     for (let i = this.live.length - 1; i >= 0; i--) {
       const p = this.live[i]

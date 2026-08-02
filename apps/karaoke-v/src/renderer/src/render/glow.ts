@@ -68,6 +68,11 @@ export class GlowFlash {
     layer.addChild(this.sprite)
   }
 
+  /** True while there is still brightness left to release. */
+  get active(): boolean {
+    return this.sustain + this.burst >= CUTOFF
+  }
+
   /** Strike — call when a new note starts sounding. */
   flash(): void {
     this.burst = 1
