@@ -1,10 +1,5 @@
 import * as winHelper from "@karaoke-v/windows-helper"
-import type {
-  BridgeMessage,
-  BridgeNote,
-  BridgePayload,
-  BridgeStatus,
-} from "../shared/bridge"
+import type { BridgeMessage, BridgeNote, BridgePayload, BridgeStatus } from "../shared/bridge"
 
 // The Windows half of the bridge. macOS receives finished payloads over the
 // clipboard; here the script publishes raw state into shared memory instead, and

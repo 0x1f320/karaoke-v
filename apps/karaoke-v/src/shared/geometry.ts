@@ -1,7 +1,7 @@
 import type {
   PianoRoll as MacPianoRoll,
-  Rect,
   Viewport as MacViewport,
+  Rect,
 } from "@karaoke-v/macos-helper"
 
 // The geometry the renderer works in, kept apart from native.ts so the web build

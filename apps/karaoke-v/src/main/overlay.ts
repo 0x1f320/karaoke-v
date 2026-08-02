@@ -1,6 +1,6 @@
 import path from "node:path"
-import { native } from "../shared/native"
 import { BrowserWindow } from "electron"
+import { native } from "../shared/native"
 
 // The overlay window: transparent, click-through, always-on-top, covering the
 // whole SynthV window. It is otherwise inert — all per-frame work (AX reads,

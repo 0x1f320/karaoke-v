@@ -1,6 +1,6 @@
 import * as macHelper from "@karaoke-v/macos-helper"
-import type { PianoRoll, Rect, Viewport } from "./geometry"
 import * as winHelper from "@karaoke-v/windows-helper"
+import type { PianoRoll, Rect, Viewport } from "./geometry"
 
 // One native surface for both platforms. The two helpers arrive at the same
 // answers from opposite directions — macOS reads geometry out of the

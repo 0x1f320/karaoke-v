@@ -1,6 +1,6 @@
 import path from "node:path"
-import { native } from "../shared/native"
 import { BrowserWindow, screen } from "electron"
+import { native } from "../shared/native"
 
 // The sticky toolbar: a narrow frameless strip docked beside the SynthV window.
 // The follow loop lives in main/index.ts (shared with the overlay window) —

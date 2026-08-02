@@ -36,9 +36,7 @@ contextBridge.exposeInMainWorld("overlay", {
     return viewport && toDipViewport(dip, viewport)
   },
   readNotes: (): Promise<PianoRoll | null> =>
-    native
-      .getPianoRollAsync(NATIVE_TARGET)
-      .then((read) => read && toDipPianoRoll(dip, read)),
+    native.getPianoRollAsync(NATIVE_TARGET).then((read) => read && toDipPianoRoll(dip, read)),
 })
 
 // Transport data from the SynthV bridge script. Main owns the one receiver and

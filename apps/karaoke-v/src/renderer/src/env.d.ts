@@ -1,5 +1,5 @@
-import type { PianoRoll, Viewport } from "../../shared/geometry"
 import type { BridgeMessage } from "../../shared/bridge"
+import type { PianoRoll, Viewport } from "../../shared/geometry"
 import type { Preferences, PreferencesPatch } from "../../shared/preferences"
 
 declare global {

@@ -1,5 +1,5 @@
-import type { PianoRoll, Rect } from "../../shared/geometry"
 import { useEffect, useRef } from "react"
+import type { PianoRoll, Rect } from "../../shared/geometry"
 import {
   DEFAULT_PREFERENCES,
   type GlowPreferences,
