@@ -198,15 +198,24 @@ PianoRollResult prCompute(pid_t pid) {
   double cw = d.vbar.origin.x - cx;
   double chh = d.hbar.origin.y - cy;
 
-  // Content group = the widest group confined to the canvas region (starts at/left
-  // of the visible edge, sits within the canvas vertically). Confining excludes the
-  // full-window group so it can't win by width when zoomed out.
+  // Content group = the widest group confined to the canvas region vertically and
+  // overlapping it horizontally. Vertical confinement is what excludes the
+  // full-window group, so it can't win by width when zoomed out.
+  //
+  // Horizontal position is deliberately NOT constrained. The content group's left
+  // edge is where the content begins, which only coincides with the canvas' left
+  // edge when the note group starts at the very beginning of the view. Requiring
+  // that (it once read `gf.origin.x <= cx + 8`) dropped every candidate whenever
+  // the group sat mid-viewport, leaving getViewport with nothing to read — and a
+  // null viewport means the overlay draws nothing at all, so the notes looked
+  // undetected even though the walk had found them.
   CGRect content = CGRectMake(cx, cy, cw, chh);  // fallback: no scroll info
   AXUIElementRef contentEl = nullptr;
   CGFloat best = -1;
   for (auto &g : d.groups) {
     const CGRect &gf = g.first;
-    if (gf.origin.x <= cx + 8 && gf.origin.y >= cy - 8 && gf.origin.y + gf.size.height <= cy + chh + 8 &&
+    if (gf.origin.x < cx + cw - 8 && gf.origin.x + gf.size.width > cx + 8 &&
+        gf.origin.y >= cy - 8 && gf.origin.y + gf.size.height <= cy + chh + 8 &&
         gf.size.width > best) {
       best = gf.size.width;
       content = gf;
@@ -438,11 +447,22 @@ Napi::Value GetPianoRollAsync(const Napi::CallbackInfo &info) {
 // Cheap read: canvas rect + scroll/zoom from the cached elements (no walk).
 Napi::Value GetViewport(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  if (!gPrContent || !gPrHbar || !gPrVbar) {
+  if (!gPrHbar || !gPrVbar) {
     return env.Null();
   }
-  CGRect content, hbar, vbar;
-  if (!axFrame(gPrContent, &content) || !axFrame(gPrHbar, &hbar) || !axFrame(gPrVbar, &vbar)) {
+  CGRect hbar, vbar;
+  if (!axFrame(gPrHbar, &hbar) || !axFrame(gPrVbar, &vbar)) {
+    prClearCache();
+    return env.Null();
+  }
+  // No content group means no scroll reference — the same case prCompute falls
+  // back on, so answer the same way it does (contentX = the canvas' left edge)
+  // rather than returning null. Null here blanks the overlay on every frame,
+  // which is far worse than a scroll correction that reads as zero between the
+  // note reads.
+  CGRect content = CGRectMake(hbar.origin.x, vbar.origin.y, vbar.origin.x - hbar.origin.x,
+                              hbar.origin.y - vbar.origin.y);
+  if (gPrContent && !axFrame(gPrContent, &content)) {
     prClearCache();
     return env.Null();
   }
