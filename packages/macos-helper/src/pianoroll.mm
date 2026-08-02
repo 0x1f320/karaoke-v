@@ -7,8 +7,8 @@
 // refresh notes without hitching. Both cache the geometry elements so
 // getViewport() can re-read the scroll/zoom + canvas cheaply (~µs) each frame.
 //
-// The canvas rect comes from the two largest scrollbars (robust); the content
-// group (for scroll/zoom) is the widest group aligned to the canvas' top-left.
+// The canvas rect comes from the note area's scrollbar pair (see prCompute); the
+// content group (for scroll/zoom) is the widest group aligned to the canvas' top-left.
 
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
@@ -21,15 +21,30 @@
 
 namespace {
 
-// Accumulator during the tree walk.
+// Slack for matching a scrollbar pair to the same box: bars sit a few px outside
+// the content they bound, and the two need not end at exactly the same pixel.
+constexpr double kBarSlack = 16;
+
+// A candidate element and its frame at walk time. The walk retains every
+// candidate; prCompute picks and releases the rest.
+using Cand = std::pair<CGRect, AXUIElementRef>;
+
+// Accumulator during the tree walk. Scrollbars are collected rather than picked
+// here: which vertical bar belongs to the note area can only be decided once the
+// horizontal one is known, and that is not settled until the walk is over.
 struct Walked {
-  CGRect hbar = CGRectNull;
-  CGRect vbar = CGRectNull;
-  AXUIElementRef hbarEl = nullptr;
-  AXUIElementRef vbarEl = nullptr;
-  std::vector<std::pair<CGRect, AXUIElementRef>> groups;  // large group candidates (retained)
-  std::vector<std::pair<CGRect, AXUIElementRef>> notes;   // note-shaped candidates (retained)
+  std::vector<Cand> hbars;   // horizontal scrollbars (retained)
+  std::vector<Cand> vbars;   // vertical scrollbars (retained)
+  std::vector<Cand> groups;  // large group candidates (retained)
+  std::vector<Cand> notes;   // note-shaped candidates (retained)
 };
+
+void prReleaseAll(std::vector<Cand> &v) {
+  for (auto &c : v) {
+    if (c.second) CFRelease(c.second);
+  }
+  v.clear();
+}
 
 // Computed result (screen points) + geometry elements for the viewport cache.
 struct PianoRollResult {
@@ -51,12 +66,6 @@ struct PianoRollResult {
   AXUIElementRef hbarEl = nullptr;
   AXUIElementRef vbarEl = nullptr;
 };
-
-void prPick(AXUIElementRef el, CGRect f, CGRect &rect, AXUIElementRef &ref) {
-  rect = f;
-  if (ref) CFRelease(ref);
-  ref = (AXUIElementRef)CFRetain(el);
-}
 
 // Cached elements from the last full read, so getViewport reads cheaply.
 AXUIElementRef gPrContent = nullptr;
@@ -126,13 +135,9 @@ void prWalk(AXUIElementRef el, int depth, Walked &d) {
     return;
   }
   if (!CGRectIsNull(f)) {
-    // The note-area scrollbars are the largest: widest horizontal, tallest vertical.
+    // Every scrollbar is a candidate; prCompute pairs them into the note area's.
     if ([role isEqualToString:@"AXScrollBar"]) {
-      if (f.size.width > f.size.height) {
-        if (CGRectIsNull(d.hbar) || f.size.width > d.hbar.size.width) prPick(el, f, d.hbar, d.hbarEl);
-      } else if (CGRectIsNull(d.vbar) || f.size.height > d.vbar.size.height) {
-        prPick(el, f, d.vbar, d.vbarEl);
-      }
+      (f.size.width > f.size.height ? d.hbars : d.vbars).push_back({f, (AXUIElementRef)CFRetain(el)});
     }
     // Content-group candidates: large groups (span the note area).
     if ([role isEqualToString:@"AXGroup"] && f.size.width >= 400 && f.size.height >= 400) {
@@ -181,22 +186,51 @@ PianoRollResult prCompute(pid_t pid) {
   prWalk(root ? root : axApp, 0, d);
   if (root) CFRelease(root);
   CFRelease(axApp);
-  if (CGRectIsNull(d.hbar) || CGRectIsNull(d.vbar)) {
-    for (auto &g : d.groups) {
-      if (g.second) CFRelease(g.second);
+
+  // The note area's scrollbar pair. The widest horizontal bar is reliably its
+  // own — nothing else in the window spans the note area. "Tallest vertical" is
+  // NOT: SynthV's side panels carry taller bars than the note area's (measured
+  // on 2 Pro: a 1320px panel bar against the note area's 966px). Picking by
+  // height alone chose a bar sitting LEFT of the canvas, so cw came out negative
+  // and every note and content-group candidate was silently filtered away —
+  // notes read as undetected while the walk was in fact finding them.
+  //
+  // So pick the vertical bar that PAIRS with the horizontal one: within its
+  // x-span, and not reaching below it. That is the bar bounding the same box.
+  const Cand *hpick = nullptr;
+  for (auto &b : d.hbars) {
+    if (!hpick || b.first.size.width > hpick->first.size.width) hpick = &b;
+  }
+  const Cand *vpick = nullptr;
+  if (hpick) {
+    const CGRect &hb = hpick->first;
+    for (auto &b : d.vbars) {
+      const CGRect &vb = b.first;
+      if (vb.origin.x <= hb.origin.x + kBarSlack) continue;                  // left of the canvas
+      if (vb.origin.x > hb.origin.x + hb.size.width + kBarSlack) continue;   // right of it
+      if (vb.origin.y + vb.size.height > hb.origin.y + kBarSlack) continue;  // runs past its bottom
+      if (!vpick || vb.size.height > vpick->first.size.height) vpick = &b;
     }
-    for (auto &nn : d.notes) {
-      if (nn.second) CFRelease(nn.second);
-    }
-    if (d.hbarEl) CFRelease(d.hbarEl);
-    if (d.vbarEl) CFRelease(d.vbarEl);
+  }
+  CGRect hbar = hpick ? hpick->first : CGRectNull;
+  CGRect vbar = vpick ? vpick->first : CGRectNull;
+  AXUIElementRef hbarEl = hpick ? (AXUIElementRef)CFRetain(hpick->second) : nullptr;
+  AXUIElementRef vbarEl = vpick ? (AXUIElementRef)CFRetain(vpick->second) : nullptr;
+  prReleaseAll(d.hbars);  // invalidates hpick/vpick — only the retained picks live on
+  prReleaseAll(d.vbars);
+
+  if (!hbarEl || !vbarEl) {
+    prReleaseAll(d.groups);
+    prReleaseAll(d.notes);
+    if (hbarEl) CFRelease(hbarEl);
+    if (vbarEl) CFRelease(vbarEl);
     return r;  // found = false
   }
 
-  double cx = d.hbar.origin.x;
-  double cy = d.vbar.origin.y;
-  double cw = d.vbar.origin.x - cx;
-  double chh = d.hbar.origin.y - cy;
+  double cx = hbar.origin.x;
+  double cy = vbar.origin.y;
+  double cw = vbar.origin.x - cx;
+  double chh = hbar.origin.y - cy;
 
   // Content group = the widest group confined to the canvas region vertically and
   // overlapping it horizontally. Vertical confinement is what excludes the
@@ -316,15 +350,10 @@ PianoRollResult prCompute(pid_t pid) {
   r.contentX = xRef;
   r.contentW = contentW;
   r.contentEl = contentEl ? (AXUIElementRef)CFRetain(contentEl) : nullptr;
-  r.hbarEl = d.hbarEl;  // transfer ownership
-  r.vbarEl = d.vbarEl;
-  d.hbarEl = d.vbarEl = nullptr;
-  for (auto &g : d.groups) {
-    if (g.second) CFRelease(g.second);
-  }
-  for (auto &nn : d.notes) {
-    if (nn.second) CFRelease(nn.second);
-  }
+  r.hbarEl = hbarEl;  // transfer ownership
+  r.vbarEl = vbarEl;
+  prReleaseAll(d.groups);
+  prReleaseAll(d.notes);
   return r;
 }
 
