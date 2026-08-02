@@ -2,6 +2,23 @@
 
 Minimal Electron + React app (Turborepo + pnpm workspace). Apps live in `apps/*`.
 
+## Code comments
+
+**Do not write comments by default.** Names, types and small functions are expected to
+carry the explanation; a comment that restates what the code already says is noise and
+must not be added.
+
+- Write a comment **only** when leaving it out could actually break the app or send the
+  next reader down the wrong path: a non-obvious invariant, an ordering or lifecycle
+  requirement, a workaround for a SynthV/Electron/macOS quirk, a native-boundary or
+  memory-lifetime rule, or a "changing this crashes/deadlocks X" warning. When you do
+  write one, say **why**, never what.
+- **Never comment UI code.** Anything under `apps/*/src/renderer` — components, JSX,
+  styles, layout, event handlers — gets no comments at all. If a piece of UI feels like
+  it needs explaining, extract a well-named component, hook or constant instead.
+- Existing comments are not a licence to add more; when you touch code whose comment has
+  gone stale, fix or delete it.
+
 ## Commit & PR conventions
 
 All **commit messages** and **PR titles** MUST follow
