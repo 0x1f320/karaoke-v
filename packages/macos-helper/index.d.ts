@@ -48,6 +48,9 @@ export interface PianoRoll {
   /** False when vertical scroll moved during the read — note y values are then
    *  mutually skewed and the read should be discarded. */
   yStable: boolean
+  /** False when horizontal scroll or zoom moved during the read — note x values
+   *  and widths are then mutually skewed and the read should be discarded. */
+  xStable: boolean
   /** Visible note rects, global screen points. */
   notes: Rect[]
 }

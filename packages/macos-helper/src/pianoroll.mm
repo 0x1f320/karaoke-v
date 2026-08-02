@@ -61,6 +61,9 @@ struct PianoRollResult {
   // False when the chips moved vertically during this read: their y values are
   // then mutually skewed (no per-chip y reference exists) — discard the read.
   bool yStable = true;
+  // False when horizontal scroll or zoom moved during this read: chip x values
+  // and widths are then mutually skewed — discard the read.
+  bool xStable = true;
   std::vector<CGRect> notes;
   AXUIElementRef contentEl = nullptr;
   AXUIElementRef hbarEl = nullptr;
@@ -297,6 +300,11 @@ PianoRollResult prCompute(pid_t pid) {
   } else {
     for (size_t i = 0; i < els.size(); i++) chips.push_back({rawChips[i], els[i]});
   }
+  CGRect contentAfter = CGRectNull;
+  if (contentEl && axFrame(contentEl, &contentAfter) &&
+      (fabs(contentAfter.origin.x - xRef) > 0.5 || fabs(contentAfter.size.width - contentW) > 0.5)) {
+    r.xStable = false;
+  }
 
   // Visible chips: x-intersect the canvas, in consistent (normalized) coords.
   std::vector<std::pair<CGRect, AXUIElementRef>> vis;
@@ -370,6 +378,7 @@ Napi::Object prBuild(Napi::Env env, const PianoRollResult &r) {
   out.Set("contentW", num(r.contentW));
   out.Set("refY", num(r.refY));
   out.Set("yStable", Napi::Boolean::New(env, r.yStable));
+  out.Set("xStable", Napi::Boolean::New(env, r.xStable));
   Napi::Array notes = Napi::Array::New(env, r.notes.size());
   for (size_t i = 0; i < r.notes.size(); i++) {
     Napi::Object no = Napi::Object::New(env);
@@ -388,15 +397,16 @@ Napi::Object prBuild(Napi::Env env, const PianoRollResult &r) {
 // read is discarded by the caller, and swapping the reference underneath the
 // caller's last accepted read would make refY deltas compare different chips.
 void prAdopt(PianoRollResult &r) {
+  bool stable = r.xStable && r.yStable;
   AXUIElementRef keepRef = nullptr;
-  if (!r.yStable && gPrRef) {
+  if (!stable && gPrRef) {
     keepRef = (AXUIElementRef)CFRetain(gPrRef);
   }
   prClearCache();
   gPrContent = r.contentEl;
   gPrHbar = r.hbarEl;
   gPrVbar = r.vbarEl;
-  if (r.yStable) {
+  if (stable) {
     gPrRef = r.refEl;
   } else {
     gPrRef = keepRef;
