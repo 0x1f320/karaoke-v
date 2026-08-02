@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Overlay scrollbars for the settings window; see ui/ScrollArea.tsx. */
+@import "overlayscrollbars/overlayscrollbars.css";
 
 @theme {
   --color-app: #2d2b2e;

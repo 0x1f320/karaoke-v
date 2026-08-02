@@ -1,7 +1,8 @@
 import type { PianoRoll, Viewport } from "@karaoke-v/macos-helper"
 import * as macHelper from "@karaoke-v/macos-helper"
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron"
-import type { Preferences } from "../shared/preferences"
+import type { BridgeMessage } from "../shared/bridge"
+import type { Preferences, PreferencesPatch } from "../shared/preferences"
 
 // The renderer reads AX directly (requires sandbox: false): getViewport at rAF
 // time for zero-lag positioning, and getPianoRollAsync in a background pump for
@@ -9,6 +10,21 @@ import type { Preferences } from "../shared/preferences"
 contextBridge.exposeInMainWorld("overlay", {
   getViewport: (): Viewport | null => macHelper.getViewport(),
   readNotes: (): Promise<PianoRoll | null> => macHelper.getPianoRollAsync("synth"),
+})
+
+// Transport data from the SynthV bridge script. Main owns the one clipboard
+// watcher and fans payloads out; monotonicNow reads the same clock the payload
+// was stamped with, so its age is measurable without comparing process clocks.
+contextBridge.exposeInMainWorld("bridge", {
+  last: (): Promise<BridgeMessage | null> => ipcRenderer.invoke("bridge:last"),
+  monotonicNow: (): number => macHelper.monotonicNow(),
+  onPayload: (callback: (message: BridgeMessage) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, message: BridgeMessage) => callback(message)
+    ipcRenderer.on("bridge:payload", handler)
+    return () => {
+      ipcRenderer.off("bridge:payload", handler)
+    }
+  },
 })
 
 // Window management stays in main — the toolbar just asks for it. Not named
@@ -21,7 +37,7 @@ contextBridge.exposeInMainWorld("settings", {
 // because each update is broadcast back to all of them.
 contextBridge.exposeInMainWorld("preferences", {
   get: (): Promise<Preferences> => ipcRenderer.invoke("preferences:get"),
-  update: (patch: Partial<Preferences>): Promise<Preferences> =>
+  update: (patch: PreferencesPatch): Promise<Preferences> =>
     ipcRenderer.invoke("preferences:update", patch),
   onChange: (callback: (prefs: Preferences) => void): (() => void) => {
     const handler = (_event: IpcRendererEvent, prefs: Preferences) => callback(prefs)

@@ -1,7 +1,12 @@
 import fs from "node:fs"
 import path from "node:path"
 import { app, BrowserWindow, ipcMain } from "electron"
-import { DEFAULT_PREFERENCES, type Preferences, sanitizePreferences } from "../shared/preferences"
+import {
+  DEFAULT_PREFERENCES,
+  mergePreferences,
+  type Preferences,
+  sanitizePreferences,
+} from "../shared/preferences"
 
 // Preferences live in a JSON file under userData, so they survive restarts.
 // The file is read once into memory; each update rewrites it and pushes the new
@@ -25,7 +30,7 @@ function load(): Preferences {
   } catch {
     // No file yet, or it is unreadable/corrupt — fall back to the defaults.
   }
-  cache = { ...DEFAULT_PREFERENCES, ...sanitizePreferences(stored) }
+  cache = mergePreferences(DEFAULT_PREFERENCES, sanitizePreferences(stored))
   return cache
 }
 
@@ -34,7 +39,7 @@ export function getPreferences(): Preferences {
 }
 
 export function updatePreferences(patch: unknown): Preferences {
-  const next = { ...load(), ...sanitizePreferences(patch) }
+  const next = mergePreferences(load(), sanitizePreferences(patch))
   cache = next
 
   try {

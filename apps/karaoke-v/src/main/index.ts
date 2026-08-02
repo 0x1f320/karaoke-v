@@ -1,5 +1,6 @@
 import * as macHelper from "@karaoke-v/macos-helper"
 import { app, type BrowserWindow, ipcMain } from "electron"
+import { registerBridgeIpc, startBridge, stopBridge } from "./bridge"
 import { createOverlayWindow, positionOverlay } from "./overlay"
 import { registerPreferencesIpc } from "./preferences"
 import { openSettingsWindow } from "./settings"
@@ -18,6 +19,7 @@ app.whenReady().then(() => {
     app.dock.hide()
   }
   registerPreferencesIpc()
+  registerBridgeIpc()
   ipcMain.handle("settings:open", () => openSettingsWindow())
 
   overlayWin = createOverlayWindow()
@@ -52,9 +54,18 @@ app.whenReady().then(() => {
       }
     },
   })
+
+  // Last: window tracking is the core of the app, so a bridge that fails to
+  // start (a stale native build, say) must not take it down with it.
+  try {
+    startBridge()
+  } catch (error) {
+    console.error("failed to start the SynthV bridge receiver:", error)
+  }
 })
 
 app.on("before-quit", () => {
+  stopBridge()
   macHelper.stop()
 })
 
