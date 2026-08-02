@@ -241,6 +241,17 @@ function EffectsSection({
             <SettingRow label="크기" description="노트 높이에 대한 빛의 반지름 배율입니다.">
               {glowSlider("size", `${glow.size.toFixed(1)}배`)}
             </SettingRow>
+            <SettingRow
+              label="지터"
+              description="소리가 나는 동안 빛이 부들부들 떨리는 정도입니다. 0이면 흔들리지 않습니다."
+            >
+              {glowSlider("jitter", `${Math.round(glow.jitter * 100)}%`)}
+            </SettingRow>
+            {glow.jitter > 0 && (
+              <SettingRow label="지터 속도" description="빛이 떨리는 빠르기입니다.">
+                {glowSlider("jitterRate", `${Math.round(glow.jitterRate)}회/초`)}
+              </SettingRow>
+            )}
             <SettingRow label="색상" description="빛을 칠할 색상입니다.">
               <ColorInput
                 value={glow.color}

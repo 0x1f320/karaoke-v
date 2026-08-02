@@ -36,6 +36,8 @@ export function glowParams(prefs: GlowPreferences): GlowParams {
     level: prefs.level,
     flash: prefs.flash,
     size: prefs.size,
+    jitter: prefs.jitter,
+    jitterRate: prefs.jitterRate,
     color: hexToInt(prefs.color),
   }
 }
