@@ -37,14 +37,14 @@ export function App() {
 }
 
 function Overlay() {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const hostRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) {
+    const host = hostRef.current
+    if (!host) {
       return
     }
-    const renderer = new NoteRenderer(canvas)
+    const renderer = new NoteRenderer(host)
 
     // Latest accepted full read. Notes are absolute screen coords as of read
     // time; the draw loop shifts them by how far scroll has moved since —
@@ -227,5 +227,5 @@ function Overlay() {
     }
   }, [])
 
-  return <canvas ref={canvasRef} className="fixed inset-0 block h-full w-full" />
+  return <div ref={hostRef} className="fixed inset-0 block h-full w-full" />
 }
