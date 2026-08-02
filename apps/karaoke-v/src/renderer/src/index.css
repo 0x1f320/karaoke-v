@@ -64,7 +64,6 @@
   select,
   summary,
   [role="button"],
-  input[type="color"],
   input[type="file"] {
     cursor: pointer;
   }
@@ -75,4 +74,32 @@
   input:disabled {
     cursor: default;
   }
+}
+
+/* react-colorful injects its own stylesheet at runtime, so these cannot live in
+   a Tailwind layer — unlayered rules would outrank them. Everything here is
+   scoped a level deeper than the rules it overrides to win on specificity
+   rather than on load order. */
+.color-picker.react-colorful {
+  width: 100%;
+  height: auto;
+  gap: 0.625rem;
+}
+
+.color-picker .react-colorful__saturation {
+  height: 7.5rem;
+  border-bottom: none;
+  border-radius: 0.375rem;
+}
+
+.color-picker .react-colorful__hue {
+  height: 0.75rem;
+  border-radius: 9999px;
+}
+
+.color-picker .react-colorful__pointer {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-width: 2px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.5);
 }
