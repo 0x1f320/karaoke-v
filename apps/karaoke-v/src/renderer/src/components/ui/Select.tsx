@@ -1,35 +1,63 @@
-import { ChevronsUpDown } from "lucide-react"
-import type { ComponentProps } from "react"
+import { Check, ChevronsUpDown } from "lucide-react"
+import { Select as SelectPrimitive } from "radix-ui"
+import type { ReactNode } from "react"
+import { useDisabled } from "./disabled"
 
-// Pick one of an open-ended list. Segmented covers the closed handful; this
-// covers the case where the entries are the user's own and there is no telling
-// how many there will be.
-//
-// A real <select> underneath: the popup, the keyboard handling and the
-// type-ahead are the platform's. Only the closed state is restyled — the
-// chevron is drawn beside it and the control's own arrow is taken off with
-// appearance-none.
 export function Select({
+  value,
+  onValueChange,
+  disabled,
   className = "",
   children,
   ...props
-}: Omit<ComponentProps<"select">, "size">) {
+}: {
+  value: string
+  onValueChange: (value: string) => void
+  disabled?: boolean
+  className?: string
+  children: ReactNode
+  "aria-label"?: string
+}) {
   return (
-    <div className={`relative inline-flex items-center ${className}`.trim()}>
-      <select
-        // The popup itself is the platform's to draw, and it takes its colours
-        // from the scheme rather than from these classes.
-        className="w-full appearance-none rounded-md border border-border bg-black/15 py-1.5 pr-8 pl-2.5 text-xs text-fg outline-none [color-scheme:dark] focus-visible:border-accent"
+    <SelectPrimitive.Root
+      value={value}
+      onValueChange={onValueChange}
+      disabled={useDisabled(disabled)}
+    >
+      <SelectPrimitive.Trigger
         {...props}
+        className={`inline-flex items-center justify-between gap-2 rounded-md border border-border bg-black/15 py-1.5 pr-2.5 pl-2.5 text-xs text-fg outline-none select-none focus-visible:border-accent data-[state=open]:border-accent ${className}`.trim()}
       >
-        {children}
-      </select>
-      <ChevronsUpDown
-        size={13}
-        strokeWidth={2}
-        aria-hidden="true"
-        className="pointer-events-none absolute right-2.5 text-muted"
-      />
-    </div>
+        <span className="truncate">
+          <SelectPrimitive.Value />
+        </span>
+        <SelectPrimitive.Icon className="flex-none text-muted">
+          <ChevronsUpDown size={13} strokeWidth={2} aria-hidden="true" />
+        </SelectPrimitive.Icon>
+      </SelectPrimitive.Trigger>
+      <SelectPrimitive.Portal>
+        <SelectPrimitive.Content
+          position="popper"
+          sideOffset={4}
+          className="z-50 max-h-64 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-border bg-app text-fg shadow-xl"
+        >
+          <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
+        </SelectPrimitive.Content>
+      </SelectPrimitive.Portal>
+    </SelectPrimitive.Root>
+  )
+}
+
+export function SelectItem({ value, children }: { value: string; children: ReactNode }) {
+  return (
+    <SelectPrimitive.Item
+      value={value}
+      className="relative flex cursor-pointer items-center rounded py-1.5 pr-2 pl-6 text-xs outline-none select-none data-highlighted:bg-white/10"
+    >
+      <SelectPrimitive.ItemIndicator className="absolute left-1.5 text-accent">
+        <Check size={12} strokeWidth={2.5} aria-hidden="true" />
+      </SelectPrimitive.ItemIndicator>
+      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    </SelectPrimitive.Item>
   )
 }

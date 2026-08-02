@@ -1,14 +1,28 @@
-import type { ComponentProps } from "react"
+import { Switch as SwitchPrimitive } from "radix-ui"
+import { useDisabled } from "./disabled"
 
-// On/off toggle for a SettingRow control slot. A real checkbox drives it — the
-// input is visually hidden and the track/knob follow it via peer-checked, so
-// clicking the label, keyboard focus and form semantics all still work.
-export function Switch({ className = "", ...props }: Omit<ComponentProps<"input">, "type">) {
+export function Switch({
+  checked,
+  onCheckedChange,
+  disabled,
+  className = "",
+  ...props
+}: {
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+  disabled?: boolean
+  className?: string
+  "aria-label"?: string
+}) {
   return (
-    <label className={`relative inline-flex items-center ${className}`.trim()}>
-      <input type="checkbox" className="peer sr-only" {...props} />
-      <span className="h-5 w-9 rounded-full bg-border transition-colors peer-checked:bg-accent" />
-      <span className="pointer-events-none absolute left-0.5 size-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
-    </label>
+    <SwitchPrimitive.Root
+      {...props}
+      checked={checked}
+      onCheckedChange={onCheckedChange}
+      disabled={useDisabled(disabled)}
+      className={`relative h-5 w-9 flex-none rounded-full bg-border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-app data-[state=checked]:bg-accent ${className}`.trim()}
+    >
+      <SwitchPrimitive.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform data-[state=checked]:translate-x-4.5" />
+    </SwitchPrimitive.Root>
   )
 }
