@@ -84,4 +84,43 @@ function disableAnimations(view) {
   loadNative().disableAnimations(view)
 }
 
-module.exports = { start, stop, disableAnimations, getPianoRoll, getPianoRollAsync, getViewport }
+/**
+ * Watch the clipboard for payloads from the SynthV bridge script. The script
+ * writes a marked payload on transport events and takes it back shortly after,
+ * so this catches blips rather than reading a stream — anything unmarked is the
+ * user's own clipboard and is ignored.
+ * @param {object} options
+ * @param {string} options.marker prefix identifying our payloads
+ * @param {(text: string, monotonicMs: number) => void} options.onPayload
+ *   raw payload text, plus the addon-clock timestamp of when it was detected
+ */
+function startBridge(options) {
+  loadNative().startBridge({ marker: options.marker, onPayload: options.onPayload })
+}
+
+function stopBridge() {
+  if (native) {
+    native.stopBridge()
+  }
+}
+
+/**
+ * Reading of the same monotonic clock the bridge stamps payloads with, so a
+ * payload's age can be measured without assuming anything about process clocks.
+ * @returns {number} milliseconds
+ */
+function monotonicNow() {
+  return loadNative().monotonicNow()
+}
+
+module.exports = {
+  start,
+  stop,
+  disableAnimations,
+  getPianoRoll,
+  getPianoRollAsync,
+  getViewport,
+  startBridge,
+  stopBridge,
+  monotonicNow,
+}

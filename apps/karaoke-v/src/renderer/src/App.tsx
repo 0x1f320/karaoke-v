@@ -1,8 +1,16 @@
-import type { PianoRoll } from "@karaoke-v/macos-helper"
+import type { PianoRoll, Rect } from "@karaoke-v/macos-helper"
 import { useEffect, useRef } from "react"
+import {
+  DEFAULT_PREFERENCES,
+  type GlowPreferences,
+  type ParticlePreferences,
+} from "../../shared/preferences"
 import { Settings } from "./components/Settings"
 import { Toolbar } from "./components/Toolbar"
-import { NoteRenderer, type Rgba } from "./render/noteRenderer"
+import { locateNote } from "./playback/locate"
+import { Transport } from "./playback/transport"
+import { NoteRenderer } from "./render/noteRenderer"
+import { BORDER_PX, FILL, glowParams, PLAYING_FILL, particleParams, STROKE } from "./render/palette"
 
 // Interval between full note reads. Note positions are corrected per-frame from
 // the viewport read, so this only bounds how stale the note SET can be (edits,
@@ -10,10 +18,6 @@ import { NoteRenderer, type Rgba } from "./render/noteRenderer"
 const NOTE_READ_GAP_MS = 30
 // Back-off when SynthV / the piano roll isn't found.
 const NOT_FOUND_RETRY_MS = 500
-
-const FILL: Rgba = [80 / 255, 180 / 255, 255 / 255, 0.25]
-const STROKE: Rgba = [120 / 255, 210 / 255, 255 / 255, 0.9]
-const BORDER_PX = 1
 
 // One renderer bundle serves every window; each is loaded with the hash naming
 // its view, the overlay with no hash.
@@ -47,12 +51,24 @@ function Overlay() {
     // Bounding boxes are a debug visualization. Default off, and off until the
     // stored value arrives, so nothing flashes on startup.
     let debug = false
-    window.preferences.get().then((p) => {
+    let particles = particleParams(DEFAULT_PREFERENCES.particles)
+    let glow = glowParams(DEFAULT_PREFERENCES.glow)
+    const adopt = (p: {
+      debug: boolean
+      particles: ParticlePreferences
+      glow: GlowPreferences
+    }) => {
       debug = p.debug
-    })
-    const unsubscribe = window.preferences.onChange((p) => {
-      debug = p.debug
-    })
+      particles = particleParams(p.particles)
+      glow = glowParams(p.glow)
+    }
+    window.preferences.get().then(adopt)
+    const unsubscribe = window.preferences.onChange(adopt)
+
+    // Playback state from the SynthV bridge. It only speaks on transport events;
+    // the playhead in between comes from the local clock.
+    const transport = new Transport()
+    transport.start()
 
     let alive = true
 
@@ -81,17 +97,22 @@ function Overlay() {
     // The note set only reaches the GPU when the pump accepts a new read; every
     // other frame is one transform update and a re-render.
     let uploaded: PianoRoll | null = null
+    // The read whose coordinate frame the live particles are currently in.
+    let based: PianoRoll | null = null
+    // Onset of the note last seen sounding, so a change can strike the glow.
+    // Tracked from the schedule, not the rect: a note still starts even on a
+    // frame where it could not be matched to one.
+    let soundingOnset: number | null = null
     const draw = () => {
       raf = requestAnimationFrame(draw)
       const dpr = window.devicePixelRatio || 1
       const w = window.innerWidth
       const h = window.innerHeight
 
-      // Boxes are all this draws for now, so with debug off there is nothing to
-      // position and the AX read is skipped entirely.
-      // Otherwise: atomic cheap read at paint time, so position data is as fresh
-      // as possible.
-      const vp = debug ? window.overlay.getViewport() : null
+      // Boxes are a debug visualization but the playing-note effect is not, so
+      // the viewport is read whenever either has something to show — atomically
+      // at paint time, so position data is as fresh as possible.
+      const vp = debug || transport.playing ? window.overlay.getViewport() : null
 
       // Scroll movement since the accepted read, in exact pixels. Without a live
       // vertical reference the y position is unknowable — draw nothing rather
@@ -113,17 +134,56 @@ function Overlay() {
           fill: FILL,
           stroke: STROKE,
           border: BORDER_PX,
+          playing: null,
+          playingFill: PLAYING_FILL,
+          emit: null,
+          particles,
+          noteStarted: false,
+          glow,
         })
         return
       }
 
-      if (uploaded !== read) {
-        renderer.setNotes(read.notes)
-        uploaded = read
+      // Live particles are positioned in the current read's frame, so they have
+      // to move with it when the pump replaces the set mid-flight.
+      if (based && based !== read) {
+        renderer.rebaseEffects(read.contentX - based.contentX, read.refY - based.refY)
+      }
+      based = read
+
+      // The note set is only drawn in debug, but it is always read: it is what
+      // says where a note actually is on screen.
+      const wanted = debug ? read : null
+      if (uploaded !== wanted) {
+        renderer.setNotes(wanted ? wanted.notes : [])
+        uploaded = wanted
       }
 
       const dx = vp.contentX - read.contentX
       const dy = vp.refY - read.refY
+
+      // Which note is sounding, and which rect is it? The bridge answers the
+      // first exactly; only the AX read can answer the second.
+      let hit: Rect | null = null
+      let progress = 0
+      let onset: number | null = null
+      const view = transport.view
+      const seconds = transport.playing ? transport.playhead(window.bridge.monotonicNow()) : null
+      if (view && seconds !== null) {
+        const note = transport.noteAt(seconds)
+        if (note) {
+          onset = note.onB
+          hit = locateNote(note, view, vp, read.notes, dx)
+          const span = note.offS - note.onS
+          progress = span > 0 ? Math.min(Math.max((seconds - note.onS) / span, 0), 1) : 0
+        }
+      }
+      const noteStarted = onset !== null && onset !== soundingOnset
+      soundingOnset = onset
+
+      // Sparks come off where the playhead is inside the note, not off the note
+      // as a whole — that is what makes the effect read as following the sound.
+      const emit = hit ? { x: hit.x + hit.w * progress, y: hit.y + hit.h / 2, spread: hit.h } : null
 
       // The overlay window covers the whole SynthV window; map global screen
       // coords to window-local ones and clip to the note canvas so nothing draws
@@ -140,6 +200,12 @@ function Overlay() {
         fill: FILL,
         stroke: STROKE,
         border: BORDER_PX,
+        playing: debug ? hit : null,
+        playingFill: PLAYING_FILL,
+        emit,
+        particles,
+        noteStarted,
+        glow,
       })
     }
     raf = requestAnimationFrame(draw)
@@ -148,6 +214,7 @@ function Overlay() {
       alive = false
       cancelAnimationFrame(raf)
       unsubscribe()
+      transport.stop()
       renderer.dispose()
     }
   }, [])

@@ -83,3 +83,26 @@ export function getPianoRollAsync(target?: string): Promise<PianoRoll | null>
  * — safe per-frame. Null until getPianoRoll has run, or if the cache went stale.
  */
 export function getViewport(): Viewport | null
+
+export interface BridgeOptions {
+  /** Prefix identifying our payloads; anything else on the clipboard is the user's. */
+  marker: string
+  /** Raw payload text, plus the addon-clock time (ms) at which it was detected. */
+  onPayload(text: string, monotonicMs: number): void
+}
+
+/**
+ * Watch the clipboard for payloads from the SynthV bridge script. The script
+ * writes on transport events and takes the payload back shortly after, so this
+ * catches blips rather than reading a stream.
+ */
+export function startBridge(options: BridgeOptions): void
+
+/** Stop watching the clipboard. */
+export function stopBridge(): void
+
+/**
+ * Reading of the same monotonic clock used to stamp payloads, so their age can
+ * be measured without assuming anything about process clocks.
+ */
+export function monotonicNow(): number

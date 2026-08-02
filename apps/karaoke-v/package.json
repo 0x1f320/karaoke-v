@@ -14,6 +14,8 @@
   "dependencies": {
     "@karaoke-v/macos-helper": "workspace:*",
     "lucide-react": "^1.28.0",
+    "overlayscrollbars": "^2.16.0",
+    "overlayscrollbars-react": "^0.5.6",
     "pixi.js": "^8.19.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

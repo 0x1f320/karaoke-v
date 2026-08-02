@@ -1,0 +1,157 @@
+import { type Container, Sprite, type Texture } from "pixi.js"
+
+// Sparks thrown off wherever the playhead is crossing a note.
+//
+// Particles live in the same coordinate space as the note rects, which is the
+// space of whichever AX read is current — so when a read is replaced mid-flight,
+// rebase() shifts the live ones by the same delta the notes moved. Without that
+// they jump every time the pump lands during a scroll.
+
+const MAX_PARTICLES = 600
+
+/** Spread of individual lifetimes around the configured one. */
+const LIFE_JITTER = 0.3
+/** Slowest launch as a fraction of the fastest, so the rise is not a solid front. */
+const RISE_JITTER = 0.65
+/**
+ * Downward pull, as a multiple of spreadY / life². Tying it to the settings
+ * rather than fixing it in px/s² keeps the arc the same shape when the sliders
+ * move — otherwise a long lifetime turns the spray into a fountain.
+ */
+const ARC = 0.9
+const SIZE_MIN = 2.5
+const SIZE_MAX = 6
+
+export interface ParticleParams {
+  enabled: boolean
+  /** Sparks per second. */
+  rate: number
+  /** Seconds one spark lasts. */
+  life: number
+  /** Sideways reach over a lifetime, px. */
+  spreadX: number
+  /** Upward reach over a lifetime, px. */
+  spreadY: number
+  /** Width of the band sparks are born along, px. */
+  originX: number
+  /** 0xRRGGBB. */
+  color: number
+}
+
+interface Particle {
+  sprite: Sprite
+  vx: number
+  vy: number
+  /** Per-particle, since it is derived from the settings at emit time. */
+  gravity: number
+  age: number
+  life: number
+  size: number
+}
+
+function between(min: number, max: number): number {
+  return min + Math.random() * (max - min)
+}
+
+export class ParticleField {
+  private readonly live: Particle[] = []
+  private readonly pool: Sprite[] = []
+
+  constructor(layer: Container, texture: Texture) {
+    // Sprites are allocated once. Emission is bursty and per-frame, so churning
+    // display objects would be the expensive part, not the maths.
+    for (let i = 0; i < MAX_PARTICLES; i++) {
+      const sprite = new Sprite(texture)
+      sprite.anchor.set(0.5)
+      sprite.visible = false
+      sprite.blendMode = "add"
+      layer.addChild(sprite)
+      this.pool.push(sprite)
+    }
+  }
+
+  /**
+   * Throw `count` sparks from (x, y), scattered over `height` vertically.
+   *
+   * The settings are reaches in px, not speeds — that is what stays meaningful
+   * to a person moving a slider. Speeds fall out of reach over lifetime, so
+   * changing the lifetime restretches the same shape instead of also making
+   * everything fly further.
+   */
+  emit(x: number, y: number, height: number, count: number, params: ParticleParams): void {
+    const life = Math.max(params.life, 0.01)
+    const gravity = (ARC * params.spreadY) / (life * life)
+
+    for (let i = 0; i < count; i++) {
+      const sprite = this.pool.pop()
+      if (!sprite) {
+        return // saturated — dropping is better than stealing a live particle
+      }
+      sprite.visible = true
+      sprite.tint = params.color
+      sprite.position.set(
+        x + between(-params.originX / 2, params.originX / 2),
+        y + between(-height / 2, height / 2),
+      )
+      this.live.push({
+        sprite,
+        vx: (between(-1, 1) * params.spreadX) / life,
+        vy: (-between(RISE_JITTER, 1) * params.spreadY) / life,
+        gravity,
+        age: 0,
+        life: life * between(1 - LIFE_JITTER, 1 + LIFE_JITTER),
+        size: between(SIZE_MIN, SIZE_MAX),
+      })
+    }
+  }
+
+  update(dt: number): void {
+    for (let i = this.live.length - 1; i >= 0; i--) {
+      const p = this.live[i]
+      p.age += dt
+      if (p.age >= p.life) {
+        p.sprite.visible = false
+        this.pool.push(p.sprite)
+        this.live.splice(i, 1)
+        continue
+      }
+      p.vy += p.gravity * dt
+      p.sprite.x += p.vx * dt
+      p.sprite.y += p.vy * dt
+
+      const left = 1 - p.age / p.life
+      p.sprite.alpha = left
+      // Shrink as they fade, so they read as sparks rather than shrinking discs.
+      p.sprite.scale.set((p.size * (0.35 + 0.65 * left)) / 8)
+    }
+  }
+
+  /** Follow the note set into a new AX read's coordinate frame. */
+  rebase(dx: number, dy: number): void {
+    if (dx === 0 && dy === 0) {
+      return
+    }
+    for (const p of this.live) {
+      p.sprite.x += dx
+      p.sprite.y += dy
+    }
+  }
+
+  clear(): void {
+    for (const p of this.live) {
+      p.sprite.visible = false
+      this.pool.push(p.sprite)
+    }
+    this.live.length = 0
+  }
+
+  dispose(): void {
+    // clear() returns every live sprite to the pool, so the pool owns them all.
+    // Only our own sprites get destroyed — the layer is shared with the glow.
+    this.clear()
+    for (const sprite of this.pool) {
+      sprite.destroy()
+    }
+    this.pool.length = 0
+  }
+}
