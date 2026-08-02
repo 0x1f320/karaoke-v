@@ -7,7 +7,8 @@
 // refresh notes without hitching. Both cache the geometry elements so
 // getViewport() can re-read the scroll/zoom + canvas cheaply (~µs) each frame.
 //
-// The canvas rect comes from the note area's scrollbar pair (see prCompute); the
+// The canvas rect comes from the note area's scrollbar pair, less the group
+// banner strip those bars enclose above the lanes (see prCompute); the
 // content group (for scroll/zoom) is the widest group aligned to the canvas' top-left.
 
 #import <AppKit/AppKit.h>
@@ -24,6 +25,10 @@ namespace {
 // Slack for matching a scrollbar pair to the same box: bars sit a few px outside
 // the content they bound, and the two need not end at exactly the same pixel.
 constexpr double kBarSlack = 16;
+
+// One piano-roll lane. Chips are a fixed 24px tall (a note's lyric chip and the
+// phoneme chip above it); 28 leaves room for the pair-matching slack.
+constexpr double kLane = 28;
 
 // A candidate element and its frame at walk time. The walk retains every
 // candidate; prCompute picks and releases the rest.
@@ -50,6 +55,8 @@ void prReleaseAll(std::vector<Cand> &v) {
 struct PianoRollResult {
   bool found = false;
   CGRect canvas = CGRectZero;
+  // How far the note lanes start below the scrollbar box (the group banner strip).
+  double topInset = 0;
   double contentX = 0;
   double contentW = 0;
   // Vertical reference: one note chip's element + its y at read time. Nothing
@@ -75,8 +82,12 @@ AXUIElementRef gPrContent = nullptr;
 AXUIElementRef gPrHbar = nullptr;
 AXUIElementRef gPrVbar = nullptr;
 AXUIElementRef gPrRef = nullptr;  // vertical reference chip (from last stable read)
+// Banner inset from the last full read. Scalar rather than an element to re-read:
+// it only changes when the window layout does, and the notes pump refreshes it.
+double gPrTopInset = 0;
 
 void prClearCache() {
+  gPrTopInset = 0;
   if (gPrContent) {
     CFRelease(gPrContent);
     gPrContent = nullptr;
@@ -146,9 +157,16 @@ void prWalk(AXUIElementRef el, int depth, Walked &d) {
     if ([role isEqualToString:@"AXGroup"] && f.size.width >= 400 && f.size.height >= 400) {
       d.groups.push_back({f, (AXUIElementRef)CFRetain(el)});
     }
-    // Note-shaped groups (one lane tall). Collect loosely; filter to the canvas below.
+    // Note-shaped groups (one lane tall). Collect loosely; filter to the canvas
+    // below. Deliberately NO position test here: the canvas rect isn't known
+    // until the walk is over, so any absolute cutoff (this once read
+    // `f.origin.y > 400`, meant to skip toolbar-sized groups) is a guess about
+    // where the window sits on screen. With the window high on the display the
+    // canvas' top lanes fall above such a cutoff and their chips are dropped
+    // before the canvas filter ever sees them — notes at the top of the piano
+    // roll read as undetected. Off-canvas candidates are rejected below.
     if ([role isEqualToString:@"AXGroup"] && f.size.height >= 20 && f.size.height <= 28 &&
-        f.size.width >= 4 && f.origin.y > 400) {
+        f.size.width >= 4) {
       d.notes.push_back({f, (AXUIElementRef)CFRetain(el)});
     }
   }
@@ -235,6 +253,29 @@ PianoRollResult prCompute(pid_t pid) {
   double cw = vbar.origin.x - cx;
   double chh = hbar.origin.y - cy;
 
+  // The scrollbar box starts ABOVE the note lanes: SynthV draws the group banner
+  // ("Unnamed Track", a ~20px strip) inside it, and the lanes, the piano keyboard
+  // and the note fills all begin below that strip (measured: bars at y=280, lanes
+  // at y=300). Clipping the overlay to the scrollbar box therefore lets effects
+  // spill over the banner. The strip's own AXGroup sits at the canvas' top-left
+  // and is narrower than the canvas, so its height gives the inset directly —
+  // read it rather than hardcoding 20, and fall back to no inset when no such
+  // group exists.
+  double topInset = 0;
+  for (auto &nn : d.notes) {
+    const CGRect &f = nn.first;
+    if (f.size.height >= 24 || f.size.width >= cw) continue;  // a chip, or full width
+    if (fabs(f.origin.x - cx) > 2 || fabs(f.origin.y - cy) > 2) continue;
+    topInset = fmax(topInset, f.origin.y + f.size.height - cy);
+  }
+  // Vertical confinement of the content group is tested against the scrollbar
+  // box, which is what the group is laid out in — the inset only trims what the
+  // overlay may paint on.
+  double cyRaw = cy;
+  double chhRaw = chh;
+  cy += topInset;
+  chh -= topInset;
+
   // Content group = the widest group confined to the canvas region vertically and
   // overlapping it horizontally. Vertical confinement is what excludes the
   // full-window group, so it can't win by width when zoomed out.
@@ -246,13 +287,13 @@ PianoRollResult prCompute(pid_t pid) {
   // the group sat mid-viewport, leaving getViewport with nothing to read — and a
   // null viewport means the overlay draws nothing at all, so the notes looked
   // undetected even though the walk had found them.
-  CGRect content = CGRectMake(cx, cy, cw, chh);  // fallback: no scroll info
+  CGRect content = CGRectMake(cx, cyRaw, cw, chhRaw);  // fallback: no scroll info
   AXUIElementRef contentEl = nullptr;
   CGFloat best = -1;
   for (auto &g : d.groups) {
     const CGRect &gf = g.first;
     if (gf.origin.x < cx + cw - 8 && gf.origin.x + gf.size.width > cx + 8 &&
-        gf.origin.y >= cy - 8 && gf.origin.y + gf.size.height <= cy + chh + 8 &&
+        gf.origin.y >= cyRaw - 8 && gf.origin.y + gf.size.height <= cyRaw + chhRaw + 8 &&
         gf.size.width > best) {
       best = gf.size.width;
       content = gf;
@@ -265,10 +306,19 @@ PianoRollResult prCompute(pid_t pid) {
   // x coordinates are skewed and can't be compared.
   std::vector<AXUIElementRef> els;
   std::vector<CGRect> rawChips;
+  // Chips are kept when they INTERSECT the band, not when their top sits inside
+  // it: the topmost visible lane is usually half-scrolled, so its chip starts a
+  // few px above the canvas — a top-edge test dropped exactly those notes.
+  //
+  // The band is also grown by one lane at both edges so pair-dedup sees a
+  // partner that fell just outside it. Without that, a note straddling the
+  // bottom edge keeps its phoneme chip (its lyric twin is out of the band) and
+  // draws a box on the label. Chips outside the canvas proper are dropped from
+  // the output below, after they have done their job as partners.
   for (auto &nn : d.notes) {
     const CGRect &n = nn.first;
     if (n.size.height < 22) continue;
-    if (n.origin.y >= cy - 2 && n.origin.y < cy + chh) {
+    if (n.origin.y + n.size.height > cy - kLane && n.origin.y < cy + chh + kLane) {
       els.push_back(nn.second);
       rawChips.push_back(n);
     }
@@ -335,6 +385,9 @@ PianoRollResult prCompute(pid_t pid) {
       }
     }
     if (!twinBelow) {
+      // Drop the out-of-canvas partners the band was widened for; they exist
+      // only so the dedup above can see them.
+      if (n.origin.y + n.size.height <= cy || n.origin.y >= cy + chh) continue;
       if (!r.refEl) {
         r.refEl = (AXUIElementRef)CFRetain(nn.second);
         r.refY = n.origin.y;
@@ -354,6 +407,7 @@ PianoRollResult prCompute(pid_t pid) {
   }
 
   r.found = true;
+  r.topInset = topInset;
   r.canvas = CGRectMake(cx, cy, cw, chh);
   r.contentX = xRef;
   r.contentW = contentW;
@@ -403,6 +457,7 @@ void prAdopt(PianoRollResult &r) {
     keepRef = (AXUIElementRef)CFRetain(gPrRef);
   }
   prClearCache();
+  gPrTopInset = r.topInset;
   gPrContent = r.contentEl;
   gPrHbar = r.hbarEl;
   gPrVbar = r.vbarEl;
@@ -524,7 +579,7 @@ Napi::Value GetViewport(const Napi::CallbackInfo &info) {
 
   auto num = [&](double v) { return Napi::Number::New(env, v); };
   double cx = hbar.origin.x;
-  double cy = vbar.origin.y;
+  double cy = vbar.origin.y + gPrTopInset;  // skip the group banner strip
   Napi::Object out = Napi::Object::New(env);
   Napi::Object canvas = Napi::Object::New(env);
   canvas.Set("x", num(cx));

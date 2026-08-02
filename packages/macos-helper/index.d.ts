@@ -36,7 +36,8 @@ export interface Rect {
 }
 
 export interface PianoRoll {
-  /** Visible piano-roll viewport, global screen points. */
+  /** Visible note lanes, global screen points. Bounded by the note area's
+   *  scrollbars, minus the group-banner strip they include at the top. */
   canvas: Rect
   /** Content group's left edge (screen x) = horizontal scroll offset. */
   contentX: number
