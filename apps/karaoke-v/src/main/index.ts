@@ -14,6 +14,18 @@ import { createToolbarWindow, positionToolbar } from "./toolbar"
 let overlayWin: BrowserWindow | null = null
 let toolbarWin: BrowserWindow | null = null
 
+// A second copy would attach its own stick observer and clipboard bridge to the
+// same SynthV window, so the two would fight over the overlay and the pasteboard.
+// Only the first instance survives; app.exit rather than app.quit because the
+// loser must be gone before "ready" fires and starts the observer.
+if (!app.requestSingleInstanceLock()) {
+  app.exit(0)
+}
+
+// The dock icon is hidden and the overlay only appears while SynthV is attached,
+// so a relaunch has nothing to raise — show settings as the visible ack instead.
+app.on("second-instance", () => openSettingsWindow())
+
 app.whenReady().then(() => {
   if (process.platform === "darwin" && app.dock) {
     app.dock.hide()
