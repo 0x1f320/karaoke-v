@@ -37,8 +37,8 @@ All **commit messages** and **PR titles** MUST follow
 | --- | --- |
 | `effects` | Note effects themselves — glow, particles, palettes, effect presets and their preview. |
 | `overlay` | The piano-roll overlay surface: transparent window, Pixi stage, coordinate mapping, alignment through scroll/zoom. |
-| `bridge` | The SynthV data channel: script API, clipboard bridge, playhead/note/transport data and the shared types carrying it. |
-| `native` | The macOS helper add-on: Accessibility probing, piano-roll geometry, window sticking and occlusion, its native build. |
+| `bridge` | The SynthV data channel: script API, clipboard and shared-memory transports, playhead/note/transport data and the shared types carrying it. |
+| `native` | The platform helper add-ons (macOS, Windows): Accessibility/UI Automation probing, piano-roll geometry, window sticking and occlusion, their native builds. |
 | `toolbar` | The floating toolbar and its controls. |
 | `settings` | Settings window, preferences storage, and shared UI primitives. |
 | `shell` | Electron app shell: process/window lifecycle, dev server and HMR, packaging and distribution. |

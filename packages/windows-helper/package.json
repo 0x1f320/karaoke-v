@@ -1,0 +1,20 @@
+{
+  "name": "@karaoke-v/windows-helper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native Windows addon for karaoke-v: reads the SynthV bridge script's shared buffer out of the SynthV process, and the piano-roll geometry through UI Automation.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "os": [
+    "win32"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.3.0"
+  },
+  "devDependencies": {
+    "node-gyp": "^11.0.0"
+  }
+}
