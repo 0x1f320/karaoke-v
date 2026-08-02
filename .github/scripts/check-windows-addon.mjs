@@ -10,7 +10,8 @@ const require = createRequire(import.meta.url)
 const helper = require("../../packages/windows-helper/index.js")
 const native = require("../../packages/windows-helper/build/Release/winhelper.node")
 
-const EXPORTS = [
+// Everything main.cc registers.
+const NATIVE = [
   "attach",
   "detach",
   "isAttached",
@@ -31,8 +32,34 @@ const EXPORTS = [
   "monotonicNow",
 ]
 
-for (const name of EXPORTS) {
+// The public surface, which is deliberately not the native one: findCanvas and
+// getCanvasRect stay internal, and getViewport/getPianoRoll are assembled here.
+const PUBLIC = [
+  "attach",
+  "detach",
+  "isAttached",
+  "readState",
+  "getScheduleRevision",
+  "readSchedule",
+  "sendCommand",
+  "getViewport",
+  "getPianoRoll",
+  "getPianoRollAsync",
+  "start",
+  "stop",
+  "follow",
+  "unfollow",
+  "getTargetFrame",
+  "getTargetOrigin",
+  "disableAnimations",
+  "monotonicNow",
+  "listElements",
+]
+
+for (const name of NATIVE) {
   assert.equal(typeof native[name], "function", `winhelper.node is missing ${name}()`)
+}
+for (const name of PUBLIC) {
   assert.equal(typeof helper[name], "function", `index.js is missing ${name}()`)
 }
 
@@ -41,4 +68,6 @@ assert.equal(helper.isAttached(), false)
 assert.equal(helper.attach("no-such-process-here"), null)
 assert.ok(helper.monotonicNow() > 0)
 
-console.log(`windows-helper: ${EXPORTS.length} exports present, addon loads`)
+console.log(
+  `windows-helper: addon loads, ${NATIVE.length} native and ${PUBLIC.length} public exports present`,
+)
