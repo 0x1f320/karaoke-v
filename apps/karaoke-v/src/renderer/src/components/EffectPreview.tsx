@@ -21,18 +21,18 @@ export function EffectPreview({
   particles: ParticlePreferences
   glow: GlowPreferences
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const hostRef = useRef<HTMLDivElement>(null)
   // Read inside the loop rather than captured, so moving a slider takes effect
   // without tearing down the scene.
   const prefsRef = useRef({ particles, glow })
   prefsRef.current = { particles, glow }
 
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) {
+    const host = hostRef.current
+    if (!host) {
       return
     }
-    const renderer = new NoteRenderer(canvas)
+    const renderer = new NoteRenderer(host)
     const period = SWEEP_SEC + REST_SEC
     const start = performance.now()
     let lastCycle = -1
@@ -41,8 +41,8 @@ export function EffectPreview({
 
     const draw = () => {
       raf = requestAnimationFrame(draw)
-      const w = canvas.clientWidth
-      const h = canvas.clientHeight
+      const w = host.clientWidth
+      const h = host.clientHeight
       if (w === 0 || h === 0) {
         return
       }
@@ -107,7 +107,7 @@ export function EffectPreview({
 
   return (
     <div className="overflow-hidden rounded-md border border-border bg-titlebar">
-      <canvas ref={canvasRef} className="block h-32 w-full" />
+      <div ref={hostRef} className="block h-32 w-full" />
     </div>
   )
 }

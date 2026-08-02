@@ -96,7 +96,17 @@ export class NoteRenderer {
   private playingRect: Rect | null = null
   private playingFill: Rgba | null = null
 
-  constructor(canvas: HTMLCanvasElement) {
+  // The canvas belongs to the renderer, not to React. Tearing a WebGL renderer
+  // down loses its context for good — the canvas can never be drawn on again —
+  // so a canvas kept across renderers (a React-owned <canvas>, e.g. over an HMR
+  // reload) would come back dead and draw nothing. Owning it means every
+  // renderer starts on a fresh one and disposal takes it with it.
+  constructor(host: HTMLElement) {
+    const canvas = document.createElement("canvas")
+    canvas.style.display = "block"
+    canvas.style.width = "100%"
+    canvas.style.height = "100%"
+    host.appendChild(canvas)
     this.canvas = canvas
     void this.init()
   }
@@ -127,7 +137,7 @@ export class NoteRenderer {
       powerPreference: "low-power",
     })
     if (this.disposed) {
-      app.destroy(true)
+      app.destroy({ removeView: true }, { children: true })
       return
     }
     app.ticker.stop()
@@ -331,8 +341,11 @@ export class NoteRenderer {
     this.particles = null
     this.glow?.dispose()
     this.glow = null
-    this.app?.destroy(true, { children: true })
+    this.app?.destroy({ removeView: true }, { children: true })
     this.app = null
+    // Also covers disposal before init resolved, when there is no app to take
+    // the canvas with it.
+    this.canvas.remove()
     this.content = null
     this.notes = null
     this.playing = null
