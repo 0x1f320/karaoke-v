@@ -1,5 +1,5 @@
 import path from "node:path"
-import { app, BrowserWindow } from "electron"
+import { app, BrowserWindow, screen } from "electron"
 
 // The settings window: an ordinary framed window, opened from the toolbar. It
 // is a singleton — reopening focuses the existing one instead of stacking.
@@ -7,15 +7,37 @@ import { app, BrowserWindow } from "electron"
 const SIZE = { width: 800, height: 800 }
 
 let win: BrowserWindow | null = null
+let anchorWin: BrowserWindow | null = null
+
+// The toolbar follows SynthV across monitors, so the settings window belongs on
+// whichever display the toolbar currently sits on.
+export function setSettingsAnchorWindow(anchor: BrowserWindow): void {
+  anchorWin = anchor
+}
+
+function centeredBounds(): { x: number; y: number } {
+  const display =
+    anchorWin && !anchorWin.isDestroyed()
+      ? screen.getDisplayMatching(anchorWin.getBounds())
+      : screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const { x, y, width, height } = display.workArea
+  return {
+    x: Math.round(x + (width - SIZE.width) / 2),
+    y: Math.round(y + (height - SIZE.height) / 2),
+  }
+}
 
 export function openSettingsWindow(): void {
   if (win && !win.isDestroyed()) {
+    const { x, y } = centeredBounds()
+    win.setPosition(x, y)
     win.show()
     win.focus()
     return
   }
 
   win = new BrowserWindow({
+    ...centeredBounds(),
     width: SIZE.width,
     height: SIZE.height,
     title: "설정",
