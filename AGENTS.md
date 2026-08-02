@@ -8,19 +8,39 @@ All **commit messages** and **PR titles** MUST follow
 [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): subject`.
 
 - **The scope is required** — always fill it in whenever it can reasonably be determined.
-- **Choosing the scope:**
-  - Changes to project-wide linting/formatting, build orchestration (Turborepo, root
-    scripts), workspace config, or anything affecting the global/root area →
-    use **`project`**. e.g. `chore(project): bump biome`, `ci(project): add typecheck job`.
-  - Changes concentrated in one monorepo package → use **that package's name** (the
-    package name without the `@karaoke-v/` prefix). e.g. for `@karaoke-v/app` →
-    `feat(app): add settings screen`.
+- The scope names the **feature area**, not the package or layer the code happens to
+  live in. A single feature routinely spans `apps/karaoke-v` and
+  `packages/macos-helper`; that is expected and does not change the scope.
+- Use one of the scopes below. The list is expected to grow as the project does, but
+  **never invent a scope on your own**: if a change genuinely does not fit any existing
+  scope, stop and ask the developer whether to add one, and only then add it to this
+  table in the same commit.
+
+| Scope | Covers |
+| --- | --- |
+| `effects` | Note effects themselves — glow, particles, palettes, effect presets and their preview. |
+| `overlay` | The piano-roll overlay surface: transparent window, Pixi stage, coordinate mapping, alignment through scroll/zoom. |
+| `bridge` | The SynthV data channel: script API, clipboard bridge, playhead/note/transport data and the shared types carrying it. |
+| `native` | The macOS helper add-on: Accessibility probing, piano-roll geometry, window sticking and occlusion, its native build. |
+| `toolbar` | The floating toolbar and its controls. |
+| `settings` | Settings window, preferences storage, and shared UI primitives. |
+| `shell` | Electron app shell: process/window lifecycle, dev server and HMR, packaging and distribution. |
+| `project` | Repo-wide concerns: linting/formatting, Turborepo and root scripts, workspace config, CI, docs about the repo itself. |
+
+- **Picking between two scopes:** choose the area whose *behaviour* the change is
+  about, not where the diff is biggest. Fixing AX geometry so the overlay stops
+  drifting is `fix(overlay): …`; teaching the helper a new AX capability nothing yet
+  consumes is `feat(native): …`.
+- If a change really touches many areas at once, that is usually a sign it should be
+  split into several commits.
 
 Common `type`s: `feat`, `fix`, `chore`, `refactor`, `docs`, `test`, `build`, `ci`, `style`, `perf`.
 
 Examples:
-- `feat(app): render playback controls`
-- `fix(app): correct window sizing on macOS`
+- `feat(effects): add a per-note glow falloff control`
+- `fix(overlay): keep the overlay aligned through horizontal scroll and zoom`
+- `fix(native): detect notes at the top of the piano roll`
+- `feat(bridge): stream note lyrics from the SynthV script API`
 - `chore(project): configure turbo remote cache`
 
 ## Language
