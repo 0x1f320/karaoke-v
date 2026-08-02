@@ -1,23 +1,52 @@
-import type { PianoRoll, Viewport } from "@karaoke-v/macos-helper"
-import * as macHelper from "@karaoke-v/macos-helper"
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron"
 import type { BridgeMessage } from "../shared/bridge"
+import {
+  type DipTransform,
+  IDENTITY_DIP,
+  isWindows,
+  native,
+  type PianoRoll,
+  toDipPianoRoll,
+  toDipViewport,
+  type Viewport,
+} from "../shared/native"
 import type { Preferences, PreferencesPatch } from "../shared/preferences"
 
-// The renderer reads AX directly (requires sandbox: false): getViewport at rAF
-// time for zero-lag positioning, and getPianoRollAsync in a background pump for
-// always-fresh notes. No main-process hop in the per-frame path.
-contextBridge.exposeInMainWorld("overlay", {
-  getViewport: (): Viewport | null => macHelper.getViewport(),
-  readNotes: (): Promise<PianoRoll | null> => macHelper.getPianoRollAsync("synth"),
+// The helper reports in native units — points on macOS, physical pixels on
+// Windows — and only main can ask Electron for the mapping to DIPs, so it pushes
+// the transform here and the conversion happens locally. Doing it per read would
+// mean an IPC hop in the per-frame path, which is exactly what this file exists
+// to avoid.
+let dip: DipTransform = IDENTITY_DIP
+ipcRenderer.on("native:dip", (_event, transform: DipTransform) => {
+  dip = transform
+})
+ipcRenderer.invoke("native:dip").then((transform: DipTransform) => {
+  dip = transform
 })
 
-// Transport data from the SynthV bridge script. Main owns the one clipboard
-// watcher and fans payloads out; monotonicNow reads the same clock the payload
-// was stamped with, so its age is measurable without comparing process clocks.
+const NATIVE_TARGET = isWindows ? "synthv-studio" : "synth"
+
+// The renderer reads geometry directly (requires sandbox: false): getViewport at
+// rAF time for zero-lag positioning, and getPianoRollAsync in a background pump
+// for always-fresh notes. No main-process hop in the per-frame path.
+contextBridge.exposeInMainWorld("overlay", {
+  getViewport: (): Viewport | null => {
+    const viewport = native.getViewport()
+    return viewport && toDipViewport(dip, viewport)
+  },
+  readNotes: (): Promise<PianoRoll | null> =>
+    native
+      .getPianoRollAsync(NATIVE_TARGET)
+      .then((read) => read && toDipPianoRoll(dip, read)),
+})
+
+// Transport data from the SynthV bridge script. Main owns the one receiver and
+// fans payloads out; monotonicNow reads the same clock the payload was stamped
+// with, so its age is measurable without comparing process clocks.
 contextBridge.exposeInMainWorld("bridge", {
   last: (): Promise<BridgeMessage | null> => ipcRenderer.invoke("bridge:last"),
-  monotonicNow: (): number => macHelper.monotonicNow(),
+  monotonicNow: (): number => native.monotonicNow(),
   onPayload: (callback: (message: BridgeMessage) => void): (() => void) => {
     const handler = (_event: IpcRendererEvent, message: BridgeMessage) => callback(message)
     ipcRenderer.on("bridge:payload", handler)

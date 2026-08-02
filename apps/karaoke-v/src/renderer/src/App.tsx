@@ -1,4 +1,4 @@
-import type { PianoRoll, Rect } from "@karaoke-v/macos-helper"
+import type { PianoRoll, Rect } from "../../shared/geometry"
 import { useEffect, useRef } from "react"
 import {
   DEFAULT_PREFERENCES,
@@ -200,8 +200,11 @@ function Overlay() {
       // The overlay window covers the whole SynthV window; map global screen
       // coords to window-local ones and clip to the note canvas so nothing draws
       // over the phoneme lane, piano keys, or toolbars.
-      const ox = window.screenX
-      const oy = window.screenY
+      // The helper reports the window origin alongside the viewport when it can,
+      // and that pair is sampled together; window.screenX updates on its own
+      // schedule, so during a drag the two disagree and the drawing slides.
+      const ox = vp.origin ? vp.origin.x : window.screenX
+      const oy = vp.origin ? vp.origin.y : window.screenY
       renderer.draw({
         width: w,
         height: h,

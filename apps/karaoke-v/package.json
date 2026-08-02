@@ -6,13 +6,14 @@
   "main": "./out/main/index.js",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "rebuild:native": "electron-rebuild -f -o @karaoke-v/macos-helper",
+    "rebuild:native": "node scripts/rebuild-native.mjs",
     "dev": "pnpm rebuild:native && electron-vite dev --watch",
     "build": "electron-vite build",
     "start": "pnpm rebuild:native && electron ."
   },
   "dependencies": {
     "@karaoke-v/macos-helper": "workspace:*",
+    "@karaoke-v/windows-helper": "workspace:*",
     "lucide-react": "^1.28.0",
     "pixi.js": "^8.19.0",
     "radix-ui": "^1.6.7",
