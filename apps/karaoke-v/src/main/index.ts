@@ -3,7 +3,7 @@ import { app, type BrowserWindow, ipcMain } from "electron"
 import { registerBridgeIpc, startBridge, stopBridge } from "./bridge"
 import { createOverlayWindow, positionOverlay } from "./overlay"
 import { registerPreferencesIpc } from "./preferences"
-import { openSettingsWindow } from "./settings"
+import { openSettingsWindow, setSettingsAnchorWindow } from "./settings"
 import { createToolbarWindow, positionToolbar } from "./toolbar"
 
 // The main process wires two windows to the same native stick observer: the
@@ -36,6 +36,7 @@ app.whenReady().then(() => {
 
   overlayWin = createOverlayWindow()
   toolbarWin = createToolbarWindow()
+  setSettingsAnchorWindow(toolbarWin)
   if (process.platform !== "darwin") {
     return
   }
