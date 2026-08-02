@@ -33,6 +33,7 @@ export function particleParams(prefs: ParticlePreferences): ParticleParams {
 export function glowParams(prefs: GlowPreferences): GlowParams {
   return {
     enabled: prefs.enabled,
+    shape: prefs.shape,
     level: prefs.level,
     flash: prefs.flash,
     size: prefs.size,

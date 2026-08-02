@@ -34,9 +34,23 @@ export type ParticlePreferences = {
   color: string
 }
 
+/**
+ * What the light throws off. Every shape sits on the same round bloom; the rays
+ * are laid over it rather than replacing it.
+ *
+ * - `bloom` — the bed alone.
+ * - `cross` — four rays, upright.
+ * - `x` — four rays, diagonal.
+ * - `star` — both, the diagonals shorter.
+ */
+export type GlowShape = "bloom" | "cross" | "x" | "star"
+
+export const GLOW_SHAPES: readonly GlowShape[] = ["bloom", "cross", "x", "star"]
+
 /** The bloom riding on the playhead, struck anew at every note onset. */
 export type GlowPreferences = {
   enabled: boolean
+  shape: GlowShape
   /** Brightness held while a note sounds, 0..1. Zero turns it off. */
   level: number
   /** How long the onset spike takes to fade, seconds. */
@@ -99,6 +113,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   },
   glow: {
     enabled: true,
+    shape: "bloom",
     level: 0.5,
     flash: 0.11,
     size: 2.2,
@@ -235,6 +250,15 @@ function sanitizeParticles(input: unknown): Partial<ParticlePreferences> | undef
     : clean
 }
 
+function sanitizeGlow(input: unknown): Partial<GlowPreferences> | undefined {
+  const clean = sanitizeGroup(input, GLOW_LIMITS)
+  if (!clean) {
+    return undefined
+  }
+  const shape = (input as Record<string, unknown>).shape
+  return GLOW_SHAPES.includes(shape as GlowShape) ? { ...clean, shape: shape as GlowShape } : clean
+}
+
 /**
  * A preset must be whole — it is applied as a complete look, so anything the
  * stored entry is missing or got wrong falls back to the default rather than to
@@ -257,7 +281,7 @@ function sanitizePresets(input: unknown): EffectPreset[] | undefined {
       id,
       name: name.trim().slice(0, PRESET_LIMITS.nameLength),
       particles: { ...DEFAULT_EFFECTS.particles, ...sanitizeParticles(particles) },
-      glow: { ...DEFAULT_EFFECTS.glow, ...sanitizeGroup(glow, GLOW_LIMITS) },
+      glow: { ...DEFAULT_EFFECTS.glow, ...sanitizeGlow(glow) },
     })
   }
   return out
@@ -285,7 +309,7 @@ export function sanitizePreferences(input: unknown): PreferencesPatch {
   if (cleanParticles) {
     out.particles = cleanParticles
   }
-  const cleanGlow = sanitizeGroup(glow, GLOW_LIMITS)
+  const cleanGlow = sanitizeGlow(glow)
   if (cleanGlow) {
     out.glow = cleanGlow
   }
