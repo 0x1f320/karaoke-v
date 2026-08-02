@@ -1,6 +1,16 @@
 // Persisted user preferences. The main process owns the values and the
 // defaults; the renderer only ever imports the type.
 
+/**
+ * Which way sparks fly.
+ *
+ * - `directional` — all of them along `angle`, fanned out sideways by spreadX.
+ * - `radial` — outwards in every direction, spreadX/spreadY as the radii.
+ */
+export type ParticleDirection = "directional" | "radial"
+
+export const PARTICLE_DIRECTIONS: readonly ParticleDirection[] = ["directional", "radial"]
+
 /** Sparks thrown off where the playhead crosses a note. */
 export type ParticlePreferences = {
   enabled: boolean
@@ -8,9 +18,15 @@ export type ParticlePreferences = {
   rate: number
   /** How long one spark lasts, seconds. */
   life: number
-  /** Roughly how far a spark travels sideways over its life, px. */
+  direction: ParticleDirection
+  /** Where `directional` throws them, degrees clockwise from straight up. */
+  angle: number
+  /**
+   * Sideways reach over a life, px — perpendicular to `angle` when directional,
+   * the horizontal radius when radial.
+   */
   spreadX: number
-  /** Roughly how far a spark rises over its life, px. */
+  /** Reach along `angle` over a life, px; the vertical radius when radial. */
   spreadY: number
   /** Width of the band sparks are born along, px. 0 emits from a bare line. */
   originX: number
@@ -44,6 +60,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
     enabled: true,
     rate: 90,
     life: 0.65,
+    direction: "directional",
+    angle: 0,
     spreadX: 30,
     spreadY: 70,
     originX: 8,
@@ -62,6 +80,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
 export const PARTICLE_LIMITS = {
   rate: { min: 0, max: 300, step: 5 },
   life: { min: 0.1, max: 2, step: 0.05 },
+  // 355 rather than 360, so the top of the range is not a second way to say 0.
+  angle: { min: 0, max: 355, step: 5 },
   spreadX: { min: 0, max: 200, step: 5 },
   spreadY: { min: 0, max: 300, step: 5 },
   originX: { min: 0, max: 200, step: 2 },
@@ -150,7 +170,10 @@ export function sanitizePreferences(input: unknown): PreferencesPatch {
   }
   const cleanParticles = sanitizeGroup(particles, PARTICLE_LIMITS)
   if (cleanParticles) {
-    out.particles = cleanParticles
+    const direction = (particles as Record<string, unknown> | null)?.direction
+    out.particles = PARTICLE_DIRECTIONS.includes(direction as ParticleDirection)
+      ? { ...cleanParticles, direction: direction as ParticleDirection }
+      : cleanParticles
   }
   const cleanGlow = sanitizeGroup(glow, GLOW_LIMITS)
   if (cleanGlow) {
