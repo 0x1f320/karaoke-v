@@ -1,4 +1,5 @@
 import { type Container, Sprite, Texture } from "pixi.js"
+import type { GlowShape } from "../../../shared/preferences"
 
 // The bloom sitting on the playhead where it crosses a note.
 //
@@ -19,6 +20,7 @@ const JITTER_SHAKE = 0.14
 
 export interface GlowParams {
   enabled: boolean
+  shape: GlowShape
   /** 0xRRGGBB. */
   color: number
   /** Brightness held while a note sounds, 0..1. */
@@ -39,24 +41,105 @@ interface CoordinateFrame {
   refY: number
 }
 
-/** A soft radial falloff. A gradient reads far better than stacked circles at this size. */
-function makeGlowTexture(size = 256): Texture {
+/** Where a shape throws its rays: degrees clockwise from up, and how far out. */
+const RAYS: Record<GlowShape, readonly { angle: number; reach: number }[]> = {
+  bloom: [],
+  cross: [0, 90, 180, 270].map((angle) => ({ angle, reach: 1 })),
+  x: [45, 135, 225, 315].map((angle) => ({ angle, reach: 1 })),
+  star: [0, 90, 180, 270]
+    .map((angle) => ({ angle, reach: 1 }))
+    .concat([45, 135, 225, 315].map((angle) => ({ angle, reach: 0.55 }))),
+}
+
+/** A shaped glow's bright core, as a fraction of the sprite's radius. */
+const CORE_RADIUS = 0.44
+/** Half-width of a ray where it leaves the core, same units. */
+const RAY_WIDTH = 0.13
+/** How bright the round bed under a shape is, against the plain bloom. */
+const HALO_LEVEL = 0.45
+
+const TEXTURE_SIZE = 256
+
+/** Alpha down the radius. The falloff every round part of the glow shares. */
+const FALLOFF: readonly (readonly [number, number])[] = [
+  [0, 1],
+  [0.2, 0.6],
+  [0.5, 0.16],
+  [1, 0],
+]
+
+function paintDisc(ctx: CanvasRenderingContext2D, r: number, radius: number, level: number): void {
+  const gradient = ctx.createRadialGradient(r, r, 0, r, r, radius)
+  for (const [stop, alpha] of FALLOFF) {
+    gradient.addColorStop(stop, `rgba(255,255,255,${alpha * level})`)
+  }
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, r * 2, r * 2)
+}
+
+/** One streak along +x, pinched to a point at both ends and fading outwards. */
+function paintRay(ctx: CanvasRenderingContext2D, length: number, width: number): void {
+  const gradient = ctx.createLinearGradient(0, 0, length, 0)
+  gradient.addColorStop(0, "rgba(255,255,255,0.9)")
+  gradient.addColorStop(0.3, "rgba(255,255,255,0.32)")
+  gradient.addColorStop(1, "rgba(255,255,255,0)")
+  ctx.fillStyle = gradient
+  ctx.beginPath()
+  ctx.moveTo(0, -width)
+  ctx.quadraticCurveTo(length * 0.45, -width * 0.18, length, 0)
+  ctx.quadraticCurveTo(length * 0.45, width * 0.18, 0, width)
+  ctx.closePath()
+  ctx.fill()
+}
+
+/**
+ * Every shape is the same round bloom with its rays laid over it — a shape
+ * changes what the light throws off, never whether there is light there. A
+ * gradient reads far better than stacked circles at this size, and everything
+ * above the bed adds rather than painting over it, so the centre where the rays
+ * cross stays the brightest point.
+ */
+function makeGlowTexture(shape: GlowShape): Texture {
   const canvas = document.createElement("canvas")
-  canvas.width = size
-  canvas.height = size
+  canvas.width = TEXTURE_SIZE
+  canvas.height = TEXTURE_SIZE
   const ctx = canvas.getContext("2d")
   if (!ctx) {
     return Texture.WHITE
   }
-  const r = size / 2
-  const gradient = ctx.createRadialGradient(r, r, 0, r, r, r)
-  gradient.addColorStop(0, "rgba(255,255,255,1)")
-  gradient.addColorStop(0.2, "rgba(255,255,255,0.6)")
-  gradient.addColorStop(0.5, "rgba(255,255,255,0.16)")
-  gradient.addColorStop(1, "rgba(255,255,255,0)")
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, size, size)
+  const r = TEXTURE_SIZE / 2
+  const rays = RAYS[shape]
+  // Dimmed under a shape: at full strength the bed would swallow the rays, and
+  // all four shapes would come out looking like the plain bloom.
+  paintDisc(ctx, r, r, rays.length === 0 ? 1 : HALO_LEVEL)
+
+  ctx.globalCompositeOperation = "lighter"
+  if (rays.length > 0) {
+    paintDisc(ctx, r, r * CORE_RADIUS, 1)
+  }
+  for (const ray of rays) {
+    ctx.save()
+    ctx.translate(r, r)
+    // The table is degrees clockwise from up; canvas rotation starts from +x.
+    ctx.rotate(((ray.angle - 90) * Math.PI) / 180)
+    paintRay(ctx, r * ray.reach, r * RAY_WIDTH)
+    ctx.restore()
+  }
   return Texture.from(canvas)
+}
+
+// Built once per shape and shared: switching shapes mid-drag would otherwise
+// rasterise a 256px canvas on the frame the setting changes.
+const textures = new Map<GlowShape, Texture>()
+
+function glowTexture(shape: GlowShape): Texture {
+  const cached = textures.get(shape)
+  if (cached) {
+    return cached
+  }
+  const texture = makeGlowTexture(shape)
+  textures.set(shape, texture)
+  return texture
 }
 
 /**
@@ -96,7 +179,7 @@ export class GlowFlash {
   private readonly shakeY = new Tremble()
 
   constructor(layer: Container) {
-    this.sprite = new Sprite(makeGlowTexture())
+    this.sprite = new Sprite(glowTexture("bloom"))
     this.sprite.anchor.set(0.5)
     this.sprite.blendMode = "add"
     this.sprite.visible = false
@@ -143,6 +226,10 @@ export class GlowFlash {
     }
 
     this.sprite.visible = true
+    const texture = glowTexture(params.shape)
+    if (this.sprite.texture !== texture) {
+      this.sprite.texture = texture
+    }
     this.sprite.tint = params.color
     this.sprite.position.set(
       this.lastX + shakeX * this.lastHeight,

@@ -6,6 +6,7 @@ import {
   type EffectSettings,
   GLOW_LIMITS,
   type GlowPreferences,
+  type GlowShape,
   mergePreferences,
   PARTICLE_LIMITS,
   type ParticleDirection,
@@ -42,6 +43,13 @@ type SectionId = (typeof SECTIONS)[number]["id"]
 const DIRECTION_OPTIONS: readonly { value: ParticleDirection; label: string }[] = [
   { value: "directional", label: "한 방향" },
   { value: "radial", label: "방사형" },
+]
+
+const SHAPE_OPTIONS: readonly { value: GlowShape; label: string }[] = [
+  { value: "bloom", label: "원형" },
+  { value: "cross", label: "십자" },
+  { value: "x", label: "X자" },
+  { value: "star", label: "별" },
 ]
 
 // Picker entries that are not presets. Neither can collide with a preset id:
@@ -311,6 +319,14 @@ function EffectsSection({
             enabled={glow.enabled}
             onEnabledChange={(v) => setGlow({ enabled: v })}
           >
+            <SettingRow label="모양" description="빛이 퍼져 나가는 형태입니다.">
+              <Segmented
+                aria-label="모양"
+                value={glow.shape}
+                options={SHAPE_OPTIONS}
+                onChange={(shape) => setGlow({ shape })}
+              />
+            </SettingRow>
             <SettingRow label="밝기" description="소리가 나는 동안 유지되는 밝기입니다.">
               {glowSlider("level", `${Math.round(glow.level * 100)}%`)}
             </SettingRow>
