@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import {
+  DEFAULT_PREFERENCES,
   GLOW_LIMITS,
   type GlowPreferences,
   mergePreferences,
@@ -32,6 +33,16 @@ const DIRECTION_OPTIONS: readonly { value: ParticleDirection; label: string }[] 
   { value: "directional", label: "한 방향" },
   { value: "radial", label: "방사형" },
 ]
+
+// What "기본값" restores: everything the group's controls tune, but not its
+// on/off switch — that one is a deliberate choice sitting right beside the
+// button, and flipping it back on unasked would be the more annoying surprise.
+function tuningDefaults<T extends { enabled: boolean }>({
+  enabled: _enabled,
+  ...rest
+}: T): Omit<T, "enabled"> {
+  return rest
+}
 
 export function Settings() {
   const [active, setActive] = useState<SectionId>("general")
@@ -146,6 +157,7 @@ function EffectsSection({
           onOpenChange={(v) => setOpen((s) => ({ ...s, glow: v }))}
           enabled={glow.enabled}
           onEnabledChange={(v) => setGlow({ enabled: v })}
+          onReset={() => setGlow(tuningDefaults(DEFAULT_PREFERENCES.glow))}
         >
           <SettingRow label="밝기" description="소리가 나는 동안 유지되는 밝기입니다.">
             {glowSlider("level", `${Math.round(glow.level * 100)}%`)}
@@ -174,6 +186,7 @@ function EffectsSection({
           onOpenChange={(v) => setOpen((s) => ({ ...s, particles: v }))}
           enabled={particles.enabled}
           onEnabledChange={(v) => setParticles({ enabled: v })}
+          onReset={() => setParticles(tuningDefaults(DEFAULT_PREFERENCES.particles))}
         >
           <SettingRow label="양" description="노트가 울리는 동안 초당 방출되는 개수입니다.">
             {particleSlider("rate", `${Math.round(particles.rate)}/s`)}

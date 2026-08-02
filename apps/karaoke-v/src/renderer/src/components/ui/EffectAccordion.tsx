@@ -16,6 +16,7 @@ export function EffectAccordion({
   onOpenChange,
   enabled,
   onEnabledChange,
+  onReset,
   children,
 }: {
   title: string
@@ -24,6 +25,8 @@ export function EffectAccordion({
   onOpenChange: (open: boolean) => void
   enabled: boolean
   onEnabledChange: (enabled: boolean) => void
+  /** Shows a reset control in the header when given. */
+  onReset?: () => void
   children: ReactNode
 }) {
   return (
@@ -48,7 +51,18 @@ export function EffectAccordion({
             )}
           </span>
         </button>
-        <div className="flex-none">
+        {/* Outside the fieldset below, so the values stay recoverable even while
+            the effect is switched off. */}
+        <div className="flex flex-none items-center gap-3">
+          {onReset && (
+            <button
+              type="button"
+              onClick={onReset}
+              className="select-none rounded px-1.5 py-0.5 text-xs text-muted outline-none transition-colors hover:bg-white/5 hover:text-fg"
+            >
+              기본값
+            </button>
+          )}
           <Switch checked={enabled} onChange={(e) => onEnabledChange(e.currentTarget.checked)} />
         </div>
       </div>
