@@ -10,6 +10,7 @@ import {
   toDipViewport,
   type Viewport,
 } from "../shared/native"
+import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
 import type { Preferences, PreferencesPatch } from "../shared/preferences"
 
 // The helper reports in native units — points on macOS, physical pixels on
@@ -58,6 +59,23 @@ contextBridge.exposeInMainWorld("bridge", {
 // "toolbar": that collides with the built-in Window.toolbar (BarProp).
 contextBridge.exposeInMainWorld("settings", {
   open: (): Promise<void> => ipcRenderer.invoke("settings:open"),
+})
+
+// The permissions gate. Main owns the status because only it can ask macOS, and
+// it is the one that starts the app once the grant lands.
+contextBridge.exposeInMainWorld("permissions", {
+  get: (): Promise<PermissionsStatus> => ipcRenderer.invoke("permissions:get"),
+  openSettings: (key: PermissionKey): Promise<void> =>
+    ipcRenderer.invoke("permissions:openSettings", key),
+  proceed: (): Promise<void> => ipcRenderer.invoke("permissions:continue"),
+  resize: (height: number): Promise<void> => ipcRenderer.invoke("permissions:resize", height),
+  onChange: (callback: (status: PermissionsStatus) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, status: PermissionsStatus) => callback(status)
+    ipcRenderer.on("permissions:changed", handler)
+    return () => {
+      ipcRenderer.off("permissions:changed", handler)
+    }
+  },
 })
 
 // Preferences are owned and persisted by main. Every window sees the same state

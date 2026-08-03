@@ -384,10 +384,10 @@ Napi::Value Start(const Napi::CallbackInfo &info) {
   gStatusFn = Napi::ThreadSafeFunction::New(env, opts.Get("onStatus").As<Napi::Function>(),
                                             "stick-status", 0, 1);
 
+  // Reported, never prompted for: asking is the onboarding gate's job, and a
+  // second system prompt fired from here would arrive with no explanation.
   gTrusted = AXIsProcessTrusted();
   if (!gTrusted) {
-    NSDictionary *promptOpts = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt : @YES};
-    AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)promptOpts);
     emitStatus("permission", "");
   }
 

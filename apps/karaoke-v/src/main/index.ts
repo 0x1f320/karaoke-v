@@ -3,6 +3,11 @@ import { native, type Rect } from "../shared/native"
 import { registerBridgeIpc, startBridge, stopBridge } from "./bridge"
 import { registerDipIpc, toDipFrame, updateDipTransform } from "./dip"
 import { createOverlayWindow, positionOverlay } from "./overlay"
+import {
+  isAccessibilityTrusted,
+  openPermissionsWindow,
+  registerPermissionsIpc,
+} from "./permissions"
 import { registerPreferencesIpc } from "./preferences"
 import { openSettingsWindow, setSettingsAnchorWindow } from "./settings"
 import { createToolbarWindow, positionToolbar } from "./toolbar"
@@ -55,17 +60,31 @@ if (!app.requestSingleInstanceLock()) {
 app.setAppUserModelId("io.github.0x1f320.karaoke-v")
 
 // The dock icon is hidden and the overlay only appears while SynthV is attached,
-// so a relaunch has nothing to raise — show settings as the visible ack instead.
-app.on("second-instance", () => openSettingsWindow())
-
-app.whenReady().then(() => {
-  if (process.platform === "darwin" && app.dock) {
-    app.dock.hide()
+// so a relaunch has nothing to raise — show settings as the visible ack instead,
+// or the gate the first copy is still waiting on.
+app.on("second-instance", () => {
+  if (started) {
+    openSettingsWindow()
+  } else {
+    openPermissionsWindow(start)
   }
-  registerPreferencesIpc()
-  registerBridgeIpc()
-  registerDipIpc()
-  ipcMain.handle("settings:open", () => openSettingsWindow())
+})
+
+// Everything below the permissions gate. On macOS the app only gets here once
+// Accessibility is granted: without it every AX read fails, so an overlay would
+// exist but never align with anything.
+let started = false
+
+function start(): void {
+  if (started) {
+    // The gate came back up mid-run — the grant was revoked and restored — so
+    // the windows are already there and only the observer has to be rebuilt: it
+    // chose poll mode when it started untrusted.
+    native.stop()
+    startTracking()
+    return
+  }
+  started = true
 
   overlayWin = createOverlayWindow()
   toolbarWin = createToolbarWindow()
@@ -77,6 +96,18 @@ app.whenReady().then(() => {
   if (native.follow && overlayWin) {
     native.follow(overlayWin.getNativeWindowHandle())
   }
+  startTracking()
+
+  // Last: window tracking is the core of the app, so a bridge that fails to
+  // start (a stale native build, say) must not take it down with it.
+  try {
+    startBridge()
+  } catch (error) {
+    console.error("failed to start the SynthV bridge receiver:", error)
+  }
+}
+
+function startTracking(): void {
   native.start({
     target: nativeTarget(),
     onFrame: (raw) => {
@@ -105,6 +136,11 @@ app.whenReady().then(() => {
     },
     onStatus: (s) => {
       setTrayStatus(s.state)
+      // Trust was revoked while running: nothing can be read any more, so ask
+      // for it back rather than leaving an overlay that silently never draws.
+      if (s.state === "permission") {
+        openPermissionsWindow(start)
+      }
       if (s.state === "attached") {
         return
       }
@@ -115,13 +151,22 @@ app.whenReady().then(() => {
       }
     },
   })
+}
 
-  // Last: window tracking is the core of the app, so a bridge that fails to
-  // start (a stale native build, say) must not take it down with it.
-  try {
-    startBridge()
-  } catch (error) {
-    console.error("failed to start the SynthV bridge receiver:", error)
+app.whenReady().then(() => {
+  if (process.platform === "darwin" && app.dock) {
+    app.dock.hide()
+  }
+  registerPreferencesIpc()
+  registerBridgeIpc()
+  registerDipIpc()
+  registerPermissionsIpc()
+  ipcMain.handle("settings:open", () => openSettingsWindow())
+
+  if (isAccessibilityTrusted()) {
+    start()
+  } else {
+    openPermissionsWindow(start)
   }
 })
 

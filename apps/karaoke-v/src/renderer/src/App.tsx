@@ -5,6 +5,7 @@ import {
   type GlowPreferences,
   type ParticlePreferences,
 } from "../../shared/preferences"
+import { Permissions } from "./components/Permissions"
 import { Settings } from "./components/Settings"
 import { Toolbar } from "./components/Toolbar"
 import { locateNote } from "./playback/locate"
@@ -31,6 +32,8 @@ export function App() {
       return <Toolbar />
     case "#settings":
       return <Settings />
+    case "#permissions":
+      return <Permissions />
     default:
       return <Overlay />
   }
