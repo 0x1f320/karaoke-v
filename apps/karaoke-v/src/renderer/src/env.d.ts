@@ -39,6 +39,13 @@ declare global {
       /** Subscribe to grant changes. Returns an unsubscribe function. */
       onChange(callback: (status: PermissionsStatus) => void): () => void
     }
+    assets: {
+      /**
+       * Ask for an image, and keep a copy of the chosen one. Resolves to its
+       * stored name, or null if the dialog was dismissed.
+       */
+      import(): Promise<string | null>
+    }
     i18n: {
       /**
        * The OS's preferred languages, most wanted first. Chromium's own

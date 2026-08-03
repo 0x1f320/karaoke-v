@@ -1,6 +1,15 @@
-import { BookmarkPlus, Check, SlidersHorizontal, Sparkles, Trash2, Undo2 } from "lucide-react"
+import {
+  BookmarkPlus,
+  Check,
+  ImagePlus,
+  SlidersHorizontal,
+  Sparkles,
+  Trash2,
+  Undo2,
+} from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { assetUrl } from "../../../shared/assets"
 import {
   LANGUAGE_LABELS,
   LANGUAGE_PREFERENCES,
@@ -8,6 +17,9 @@ import {
 } from "../../../shared/language"
 import {
   DEFAULT_EFFECTS,
+  EFFECT_BLENDS,
+  EFFECT_SOURCES,
+  type EffectImage,
   type EffectPreset,
   type EffectSettings,
   GLOW_LIMITS,
@@ -357,20 +369,23 @@ function EffectsSection({
             enabled={glow.enabled}
             onEnabledChange={(v) => setGlow({ enabled: v })}
           >
-            <SettingRow
-              label={t("settings.effects.glow.shape.label")}
-              description={t("settings.effects.glow.shape.description")}
-            >
-              <Segmented
-                aria-label={t("settings.effects.glow.shape.label")}
-                value={glow.shape}
-                options={SHAPES.map((shape) => ({
-                  value: shape,
-                  label: t(`settings.effects.glow.shape.${shape}`),
-                }))}
-                onChange={(shape) => setGlow({ shape })}
-              />
-            </SettingRow>
+            <ImageRows image={glow} onChange={setGlow} />
+            {glow.source === "color" && (
+              <SettingRow
+                label={t("settings.effects.glow.shape.label")}
+                description={t("settings.effects.glow.shape.description")}
+              >
+                <Segmented
+                  aria-label={t("settings.effects.glow.shape.label")}
+                  value={glow.shape}
+                  options={SHAPES.map((shape) => ({
+                    value: shape,
+                    label: t(`settings.effects.glow.shape.${shape}`),
+                  }))}
+                  onChange={(shape) => setGlow({ shape })}
+                />
+              </SettingRow>
+            )}
             <SettingRow
               label={t("settings.effects.glow.level.label")}
               description={t("settings.effects.glow.level.description")}
@@ -406,16 +421,18 @@ function EffectsSection({
                 )}
               </SettingRow>
             )}
-            <SettingRow
-              label={t("settings.effects.glow.color.label")}
-              description={t("settings.effects.glow.color.description")}
-            >
-              <ColorInput
-                aria-label={t("settings.effects.glow.color.aria")}
-                value={glow.color}
-                onChange={(color) => setGlow({ color })}
-              />
-            </SettingRow>
+            {glow.source === "color" && (
+              <SettingRow
+                label={t("settings.effects.glow.color.label")}
+                description={t("settings.effects.glow.color.description")}
+              >
+                <ColorInput
+                  aria-label={t("settings.effects.glow.color.aria")}
+                  value={glow.color}
+                  onChange={(color) => setGlow({ color })}
+                />
+              </SettingRow>
+            )}
           </EffectAccordion>
 
           <EffectAccordion
@@ -426,6 +443,7 @@ function EffectsSection({
             enabled={particles.enabled}
             onEnabledChange={(v) => setParticles({ enabled: v })}
           >
+            <ImageRows image={particles} onChange={setParticles} />
             {/* First: it decides what two of the rows below even mean, and the
                 angle stays pinned to it — a mode and its one parameter split up
                 by unrelated sliders would read as unrelated settings. */}
@@ -498,15 +516,31 @@ function EffectsSection({
               )}
             </SettingRow>
             <SettingRow
-              label={t("settings.effects.particles.color.label")}
-              description={t("settings.effects.particles.color.description")}
+              label={t("settings.effects.particles.size.label")}
+              description={t("settings.effects.particles.size.description")}
             >
-              <ColorInput
-                aria-label={t("settings.effects.particles.color.aria")}
-                value={particles.color}
-                onChange={(color) => setParticles({ color })}
-              />
+              {particleSlider("size", t("units.times", { value: particles.size.toFixed(2) }))}
             </SettingRow>
+            {particles.source === "image" && (
+              <SettingRow
+                label={t("settings.effects.particles.spin.label")}
+                description={t("settings.effects.particles.spin.description")}
+              >
+                {particleSlider("spin", t("units.degrees", { value: Math.round(particles.spin) }))}
+              </SettingRow>
+            )}
+            {particles.source === "color" && (
+              <SettingRow
+                label={t("settings.effects.particles.color.label")}
+                description={t("settings.effects.particles.color.description")}
+              >
+                <ColorInput
+                  aria-label={t("settings.effects.particles.color.aria")}
+                  value={particles.color}
+                  onChange={(color) => setParticles({ color })}
+                />
+              </SettingRow>
+            )}
           </EffectAccordion>
         </div>
       </ScrollArea>
@@ -566,6 +600,81 @@ function EffectsSection({
         </Dialog>
       )}
     </div>
+  )
+}
+
+function ImageRows({
+  image,
+  onChange,
+}: {
+  image: EffectImage
+  onChange: (patch: Partial<EffectImage>) => void
+}) {
+  const { t } = useTranslation()
+
+  const pick = async () => {
+    const asset = await window.assets.import()
+    if (asset) {
+      onChange({ source: "image", asset, blend: image.asset ? image.blend : "normal" })
+    }
+  }
+
+  return (
+    <>
+      <SettingRow
+        label={t("settings.effects.image.source.label")}
+        description={t("settings.effects.image.source.description")}
+      >
+        <Segmented
+          aria-label={t("settings.effects.image.source.label")}
+          value={image.source}
+          options={EFFECT_SOURCES.map((source) => ({
+            value: source,
+            label: t(`settings.effects.image.source.${source}`),
+          }))}
+          onChange={(source) => onChange({ source })}
+        />
+      </SettingRow>
+      {image.source === "image" && (
+        <>
+          <SettingRow
+            label={t("settings.effects.image.file.label")}
+            description={t("settings.effects.image.file.description")}
+          >
+            <div className="flex items-center gap-2">
+              {image.asset && (
+                <img
+                  src={assetUrl(image.asset)}
+                  alt=""
+                  className="size-7 rounded border border-border bg-black/25 object-contain"
+                />
+              )}
+              <Button onClick={pick}>
+                <ImagePlus size={13} strokeWidth={2} aria-hidden="true" />
+                {t(`settings.effects.image.file.${image.asset ? "change" : "choose"}`)}
+              </Button>
+            </div>
+          </SettingRow>
+          <SettingRow
+            label={t("settings.effects.image.blend.label")}
+            description={t("settings.effects.image.blend.description")}
+          >
+            <Select
+              className="w-40"
+              aria-label={t("settings.effects.image.blend.label")}
+              value={image.blend}
+              onValueChange={(blend) => onChange({ blend: blend as EffectImage["blend"] })}
+            >
+              {EFFECT_BLENDS.map((blend) => (
+                <SelectItem key={blend} value={blend}>
+                  {t(`settings.effects.image.blend.${blend}`)}
+                </SelectItem>
+              ))}
+            </Select>
+          </SettingRow>
+        </>
+      )}
+    </>
   )
 }
 

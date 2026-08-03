@@ -83,6 +83,27 @@
         "overwriteWarning": "같은 이름의 프리셋이 이미 있습니다. 덮어쓰게 됩니다.",
         "overwrite": "덮어쓰기"
       },
+      "image": {
+        "source": {
+          "label": "그리는 방식",
+          "description": "이펙트를 색으로 그릴지, 가져온 이미지로 그릴지 정합니다.",
+          "color": "색",
+          "image": "이미지"
+        },
+        "file": {
+          "label": "이미지",
+          "description": "기본 모양 대신 그릴 그림입니다.",
+          "choose": "이미지 선택…",
+          "change": "이미지 변경…"
+        },
+        "blend": {
+          "label": "합성 방식",
+          "description": "그림이 뒤에 보이는 화면과 섞이는 방식입니다.",
+          "add": "더하기(빛)",
+          "normal": "일반"
+        },
+        "filter": "이미지"
+      },
       "glow": {
         "title": "하이라이트",
         "description": "노트가 시작될 때 터지고, 소리가 나는 동안 유지되는 빛입니다.",
@@ -160,6 +181,14 @@
         "originX": {
           "label": "시작점 너비",
           "description": "파티클이 생겨나는 지점의 가로 폭입니다."
+        },
+        "size": {
+          "label": "크기",
+          "description": "파티클 하나를 기본 크기의 몇 배로 그릴지 정합니다."
+        },
+        "spin": {
+          "label": "회전량",
+          "description": "파티클 하나가 사라질 때까지 도는 각도입니다. 도는 방향은 파티클마다 다릅니다."
         },
         "color": {
           "label": "색상",

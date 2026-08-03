@@ -1,5 +1,6 @@
 import { type Container, Sprite, Texture } from "pixi.js"
-import type { GlowShape } from "../../../shared/preferences"
+import type { EffectBlend, EffectSource, GlowShape } from "../../../shared/preferences"
+import { assetTexture } from "./assets"
 
 // The bloom sitting on the playhead where it crosses a note.
 //
@@ -21,7 +22,11 @@ const JITTER_SHAKE = 0.14
 export interface GlowParams {
   enabled: boolean
   shape: GlowShape
-  /** 0xRRGGBB. */
+  source: EffectSource
+  /** Stored name of the imported image, or null. */
+  asset: string | null
+  blend: EffectBlend
+  /** 0xRRGGBB. Painted onto the shape; an image is drawn in its own colors. */
   color: number
   /** Brightness held while a note sounds, 0..1. */
   level: number
@@ -226,11 +231,15 @@ export class GlowFlash {
     }
 
     this.sprite.visible = true
-    const texture = glowTexture(params.shape)
+    // The image is what the light is made of, so it replaces the shape rather
+    // than being tinted by it — until it has loaded, or if it never does.
+    const image = params.source === "image" ? assetTexture(params.asset) : null
+    const texture = image ?? glowTexture(params.shape)
     if (this.sprite.texture !== texture) {
       this.sprite.texture = texture
     }
-    this.sprite.tint = params.color
+    this.sprite.blendMode = image ? params.blend : "add"
+    this.sprite.tint = image ? 0xffffff : params.color
     this.sprite.position.set(
       this.lastX + shakeX * this.lastHeight,
       this.lastY + shakeY * this.lastHeight,

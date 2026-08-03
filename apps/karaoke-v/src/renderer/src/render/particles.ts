@@ -1,5 +1,6 @@
 import { type Container, Sprite, type Texture } from "pixi.js"
-import type { ParticleDirection } from "../../../shared/preferences"
+import type { EffectBlend, EffectSource, ParticleDirection } from "../../../shared/preferences"
+import { assetTexture } from "./assets"
 
 // Sparks thrown off wherever the playhead is crossing a note.
 //
@@ -41,8 +42,16 @@ export interface ParticleParams {
   spreadY: number
   /** Width of the band sparks are born along, px. */
   originX: number
-  /** 0xRRGGBB. */
+  /** How big one spark is drawn, as a multiple of its natural size. */
+  size: number
+  /** Degrees one spark turns over its whole life. */
+  spin: number
+  /** 0xRRGGBB. Painted onto the spark; an image is drawn in its own colors. */
   color: number
+  source: EffectSource
+  /** Stored name of the imported image, or null. */
+  asset: string | null
+  blend: EffectBlend
 }
 
 interface Particle {
@@ -51,8 +60,11 @@ interface Particle {
   vy: number
   /** Per-particle, since it is derived from the settings at emit time. */
   gravity: number
+  /** Radians per second, either way round. */
+  spin: number
   age: number
   life: number
+  /** Half the size the spark is drawn at, px, before it tapers off. */
   size: number
 }
 
@@ -97,8 +109,10 @@ function launch(params: ParticleParams, life: number): { vx: number; vy: number 
 export class ParticleField {
   private readonly live: Particle[] = []
   private readonly pool: Sprite[] = []
+  private readonly spark: Texture
 
   constructor(layer: Container, texture: Texture) {
+    this.spark = texture
     // Sprites are allocated once. Emission is bursty and per-frame, so churning
     // display objects would be the expensive part, not the maths.
     for (let i = 0; i < MAX_PARTICLES; i++) {
@@ -122,6 +136,13 @@ export class ParticleField {
   emit(x: number, y: number, height: number, count: number, params: ParticleParams): void {
     const life = Math.max(params.life, 0.01)
     const gravity = params.direction === "radial" ? 0 : (ARC * params.spreadY) / (life * life)
+    // Chosen per burst rather than per field: sparks already in flight keep the
+    // texture they were born with, so switching source cannot make a live spray
+    // change what it is halfway across the screen.
+    const image = params.source === "image" ? assetTexture(params.asset) : null
+    const texture = image ?? this.spark
+    // A spark is a round dot, so spinning it would be invisible work.
+    const spin = image ? (params.spin * Math.PI) / 180 / life : 0
 
     for (let i = 0; i < count; i++) {
       const sprite = this.pool.pop()
@@ -129,7 +150,10 @@ export class ParticleField {
         return // saturated — dropping is better than stealing a live particle
       }
       sprite.visible = true
-      sprite.tint = params.color
+      sprite.texture = texture
+      sprite.blendMode = image ? params.blend : "add"
+      sprite.tint = image ? 0xffffff : params.color
+      sprite.rotation = 0
       sprite.position.set(
         x + between(-params.originX / 2, params.originX / 2),
         y + between(-height / 2, height / 2),
@@ -140,9 +164,10 @@ export class ParticleField {
         vx,
         vy,
         gravity,
+        spin: spin * (Math.random() < 0.5 ? -1 : 1),
         age: 0,
         life: life * between(1 - LIFE_JITTER, 1 + LIFE_JITTER),
-        size: between(SIZE_MIN, SIZE_MAX),
+        size: between(SIZE_MIN, SIZE_MAX) * params.size,
       })
     }
   }
@@ -165,11 +190,14 @@ export class ParticleField {
       p.vy += p.gravity * dt
       p.sprite.x += p.vx * dt
       p.sprite.y += p.vy * dt
+      p.sprite.rotation += p.spin * dt
 
       const left = 1 - p.age / p.life
       p.sprite.alpha = left
       // Shrink as they fade, so they read as sparks rather than shrinking discs.
-      p.sprite.scale.set((p.size * (0.35 + 0.65 * left)) / 8)
+      // Against the texture's own width, so an imported image comes out the size
+      // of a spark however many pixels across it happens to be.
+      p.sprite.scale.set((p.size * (0.35 + 0.65 * left) * 2) / p.sprite.texture.width)
     }
   }
 

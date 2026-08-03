@@ -154,6 +154,31 @@ describe("sanitizePreferences", () => {
     expect(sanitizePreferences({ glow: { shape: "blob" } }).glow?.shape).toBeUndefined()
   })
 
+  it("keeps only known source and blend values", () => {
+    const patch = sanitizePreferences({
+      glow: { source: "image", blend: "normal" },
+      particles: { source: "sprite", blend: "screen" },
+    })
+    expect(patch.glow).toEqual({ source: "image", blend: "normal" })
+    expect(patch.particles).toEqual({})
+  })
+
+  it("keeps an asset name we could have written, and nothing else", () => {
+    const name = "0123456789abcdef.png"
+    expect(sanitizePreferences({ glow: { asset: name } }).glow?.asset).toBe(name)
+    expect(sanitizePreferences({ glow: { asset: null } }).glow?.asset).toBeNull()
+    for (const asset of [
+      "../escape.png",
+      "0123456789abcdef.exe",
+      "0123456789abcdeg.png",
+      "0123456789abcdef",
+      "/tmp/0123456789abcdef.png",
+      7,
+    ]) {
+      expect(sanitizePreferences({ glow: { asset } }).glow?.asset).toBeUndefined()
+    }
+  })
+
   it("fills a preset's gaps from the defaults rather than leaving it partial", () => {
     const [clean] = sanitizePreferences({
       presets: [{ id: "a", name: "  Neon  ", glow: { level: 0.25 } }],
@@ -164,6 +189,29 @@ describe("sanitizePreferences", () => {
       particles: DEFAULT_EFFECTS.particles,
       glow: { ...DEFAULT_EFFECTS.glow, level: 0.25 },
     })
+  })
+
+  it("carries an image-backed preset through a save and a reload", () => {
+    const image = {
+      source: "image" as const,
+      asset: "0123456789abcdef.png",
+      blend: "normal" as const,
+    }
+    const saved: EffectPreset = {
+      id: "a",
+      name: "Petals",
+      particles: { ...DEFAULT_EFFECTS.particles, ...image, spin: 360 },
+      glow: { ...DEFAULT_EFFECTS.glow, ...image },
+    }
+    const stored = JSON.parse(JSON.stringify({ presets: [saved] }))
+    expect(sanitizePreferences(stored).presets).toEqual([saved])
+  })
+
+  it("leaves an image-backed preset without its asset rather than dropping the preset", () => {
+    const [clean] = sanitizePreferences({
+      presets: [{ id: "a", name: "Gone", glow: { source: "image", asset: "../../etc/passwd" } }],
+    }).presets as EffectPreset[]
+    expect(clean.glow).toEqual({ ...DEFAULT_EFFECTS.glow, source: "image" })
   })
 
   it("skips presets without a usable id or name", () => {
