@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "types": ["lua-types/5.4"],
+    "noEmit": false,
+    "outDir": "out"
+  },
+  "tstl": {
+    "luaTarget": "5.4",
+    "luaBundle": "karaoke-v-lua-smoke.lua",
+    "luaBundleEntry": "src/lua/smoke.ts",
+    "sourceMapTraceback": true
+  },
+  "include": ["src/lua"]
+}

@@ -11,19 +11,46 @@ must agree on the wire format in `src/bridge/types.ts`.
 pnpm --filter @karaoke-v/synthv-script build
 ```
 
-The host is a bare Duktape engine — one file, no modules, no globals beyond `SV`, ES5
-only — so the build bundles to a single IIFE and lowers it to ES5. The result is
-`out/overlay-bridge.js`.
+This builds both hosts.
+
+**JavaScript** (`src/*`, minus `src/lua`) — the host is a bare Duktape engine: one file, no
+modules, no globals beyond `SV`, ES5 only. The build bundles to a single IIFE and lowers it
+to ES5, giving `out/overlay-bridge.js`.
+
+**Lua** (`src/lua/*`) — the same TypeScript toolchain, compiled by
+[`typescript-to-lua`](https://typescripttolua.github.io/) to a single bundled Lua 5.4 file
+(`out/karaoke-v-lua-smoke.lua`, config in `tsconfig.lua.json`). The Lua host is worth the
+second build because it has the whole standard library — `io`, `os`, `require` — where the
+JavaScript host has no filesystem at all, which is what issue #61 needs.
+
+Three things about that host are load-bearing, and `src/lua/types/synthv-lua.d.ts` exists to
+encode them (all three measured against 2.3.0tp1, not read off the docs):
+
+- **The API counts from 1.** `getNote(0)` raises "out-of-bound access", so index parameters
+  take `SVIndex`, which only `svIndex()` mints — a raw loop counter will not typecheck. The
+  Biome plugin in `.biome/plugins/` closes the remaining hole by rejecting `as SVIndex`
+  casts. Arrays the API *returns* need no such care: they are 1-based tables and `tstl`
+  shifts TypeScript's 0-based indices, so the two conventions cancel out.
+- **Host callbacks arrive without `self`.** Declared `this: void`, they compile to
+  `function(value)`; declared without it, `tstl` inserts a self parameter and the real
+  argument lands in it — silently.
+- **There is no `JSON`.** `src/lua/json.ts` is the encoder, and it formats numbers itself
+  because Lua 5.4 splits integers from floats and `tostring` would render a blick as
+  `2116800000.0` or `1e+15`.
+
+`src/lua/smoke.ts` is the end-to-end check for all of the above: a side panel section that
+loops on `SV:setTimeout`, reads notes through 1-based indices and writes an encoded payload
+with `io.open` + `os.rename`. Run it after touching the toolchain.
 
 ## Install it into the editor
 
 ```sh
-pnpm --filter @karaoke-v/synthv-script deploy
+pnpm --filter @karaoke-v/synthv-script run deploy
 ```
 
-This copies the built script into SynthV's scripts directory (macOS
+This copies everything built into SynthV's scripts directory (macOS
 `~/Library/Application Support/Dreamtonics/…`, Windows `Documents\Dreamtonics\…`). Set
-`SYNTHV_SCRIPTS_DIR` to override. SynthV picks the script up from **Scripts → Rescan**;
+`SYNTHV_SCRIPTS_DIR` to override. SynthV picks the scripts up from **Scripts → Rescan**;
 the bridge then appears as an *Overlay Bridge* side panel section.
 
 ## Transports
