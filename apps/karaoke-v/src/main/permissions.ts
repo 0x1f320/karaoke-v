@@ -7,8 +7,9 @@ import type { PermissionsStatus } from "../shared/permissions"
 
 const SIZE = { width: 520, height: 390 }
 
-// macOS reports the grant to a running process, but only when asked — there is
-// no notification for it, so the window polls while it is up.
+// macOS reports the trust state to a running process, but only when asked —
+// there is no notification for it, so the window polls the whole time it is up.
+// Both directions: the switch in System Settings can go back off just as easily.
 const POLL_MS = 1000
 
 const ACCESSIBILITY_PANE =
@@ -17,6 +18,7 @@ const ACCESSIBILITY_PANE =
 let win: BrowserWindow | null = null
 let poll: NodeJS.Timeout | null = null
 let onGranted: (() => void) | null = null
+let reported = false
 
 export function isAccessibilityTrusted(): boolean {
   return process.platform !== "darwin" || systemPreferences.isTrustedAccessibilityClient(false)
@@ -105,13 +107,15 @@ export function openPermissionsWindow(granted: () => void): void {
   }
 
   stopPolling()
+  reported = isAccessibilityTrusted()
   poll = setInterval(() => {
     if (!win || win.isDestroyed()) {
       stopPolling()
       return
     }
-    if (isAccessibilityTrusted()) {
-      stopPolling()
+    const trusted = isAccessibilityTrusted()
+    if (trusted !== reported) {
+      reported = trusted
       win.webContents.send("permissions:changed", status())
     }
   }, POLL_MS)
@@ -128,6 +132,11 @@ export function registerPermissionsIpc(): void {
   ipcMain.handle("permissions:openSettings", () => shell.openExternal(ACCESSIBILITY_PANE))
   ipcMain.handle("permissions:continue", () => {
     if (!isAccessibilityTrusted()) {
+      // Switched back off between the last poll and the click. Correcting the
+      // window is the answer; starting untrusted, or doing nothing visible at
+      // all, both leave the user with an app that cannot work.
+      reported = false
+      win?.webContents.send("permissions:changed", status())
       return
     }
     // Start before the window goes: closing the last window with no tray yet
