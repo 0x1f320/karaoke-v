@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { PianoRoll, Viewport } from "../../../shared/geometry"
-import { composeFrame, frameTransform } from "./frame"
+import { composeFrame, frameTransform, pitchBounds } from "./frame"
 
 const READ: PianoRoll = {
   canvas: { x: 500, y: 200, w: 800, h: 400 },
@@ -105,5 +105,36 @@ describe("composeFrame", () => {
     expect(composeFrame(TRANSFORM, VP, origin, hit, 0.5, 0).emit).toEqual(
       composeFrame(TRANSFORM, VP, origin, hit, 0.5).emit,
     )
+  })
+})
+
+describe("pitchBounds", () => {
+  const hit = { x: 600, y: 300, w: 100, h: 20 }
+
+  it("is the note itself when the voice never leaves it", () => {
+    expect(pitchBounds(hit, 0, 0)).toEqual(hit)
+  })
+
+  it("grows upward by a rect height per semitone reached above", () => {
+    // A semitone up puts the emitter at 300, half a lane above the note's top.
+    expect(pitchBounds(hit, 0, 1)).toEqual({ x: 600, y: 300 - 10, w: 100, h: 30 })
+  })
+
+  it("grows downward the same way", () => {
+    expect(pitchBounds(hit, -1, 0)).toEqual({ x: 600, y: 300, w: 100, h: 30 })
+  })
+
+  it("spans both reaches at once, keeping the note inside", () => {
+    const box = pitchBounds(hit, -2, 3)
+    expect(box.y).toBe(310 - 3 * 20)
+    expect(box.y + box.h).toBe(310 + 2 * 20)
+    expect(box.y).toBeLessThan(hit.y)
+    expect(box.y + box.h).toBeGreaterThan(hit.y + hit.h)
+  })
+
+  it("leaves x alone — the reach is vertical", () => {
+    const box = pitchBounds(hit, -5, 5)
+    expect(box.x).toBe(hit.x)
+    expect(box.w).toBe(hit.w)
   })
 })

@@ -9,9 +9,9 @@ import {
 import { Permissions } from "./components/Permissions"
 import { Settings } from "./components/Settings"
 import { Toolbar } from "./components/Toolbar"
-import { composeFrame, frameTransform } from "./playback/frame"
+import { composeFrame, frameTransform, pitchBounds } from "./playback/frame"
 import { locateNote } from "./playback/locate"
-import { intensityScale, samplePitch } from "./playback/pitch"
+import { intensityScale, pitchExtent, samplePitch } from "./playback/pitch"
 import { Transport } from "./playback/transport"
 import { NoteRenderer } from "./render/noteRenderer"
 import { BORDER_PX, FILL, glowParams, PLAYING_FILL, particleParams, STROKE } from "./render/palette"
@@ -190,6 +190,9 @@ function Overlay() {
       // note's centre and the effect keeps the strength they dialled in.
       let offsetSemitones = 0
       let boost = 1
+      // Debug only: the band the emitter can reach in this note, so the box
+      // shows the reach rather than the lane.
+      let reach: Rect | null = null
       const view = transport.view
       const seconds = transport.playing ? transport.playhead(nowMs) : null
       if (view && seconds !== null) {
@@ -203,14 +206,14 @@ function Overlay() {
           const span = note.offS - note.onS
           progress = span > 0 ? Math.min(Math.max((seconds - note.onS) / span, 0), 1) : 0
           if (pitch.enabled) {
-            const sung = samplePitch(
-              note,
-              transport.noteBefore(seconds),
-              seconds - note.onS,
-              pitch.range,
-            )
+            const previous = transport.noteBefore(seconds)
+            const sung = samplePitch(note, previous, seconds - note.onS, pitch.range)
             if (pitch.mode !== "intensity") {
               offsetSemitones = sung.offset
+              if (debug && hit) {
+                const { lowest, highest } = pitchExtent(note, previous, pitch.range)
+                reach = pitchBounds(hit, lowest, highest)
+              }
             }
             if (pitch.mode !== "position") {
               boost = intensityScale(sung.speed, pitch.sensitivity)
@@ -240,7 +243,7 @@ function Overlay() {
         fill: FILL,
         stroke: STROKE,
         border: BORDER_PX,
-        playing: debug ? hit : null,
+        playing: debug ? (reach ?? hit) : null,
         playingFill: PLAYING_FILL,
         emit: frame.emit,
         particles: boost === 1 ? particles : { ...particles, rate: particles.rate * boost },

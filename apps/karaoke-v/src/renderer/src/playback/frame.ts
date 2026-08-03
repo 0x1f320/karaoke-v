@@ -44,6 +44,18 @@ export function frameTransform(
   }
 }
 
+/**
+ * The note's rectangle grown to everything the emission point can reach, for
+ * the debug overlay. The union rather than the reach alone, so the note's own
+ * lane stays visible inside the band it is being stretched into.
+ */
+export function pitchBounds(hit: Rect, lowest: number, highest: number): Rect {
+  const centre = hit.y + hit.h / 2
+  const top = Math.min(hit.y, centre - highest * hit.h)
+  const bottom = Math.max(hit.y + hit.h, centre - lowest * hit.h)
+  return { x: hit.x, y: top, w: hit.w, h: bottom - top }
+}
+
 export function composeFrame(
   transform: FrameTransform,
   vp: Viewport,

@@ -115,6 +115,48 @@ export function samplePitch(
   }
 }
 
+/**
+ * The whole band the emission point can reach inside this note, in semitones
+ * from its pitch, bounded the same way one sample is.
+ *
+ * Drawn in debug as the note's reach rather than its lane. One frame's position
+ * says where the effect is; this says how close it comes to leaving the
+ * piano-roll viewport, which is the only thing that can make it vanish — the
+ * effects layer is masked to that viewport, and a note near the top or bottom
+ * of the visible range has fewer semitones of room than the bound allows.
+ */
+export function pitchExtent(
+  note: BridgeNote,
+  previous: BridgeNote | null,
+  range: number,
+): { lowest: number; highest: number } {
+  let lowest = 0
+  let highest = 0
+  const reach = (value: number) => {
+    lowest = Math.min(lowest, value)
+    highest = Math.max(highest, value)
+  }
+
+  if (note.bend.length > 0) {
+    for (let i = 0; i < note.bend.length; i++) {
+      reach(note.bend[i] / 100)
+    }
+  } else {
+    // Read off the synthesis rather than sampled from it: the glide starts at
+    // the whole interval and the vibrato is symmetric, so both extremes are
+    // known without walking the note.
+    if (previous && note.onS - previous.offS <= TRANSITION_GAP_SEC) {
+      reach(previous.pitch - note.pitch)
+    }
+    if (note.offS - note.onS > VIBRATO_ONSET_SEC) {
+      reach(VIBRATO_SEMITONES)
+      reach(-VIBRATO_SEMITONES)
+    }
+  }
+
+  return { lowest: clamp(lowest, -range, range), highest: clamp(highest, -range, range) }
+}
+
 /** What to multiply an effect's strength by, given how fast the pitch moves. */
 export function intensityScale(speed: number, sensitivity: number): number {
   if (sensitivity <= 0) {

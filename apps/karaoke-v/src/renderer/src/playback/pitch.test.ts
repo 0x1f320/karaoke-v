@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { BridgeNote } from "../../../shared/bridgeChannels"
 import { DEFAULT_PREFERENCES } from "../../../shared/preferences"
-import { intensityScale, samplePitch } from "./pitch"
+import { intensityScale, pitchExtent, samplePitch } from "./pitch"
 
 function note(over: Partial<BridgeNote> = {}): BridgeNote {
   return { onB: 0, offB: 100, onS: 0, offS: 1, pitch: 60, lyric: "a", bend: EMPTY, ...over }
@@ -153,5 +153,40 @@ describe("intensityScale", () => {
 
   it("caps, so a portamento cannot blow the effect out", () => {
     expect(intensityScale(1000, 1)).toBe(3)
+  })
+})
+
+describe("pitchExtent", () => {
+  it("spans the contour it was given", () => {
+    expect(pitchExtent(note({ bend: bend(-250, 0, 380) }), null, RANGE)).toEqual({
+      lowest: -2.5,
+      highest: 3.8,
+    })
+  })
+
+  it("always contains the note's own pitch", () => {
+    expect(pitchExtent(note({ bend: bend(100, 200) }), null, RANGE)).toEqual({
+      lowest: 0,
+      highest: 2,
+    })
+  })
+
+  it("is bounded exactly as one sample is", () => {
+    expect(pitchExtent(note({ bend: bend(-6900, 6900) }), null, 3)).toEqual({
+      lowest: -3,
+      highest: 3,
+    })
+  })
+
+  it("reads the glide off the synthesis when there is no contour", () => {
+    const previous = note({ pitch: 65, onS: -1, offS: 0 })
+    expect(pitchExtent(note(), previous, RANGE).highest).toBe(5)
+  })
+
+  it("counts vibrato on a note long enough to have it", () => {
+    const held = pitchExtent(note({ offS: 4 }), null, RANGE)
+    expect(held.highest).toBeGreaterThan(0)
+    expect(held.lowest).toBeLessThan(0)
+    expect(pitchExtent(note({ offS: 0.2 }), null, RANGE)).toEqual({ lowest: 0, highest: 0 })
   })
 })
