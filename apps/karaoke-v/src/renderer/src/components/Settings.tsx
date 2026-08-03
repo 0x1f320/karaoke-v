@@ -36,6 +36,7 @@ import { SettingRow } from "./ui/SettingRow"
 import { Slider } from "./ui/Slider"
 import { Switch } from "./ui/Switch"
 import { TextInput } from "./ui/TextInput"
+import { TitleBar } from "./ui/TitleBar"
 
 // Left-hand nav sections. Adding a section means adding an entry here, a case in
 // SectionBody, and a label under settings.sections.
@@ -89,28 +90,33 @@ export function Settings() {
   }
 
   return (
-    <div className="flex h-full w-full bg-app text-fg antialiased">
-      <nav className="flex w-55 flex-none select-none flex-col gap-0.5 border-r border-border bg-titlebar p-2">
-        {SECTIONS.map(({ id, Icon }) => (
-          <NavItem key={id} active={id === active} onClick={() => setActive(id)}>
-            <Icon size={15} strokeWidth={1.75} aria-hidden="true" className="flex-none" />
-            {t(`settings.sections.${id}`)}
-          </NavItem>
-        ))}
-      </nav>
+    <div className="flex h-full w-full flex-col bg-app text-fg antialiased">
+      {window.settings.customTitleBar && (
+        <TitleBar title={t("settings.title")} onClose={() => window.settings.close()} />
+      )}
+      <div className="flex min-h-0 flex-1">
+        <nav className="flex w-55 flex-none select-none flex-col gap-0.5 border-r border-border bg-titlebar p-2">
+          {SECTIONS.map(({ id, Icon }) => (
+            <NavItem key={id} active={id === active} onClick={() => setActive(id)}>
+              <Icon size={15} strokeWidth={1.75} aria-hidden="true" className="flex-none" />
+              {t(`settings.sections.${id}`)}
+            </NavItem>
+          ))}
+        </nav>
 
-      {/* The column itself does not scroll — a section decides which of its own
-          parts do, so the effects preview can stay put while the rest moves.
-          It carries no padding either: the inset belongs to whatever is inside
-          a scroll region, so the scrollbar can ride the window's own edge and
-          the last row can scroll clear of the bottom instead of being cut by a
-          band of padding it cannot reach into. */}
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <h1 className="flex-none select-none px-6 pt-5 pb-2 text-base font-medium">
-          {t(`settings.sections.${active}`)}
-        </h1>
-        {prefs && <SectionBody id={active} prefs={prefs} update={update} />}
-      </main>
+        {/* The column itself does not scroll — a section decides which of its own
+            parts do, so the effects preview can stay put while the rest moves.
+            It carries no padding either: the inset belongs to whatever is inside
+            a scroll region, so the scrollbar can ride the window's own edge and
+            the last row can scroll clear of the bottom instead of being cut by a
+            band of padding it cannot reach into. */}
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <h1 className="flex-none select-none px-6 pt-5 pb-2 text-base font-medium">
+            {t(`settings.sections.${active}`)}
+          </h1>
+          {prefs && <SectionBody id={active} prefs={prefs} update={update} />}
+        </main>
+      </div>
     </div>
   )
 }

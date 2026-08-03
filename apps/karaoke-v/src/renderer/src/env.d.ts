@@ -22,6 +22,10 @@ declare global {
     settings: {
       /** Open the settings window, or focus it if it is already open. */
       open(): Promise<void>
+      /** Close the settings window. */
+      close(): Promise<void>
+      /** Whether the settings window hides the system caption and expects its own. */
+      customTitleBar: boolean
     }
     permissions: {
       /** Current grant status. */

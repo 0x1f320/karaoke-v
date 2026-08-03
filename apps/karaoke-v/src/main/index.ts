@@ -12,7 +12,7 @@ import {
   registerPermissionsIpc,
 } from "./permissions"
 import { registerPreferencesIpc } from "./preferences"
-import { openSettingsWindow, setSettingsAnchorWindow } from "./settings"
+import { closeSettingsWindow, openSettingsWindow, setSettingsAnchorWindow } from "./settings"
 import { createToolbarWindow, positionToolbar } from "./toolbar"
 import { createTray, destroyTray, hasTray, setTrayStatus } from "./tray"
 
@@ -179,6 +179,7 @@ app.whenReady().then(() => {
   registerDipIpc()
   registerPermissionsIpc()
   ipcMain.handle("settings:open", () => openSettingsWindow())
+  ipcMain.handle("settings:close", () => closeSettingsWindow())
 
   if (isAccessibilityTrusted()) {
     start()
