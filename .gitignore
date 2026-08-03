@@ -5,4 +5,4 @@ out/
 *.log
 
 # compiled native addon (node-gyp output)
-packages/macos-helper/build/
+packages/*-helper/build/
