@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  BRIDGE_MARKER,
-  type BridgeNote,
-  type BridgePayload,
-  parseBridgePayload,
-} from "../src/shared/bridge"
+import { BRIDGE_MARKER, type BridgeNote, type BridgePayload, parseBridgePayload } from "./bridge"
 
 const note: BridgeNote = { onB: 0, offB: 705600000, onS: 0, offS: 0.5, pitch: 60, lyric: "la" }
 

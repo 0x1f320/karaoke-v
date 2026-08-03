@@ -9,7 +9,7 @@ import {
   PRESET_LIMITS,
   sameEffects,
   sanitizePreferences,
-} from "../src/shared/preferences"
+} from "./preferences"
 
 function preset(id: string, name = id): EffectPreset {
   return { id, name, ...DEFAULT_EFFECTS }

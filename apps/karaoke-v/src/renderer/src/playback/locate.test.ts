@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { locateNote } from "../src/renderer/src/playback/locate"
-import type { TransportView } from "../src/renderer/src/playback/transport"
-import type { BridgeNote } from "../src/shared/bridge"
-import type { Rect, Viewport } from "../src/shared/geometry"
+import type { BridgeNote } from "../../../shared/bridge"
+import type { Rect, Viewport } from "../../../shared/geometry"
+import { locateNote } from "./locate"
+import type { TransportView } from "./transport"
 
 // One blick is one pixel here, so a note's expected x/w read straight off onB/offB.
 const VIEW: TransportView = {

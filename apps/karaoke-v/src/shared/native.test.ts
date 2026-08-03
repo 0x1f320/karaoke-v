@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { PianoRoll, Viewport } from "../src/shared/geometry"
+import type { PianoRoll, Viewport } from "./geometry"
 import {
   type DipTransform,
   IDENTITY_DIP,
@@ -8,7 +8,7 @@ import {
   toDipViewport,
   toDipX,
   toDipY,
-} from "../src/shared/native"
+} from "./native"
 
 // A 2x display whose top-left sits at physical (1920, 0) and DIP (1440, 0) —
 // the second-monitor case, where scale alone would put everything in the wrong place.

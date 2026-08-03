@@ -21,9 +21,10 @@ must not be added.
 
 ## Tests
 
-Vitest, Node environment, in `apps/karaoke-v/test/*.test.ts` — one flat directory,
-never colocated with the source. `pnpm test` at the root runs them through Turborepo;
-CI runs the same task on every PR.
+Vitest, Node environment. A test sits next to the file it covers, as
+`<module>.test.ts` — `preferences.ts` is tested by `preferences.test.ts` beside it,
+never by a mirror tree somewhere else. `pnpm test` at the root runs them through
+Turborepo; CI and the pre-commit hook run the same task.
 
 They cover the pure logic only: bridge parsing, preferences merge/sanitize, the
 transport clock, note location, the frame math and the DIP transforms. Anything that

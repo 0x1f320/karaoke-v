@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { composeFrame, frameTransform } from "../src/renderer/src/playback/frame"
-import type { PianoRoll, Viewport } from "../src/shared/geometry"
+import type { PianoRoll, Viewport } from "../../../shared/geometry"
+import { composeFrame, frameTransform } from "./frame"
 
 const READ: PianoRoll = {
   canvas: { x: 500, y: 200, w: 800, h: 400 },

@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { Transport } from "../src/renderer/src/playback/transport"
 import type {
   BridgeMessage,
   BridgeNote,
   BridgePayload,
   BridgeStatus,
   BridgeViewMapping,
-} from "../src/shared/bridge"
-import type { Viewport } from "../src/shared/geometry"
+} from "../../../shared/bridge"
+import type { Viewport } from "../../../shared/geometry"
+import { Transport } from "./transport"
 
 const MAPPING: BridgeViewMapping = { perBlick: 2, perSemitone: 12, viewLeft: 0, viewTop: 0 }
 

@@ -7,5 +7,5 @@
   },
   // env.d.ts carries the preload's window augmentations, which the renderer
   // modules under test are typed against.
-  "include": ["test", "vitest.config.ts", "src/renderer/src/env.d.ts"]
+  "include": ["src/**/*.test.ts", "src/renderer/src/env.d.ts", "vitest.config.ts"]
 }

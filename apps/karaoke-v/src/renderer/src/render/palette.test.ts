@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { glowParams, hexToInt, particleParams } from "../src/renderer/src/render/palette"
-import { DEFAULT_EFFECTS } from "../src/shared/preferences"
+import { DEFAULT_EFFECTS } from "../../../shared/preferences"
+import { glowParams, hexToInt, particleParams } from "./palette"
 
 describe("hexToInt", () => {
   it("reads #rrggbb as 0xRRGGBB", () => {
