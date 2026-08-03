@@ -1,4 +1,5 @@
-// The wire format of the SynthV bridge script (synth-v/src/overlay-bridge.ts).
+// The wire format of the SynthV bridge script
+// (packages/synthv-script/src/overlay-bridge.ts).
 //
 // The script does not stream. It sends a whole note schedule plus one playhead
 // anchor when playback starts, and after that speaks only when something makes
