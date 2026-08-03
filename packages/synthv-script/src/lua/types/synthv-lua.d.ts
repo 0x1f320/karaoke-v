@@ -18,6 +18,8 @@
 
 type Blick = number
 
+type Status = "playing" | "looping" | "stopped"
+
 /** A 1-based index into a SynthV collection. See `svIndex`. */
 type SVIndex = number & { readonly __svOneBased: unique symbol }
 
@@ -141,7 +143,7 @@ interface PlaybackControl {
   stop(): void
   seek(seconds: number): void
   loop(begin: number, end: number): void
-  getStatus(): "playing" | "looping" | "stopped"
+  getStatus(): Status
   getPlayhead(): number
 }
 

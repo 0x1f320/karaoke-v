@@ -169,9 +169,14 @@ try {
   const { rev, count, notes } = decodeNotes(readChannel("notes"))
   console.log(`\nnotes: rev ${rev}, ${count} notes`)
   for (const note of notes.slice(0, 8)) {
+    const bend =
+      note.bend.length === 0
+        ? "bend none"
+        : `bend ${note.bend.length} [${Math.min(...note.bend)}..${Math.max(...note.bend)}] cents` +
+          ` ${Array.from(note.bend.slice(0, 6)).join(" ")}…`
     console.log(
       `  ${note.onS.toFixed(3)}s - ${note.offS.toFixed(3)}s  pitch ${note.pitch}` +
-        `  ${JSON.stringify(note.lyric)}  bend ${note.bend.length}`,
+        `  ${JSON.stringify(note.lyric)}  ${bend}`,
     )
   }
   if (count > 8) {

@@ -9,8 +9,8 @@
   },
   "tstl": {
     "luaTarget": "5.4",
-    "luaBundle": "overlay-bridge.lua",
-    "luaBundleEntry": "src/lua/overlay-bridge.ts",
+    "luaBundle": "karaoke-v-lua-smoke.lua",
+    "luaBundleEntry": "src/lua/smoke.ts",
     "sourceMapTraceback": true
   },
   "include": ["src/lua", "src/ui", "src/common"]
