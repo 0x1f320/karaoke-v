@@ -9,8 +9,11 @@
  * is pressed.
  */
 
+import { hotChannel } from "./bridge/channels"
 import type { NoteRecord } from "./bridge/codec"
+import { bridgeDirectory } from "./bridge/paths"
 import { createPublisher } from "./bridge/publisher"
+import { encodeJson } from "./json"
 import { svIndex } from "./sv-index"
 
 const SCRIPT_TITLE = "karaoke-v Lua smoke"
@@ -18,9 +21,26 @@ const SCRIPT_TITLE = "karaoke-v Lua smoke"
 let ticks = 0
 let lastCallback = "none yet"
 let lastNotes = 0
+let lastError = "none"
 
 const publisher = createPublisher()
 const notesButton = SV.create("WidgetValue")
+
+// The panel says what went wrong, but nobody outside SynthV can read the panel.
+const directory = bridgeDirectory()
+const diagnostics = directory !== undefined ? hotChannel(directory, "smoke.json", 512) : undefined
+
+function report(): void {
+  diagnostics?.publish(
+    encodeJson({
+      ticks,
+      lastCallback,
+      lastNotes,
+      lastError,
+      channels: publisher.describe(),
+    }),
+  )
+}
 
 function viewMapping() {
   const nav = SV.getMainEditor().getNavigation()
@@ -68,9 +88,15 @@ function revision(): string {
 
 notesButton.setValueChangeCallback((value) => {
   lastCallback = `button value=${tostring(value)} (${type(value)})`
-  const notes = collectNotes()
-  lastNotes = notes.length
-  publisher.publishNotes(revision(), notes)
+  try {
+    const notes = collectNotes()
+    lastNotes = notes.length
+    publisher.publishNotes(revision(), notes)
+    lastError = "none"
+  } catch (error) {
+    lastError = tostring(error)
+  }
+  report()
   SV.refreshSidePanel()
 })
 
@@ -88,7 +114,10 @@ function loop(): void {
     viewTop: px.viewTop,
     rev: revision(),
   })
-  if (ticks % 10 === 0) {
+  // Rebuilding the panel is not free and it churns the widgets the user is
+  // trying to click: at ten ticks the button never received a press at all.
+  if (ticks % 120 === 0) {
+    report()
     SV.refreshSidePanel()
   }
   SV.setTimeout(16, loop)
@@ -112,6 +141,7 @@ globalThis.getSidePanelSectionState = () => ({
     { type: "Label", text: `channels: ${publisher.describe()}` },
     { type: "Label", text: `callback: ${lastCallback}` },
     { type: "Label", text: `last notes published: ${lastNotes}` },
+    { type: "Label", text: `last error: ${lastError}` },
     {
       type: "Container",
       columns: [{ type: "Button", text: "Publish notes", value: notesButton, width: 1 }],
