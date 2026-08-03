@@ -1,0 +1,139 @@
+import path from "node:path"
+import { app, BrowserWindow, ipcMain, screen, shell, systemPreferences } from "electron"
+import type { PermissionsStatus } from "../shared/permissions"
+
+// The first-run gate: without Accessibility the AX reads fail and the overlay
+// can never align, so nothing else starts until it is granted.
+
+const SIZE = { width: 520, height: 390 }
+
+// macOS reports the grant to a running process, but only when asked — there is
+// no notification for it, so the window polls while it is up.
+const POLL_MS = 1000
+
+const ACCESSIBILITY_PANE =
+  "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+
+let win: BrowserWindow | null = null
+let poll: NodeJS.Timeout | null = null
+let onGranted: (() => void) | null = null
+
+export function isAccessibilityTrusted(): boolean {
+  return process.platform !== "darwin" || systemPreferences.isTrustedAccessibilityClient(false)
+}
+
+function status(): PermissionsStatus {
+  return { accessibility: isAccessibilityTrusted() }
+}
+
+function stopPolling(): void {
+  if (poll) {
+    clearInterval(poll)
+    poll = null
+  }
+}
+
+function centeredBounds(): { x: number; y: number } {
+  const { x, y, width, height } = screen.getDisplayNearestPoint(
+    screen.getCursorScreenPoint(),
+  ).workArea
+  return {
+    x: Math.round(x + (width - SIZE.width) / 2),
+    y: Math.round(y + (height - SIZE.height) / 2),
+  }
+}
+
+/**
+ * Show the gate and call `granted` once the user has both granted Accessibility
+ * and confirmed. Re-showing while it is already up only focuses it.
+ */
+export function openPermissionsWindow(granted: () => void): void {
+  onGranted = granted
+
+  if (win && !win.isDestroyed()) {
+    win.show()
+    win.focus()
+    return
+  }
+
+  win = new BrowserWindow({
+    ...centeredBounds(),
+    width: SIZE.width,
+    height: SIZE.height,
+    title: "karaoke-v",
+    backgroundColor: "#2D2B2E",
+    show: false,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    webPreferences: {
+      preload: path.join(__dirname, "..", "preload", "index.js"),
+      contextIsolation: true,
+      // The preload requires the native AX addon.
+      sandbox: false,
+    },
+  })
+
+  // The overlay and toolbar float at "floating" level; the gate has to sit over
+  // them for the case where it is re-shown after tracking already started.
+  win.setAlwaysOnTop(true, "floating")
+
+  // The renderer bundle is shared, so its <title> would otherwise overwrite the
+  // window title on load.
+  win.on("page-title-updated", (event) => {
+    event.preventDefault()
+  })
+
+  win.on("closed", () => {
+    win = null
+    stopPolling()
+  })
+
+  win.once("ready-to-show", () => {
+    win?.show()
+    // The dock icon is hidden, so the app is an accessory — it needs an
+    // explicit activation for the new window to take keyboard focus.
+    app.focus({ steal: true })
+  })
+
+  // The system's own prompt, driven from here rather than as a side effect of
+  // starting the helper. macOS shows it once per app until TCC is reset, which
+  // is why the window also offers the System Settings pane.
+  if (process.platform === "darwin" && !isAccessibilityTrusted()) {
+    systemPreferences.isTrustedAccessibilityClient(true)
+  }
+
+  stopPolling()
+  poll = setInterval(() => {
+    if (!win || win.isDestroyed()) {
+      stopPolling()
+      return
+    }
+    if (isAccessibilityTrusted()) {
+      stopPolling()
+      win.webContents.send("permissions:changed", status())
+    }
+  }, POLL_MS)
+
+  if (process.env.ELECTRON_RENDERER_URL) {
+    win.loadURL(`${process.env.ELECTRON_RENDERER_URL}#permissions`)
+  } else {
+    win.loadFile(path.join(__dirname, "..", "renderer", "index.html"), { hash: "permissions" })
+  }
+}
+
+export function registerPermissionsIpc(): void {
+  ipcMain.handle("permissions:get", () => status())
+  ipcMain.handle("permissions:openSettings", () => shell.openExternal(ACCESSIBILITY_PANE))
+  ipcMain.handle("permissions:continue", () => {
+    if (!isAccessibilityTrusted()) {
+      return
+    }
+    // Start before the window goes: closing the last window with no tray yet
+    // would quit the app.
+    onGranted?.()
+    onGranted = null
+    win?.close()
+  })
+}
