@@ -5,7 +5,7 @@
 //
 //   node scripts/dump.mjs [directory]
 
-import { openSync, readFileSync, readSync, statSync } from "node:fs"
+import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
@@ -33,15 +33,9 @@ function readChannel(name, limit) {
   try {
     readSync(fd, buffer, 0, length, 0)
   } finally {
-    require$close(fd)
+    closeSync(fd)
   }
   return buffer
-}
-
-// `node:fs` closeSync, imported lazily so the try/finally above reads cleanly.
-const { closeSync } = await import("node:fs")
-function require$close(fd) {
-  closeSync(fd)
 }
 
 class Cursor {
@@ -82,7 +76,12 @@ class Cursor {
   }
 }
 
+const HEADER_BYTES = 12
+
 function readHeader(cursor) {
+  if (cursor.buffer.byteLength < HEADER_BYTES) {
+    throw new Error("never published (the file is empty)")
+  }
   const magic = cursor.buffer.toString("latin1", cursor.offset, cursor.offset + 4)
   cursor.offset += 4
   const layout = cursor.u16()
