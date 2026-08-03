@@ -30,6 +30,8 @@ declare global {
       openSettings(key: PermissionKey): Promise<void>
       /** Leave the gate and start the app. Ignored while still untrusted. */
       proceed(): Promise<void>
+      /** Fit the window to this content height, within the gate's own limits. */
+      resize(height: number): Promise<void>
       /** Subscribe to grant changes. Returns an unsubscribe function. */
       onChange(callback: (status: PermissionsStatus) => void): () => void
     }

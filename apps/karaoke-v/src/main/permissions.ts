@@ -5,7 +5,10 @@ import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
 // The first-run gate: without Accessibility the AX reads fail and the overlay
 // can never align, so nothing else starts until it is granted.
 
+// The height is only a starting point: the window follows its own content,
+// which grows and shrinks as the per-permission instructions are unfolded.
 const SIZE = { width: 580, height: 390 }
+const HEIGHT_LIMITS = { min: 200, max: 720 }
 
 // macOS reports the trust state to a running process, but only when asked —
 // there is no notification for it, so the window polls the whole time it is up.
@@ -103,13 +106,6 @@ export function openPermissionsWindow(granted: () => void): void {
     app.focus({ steal: true })
   })
 
-  // The system's own prompt, driven from here rather than as a side effect of
-  // starting the helper. macOS shows it once per app until TCC is reset, which
-  // is why the window also offers the System Settings pane.
-  if (process.platform === "darwin" && !isAccessibilityTrusted()) {
-    systemPreferences.isTrustedAccessibilityClient(true)
-  }
-
   stopPolling()
   reported = isAccessibilityTrusted()
   poll = setInterval(() => {
@@ -136,6 +132,15 @@ export function registerPermissionsIpc(): void {
   ipcMain.handle("permissions:openSettings", (_event, key: PermissionKey) => {
     const pane = PANES[key]
     return pane ? shell.openExternal(pane) : undefined
+  })
+  ipcMain.handle("permissions:resize", (_event, height: number) => {
+    if (!win || win.isDestroyed() || !Number.isFinite(height)) {
+      return
+    }
+    const next = Math.round(Math.min(Math.max(height, HEIGHT_LIMITS.min), HEIGHT_LIMITS.max))
+    if (next !== win.getContentSize()[1]) {
+      win.setContentSize(SIZE.width, next)
+    }
   })
   ipcMain.handle("permissions:continue", () => {
     if (!isAccessibilityTrusted()) {

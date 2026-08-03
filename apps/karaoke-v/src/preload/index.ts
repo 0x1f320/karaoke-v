@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld("permissions", {
   openSettings: (key: PermissionKey): Promise<void> =>
     ipcRenderer.invoke("permissions:openSettings", key),
   proceed: (): Promise<void> => ipcRenderer.invoke("permissions:continue"),
+  resize: (height: number): Promise<void> => ipcRenderer.invoke("permissions:resize", height),
   onChange: (callback: (status: PermissionsStatus) => void): (() => void) => {
     const handler = (_event: IpcRendererEvent, status: PermissionsStatus) => callback(status)
     ipcRenderer.on("permissions:changed", handler)
