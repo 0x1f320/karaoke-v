@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { BridgeNote } from "../../../shared/bridgeChannels"
+import { DEFAULT_PREFERENCES } from "../../../shared/preferences"
 import { intensityScale, samplePitch } from "./pitch"
 
 function note(over: Partial<BridgeNote> = {}): BridgeNote {
@@ -53,6 +54,14 @@ describe("samplePitch with a contour from the bridge", () => {
 })
 
 describe("samplePitch bounds", () => {
+  // Measured against a sung project: real scoops and portamento carry the voice
+  // about ten semitones out, so the default has to clear that or it flattens
+  // the very movement the feature exists to show.
+  it("lets a real excursion through at the default range", () => {
+    const n = note({ bend: bend(-1036), offS: 0.4 })
+    expect(samplePitch(n, null, 0.2, DEFAULT_PREFERENCES.pitch.range).offset).toBeCloseTo(-10.36)
+  })
+
   // The engine reports unvoiced frames as a pitch of zero rather than as a gap,
   // which is an offset of most of an octave. The script filters it, so this is
   // the second line: an older or broken writer must not reach the canvas.

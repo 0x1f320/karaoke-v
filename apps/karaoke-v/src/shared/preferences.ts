@@ -125,8 +125,13 @@ export type PitchPreferences = {
   enabled: boolean
   mode: PitchMode
   /**
-   * How far the effect may leave the note, in semitones. Also the guard against
-   * a contour that names somewhere absurd.
+   * How far the effect may leave the note, in semitones.
+   *
+   * This is a guard and not a taste knob, which is what sets where it sits.
+   * Measured against a sung project, real excursions reach about ten semitones
+   * — scoops and portamento carry the voice well outside the note's own lane —
+   * while the failure it exists to catch, an unvoiced frame read as a pitch of
+   * zero, lands around seventy. An octave is comfortably between the two.
    */
   range: number
   /** How hard pitch movement drives intensity. Zero holds it level. */
@@ -209,7 +214,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   pitch: {
     enabled: false,
     mode: "both",
-    range: 4,
+    range: 12,
     sensitivity: 0.12,
   },
   presets: [],
