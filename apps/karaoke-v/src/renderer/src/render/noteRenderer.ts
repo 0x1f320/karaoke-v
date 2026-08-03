@@ -11,7 +11,7 @@ import { ParticleField, type ParticleParams } from "./particles"
 //   stage
 //   ├─ content        (mask = clip; shifted by the scroll delta)
 //   │  ├─ notes       (one Graphics batching every note rect)
-//   │  ├─ playing     (debug: the note under the playhead)
+//   │  ├─ playing     (the reach band, or the debug note under the playhead)
 //   │  └─ effects     (the playhead's glow, and the sparks it throws off)
 //   └─ clip           (the piano-roll viewport rect, in window-local coords)
 

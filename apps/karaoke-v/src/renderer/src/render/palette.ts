@@ -10,6 +10,14 @@ export const FILL: Rgba = [80 / 255, 180 / 255, 255 / 255, 0.25]
 export const STROKE: Rgba = [120 / 255, 210 / 255, 255 / 255, 0.9]
 export const BORDER_PX = 1
 export const PLAYING_FILL: Rgba = [255 / 255, 235 / 255, 130 / 255, 0.55]
+/**
+ * The band the effect can reach inside its note. Much fainter than the debug
+ * note box it borrows its colour from: that box is one lane and only up while
+ * debugging, this one is up whenever the effect follows the pitch and stands as
+ * tall as the reach — a whole octave of it at 0.55 would be a wall across the
+ * piano roll rather than a hint about one note.
+ */
+export const REACH_FILL: Rgba = [255 / 255, 235 / 255, 130 / 255, 0.12]
 
 /** "#rrggbb" as the 0xRRGGBB int Pixi tints with. */
 export function hexToInt(hex: string): number {

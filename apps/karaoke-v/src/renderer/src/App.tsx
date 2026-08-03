@@ -14,7 +14,15 @@ import { locateNote } from "./playback/locate"
 import { intensityScale, pitchExtent, samplePitch } from "./playback/pitch"
 import { Transport } from "./playback/transport"
 import { NoteRenderer } from "./render/noteRenderer"
-import { BORDER_PX, FILL, glowParams, PLAYING_FILL, particleParams, STROKE } from "./render/palette"
+import {
+  BORDER_PX,
+  FILL,
+  glowParams,
+  PLAYING_FILL,
+  particleParams,
+  REACH_FILL,
+  STROKE,
+} from "./render/palette"
 
 // Interval between full note reads. Note positions are corrected per-frame from
 // the viewport read, so this only bounds how stale the note SET can be (edits,
@@ -190,8 +198,10 @@ function Overlay() {
       // note's centre and the effect keeps the strength they dialled in.
       let offsetSemitones = 0
       let boost = 1
-      // Debug only: the band the emitter can reach in this note, so the box
-      // shows the reach rather than the lane.
+      // The band the emitter can reach in this note. Drawn whenever the effect
+      // follows the pitch, not only in debug: it is what says how near the
+      // reach comes to the edge of the piano roll, past which the effects layer
+      // is masked away and the effect simply stops being visible.
       let reach: Rect | null = null
       const view = transport.view
       const seconds = transport.playing ? transport.playhead(nowMs) : null
@@ -210,7 +220,7 @@ function Overlay() {
             const sung = samplePitch(note, previous, seconds - note.onS, pitch.range)
             if (pitch.mode !== "intensity") {
               offsetSemitones = sung.offset
-              if (debug && hit) {
+              if (hit) {
                 const { lowest, highest } = pitchExtent(note, previous, pitch.range)
                 reach = pitchBounds(hit, lowest, highest)
               }
@@ -243,8 +253,8 @@ function Overlay() {
         fill: FILL,
         stroke: STROKE,
         border: BORDER_PX,
-        playing: debug ? (reach ?? hit) : null,
-        playingFill: PLAYING_FILL,
+        playing: reach ?? (debug ? hit : null),
+        playingFill: reach ? REACH_FILL : PLAYING_FILL,
         emit: frame.emit,
         particles: boost === 1 ? particles : { ...particles, rate: particles.rate * boost },
         noteStarted,
