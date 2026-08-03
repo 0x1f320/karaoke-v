@@ -110,7 +110,7 @@ function PermissionCard({
             />
             허용하는 방법
           </Collapsible.Trigger>
-          <Collapsible.Content>
+          <Collapsible.Content className="overflow-hidden data-[state=closed]:animate-collapse-up data-[state=open]:animate-collapse-down">
             <ol className="mt-3 flex select-none flex-col gap-2.5 text-xs text-muted">
               {steps.map((step, index) => (
                 <li key={step} className="flex gap-2">
