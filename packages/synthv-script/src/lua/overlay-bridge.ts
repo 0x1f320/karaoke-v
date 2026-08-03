@@ -15,12 +15,12 @@
  * computed pitch curve, and the view transform.
  */
 
-import { getClientInfoFactory } from "../common/client-info"
-import { button } from "../ui/button"
-import { label } from "../ui/label"
-import { row } from "../ui/row"
 import { collectNotes, currentRevision, viewMapping } from "./bridge/model"
 import { createPublisher } from "./bridge/publisher"
+import { getClientInfoFactory } from "./client-info"
+import { button } from "./ui/button"
+import { label } from "./ui/label"
+import { row } from "./ui/row"
 
 const SCRIPT_TITLE = "Overlay Bridge"
 

@@ -56,9 +56,7 @@ if (!dest) {
   process.exit(1)
 }
 
-const built = (await readdir(outDir)).filter(
-  (name) => name.endsWith(".js") || name.endsWith(".lua"),
-)
+const built = (await readdir(outDir)).filter((name) => name.endsWith(".lua"))
 if (built.length === 0) {
   console.error("synthv-script: nothing built. Run the build first.")
   process.exit(1)

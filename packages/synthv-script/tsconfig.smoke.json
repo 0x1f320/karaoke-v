@@ -13,5 +13,5 @@
     "luaBundleEntry": "src/lua/smoke.ts",
     "sourceMapTraceback": true
   },
-  "include": ["src/lua", "src/ui", "src/common"]
+  "include": ["src"]
 }

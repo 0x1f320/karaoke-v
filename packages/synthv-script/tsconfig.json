@@ -1,13 +1,17 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2015",
-    "lib": ["ES2020"],
-    "types": [],
-    "paths": {
-      "@/*": ["./src/*"]
-    }
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "types": ["lua-types/5.4"],
+    "noEmit": false,
+    "outDir": "out"
   },
-  "include": ["src"],
-  "exclude": ["src/lua"]
+  "tstl": {
+    "luaTarget": "5.4",
+    "luaBundle": "overlay-bridge.lua",
+    "luaBundleEntry": "src/lua/overlay-bridge.ts",
+    "sourceMapTraceback": true
+  },
+  "include": ["src"]
 }

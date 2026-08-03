@@ -16,7 +16,7 @@
 #import <string>
 
 #import "ax.h"
-#import "bridge.h"
+#import "clock.h"
 #import "pianoroll.h"
 
 namespace {
@@ -432,7 +432,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("stop", Napi::Function::New(env, Stop));
   exports.Set("disableAnimations", Napi::Function::New(env, DisableAnimations));
   RegisterPianoRoll(env, exports);
-  RegisterBridge(env, exports);
+  RegisterClock(env, exports);
   return exports;
 }
 
