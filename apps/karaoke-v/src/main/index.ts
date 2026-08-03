@@ -1,3 +1,4 @@
+import path from "node:path"
 import { app, type BrowserWindow, ipcMain } from "electron"
 import { native, type Rect } from "../shared/native"
 import { registerBridgeIpc, startBridge, stopBridge } from "./bridge"
@@ -45,6 +46,17 @@ function nativeTarget(): string {
 
 let overlayWin: BrowserWindow | null = null
 let toolbarWin: BrowserWindow | null = null
+
+// Names the macOS app menu, the About panel and notification attribution, which
+// would otherwise read the package name.
+app.setName("KaraokeV")
+
+// setName would otherwise move userData to ".../KaraokeV" and orphan every
+// existing install's preferences, so the path stays on the package name it was
+// created under. It has to be pinned after setName — which recomputes the
+// default — and before anything reads userData, including the single instance
+// lock below, whose socket lives there.
+app.setPath("userData", path.join(app.getPath("appData"), "@karaoke-v", "app"))
 
 // A second copy would attach its own stick observer and clipboard bridge to the
 // same SynthV window, so the two would fight over the overlay and the pasteboard.
