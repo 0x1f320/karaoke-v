@@ -15,12 +15,14 @@
   "dependencies": {
     "@karaoke-v/macos-helper": "workspace:*",
     "@karaoke-v/windows-helper": "workspace:*",
+    "i18next": "^26.3.6",
     "lucide-react": "^1.28.0",
     "pixi.js": "^8.19.0",
     "radix-ui": "^1.6.7",
     "react": "^19.0.0",
     "react-colorful": "^5.8.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-i18next": "^17.0.11"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.0",

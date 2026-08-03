@@ -28,6 +28,12 @@ describe("mergePreferences", () => {
     expect(base).toEqual(DEFAULT_PREFERENCES)
   })
 
+  it("carries the language through, and keeps it when the patch is silent", () => {
+    expect(mergePreferences(DEFAULT_PREFERENCES, { language: "ja" }).language).toBe("ja")
+    const base = { ...DEFAULT_PREFERENCES, language: "ko" as const }
+    expect(mergePreferences(base, { debug: true }).language).toBe("ko")
+  })
+
   it("replaces the preset list wholesale", () => {
     const base = { ...DEFAULT_PREFERENCES, presets: [preset("a"), preset("b")] }
     expect(mergePreferences(base, { presets: [preset("b")] }).presets).toEqual([preset("b")])
@@ -99,6 +105,13 @@ describe("sanitizePreferences", () => {
       debug: true,
       effects: false,
     })
+  })
+
+  it("keeps only a supported language", () => {
+    expect(sanitizePreferences({ language: "ja" }).language).toBe("ja")
+    expect(sanitizePreferences({ language: "system" }).language).toBe("system")
+    expect(sanitizePreferences({ language: "fr" })).toEqual({})
+    expect(sanitizePreferences({ language: "ko-KR" })).toEqual({})
   })
 
   it("keeps activePreset as a string or null, but not otherwise", () => {

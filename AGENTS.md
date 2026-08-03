@@ -19,6 +19,29 @@ must not be added.
 - Existing comments are not a licence to add more; when you touch code whose comment has
   gone stale, fix or delete it.
 
+## User-facing text (i18n)
+
+The app ships in **ko / en / ja**, so **no user-facing string may be written as a literal**
+— not in a component, not in a tray menu, window title or notification. Every one of them
+is an i18next key. A change that adds UI text is **not finished** until all three locale
+files carry the key.
+
+- Resources live in `apps/karaoke-v/src/shared/i18n/locales/{ko,en,ja}.json`. Keys are
+  grouped by the surface that shows them (`settings.*`, `tray.*`, `permissions.*`, …);
+  **ko is the source of truth** for wording, and `en` is the fallback for anything missing.
+- **Renderer:** `const { t } = useTranslation()`. **Main:** `t` from `src/main/i18n.ts`.
+  Anything main builds once and leaves standing — the tray menu, a window title — must
+  re-spell itself from `onLanguageChanged`, or it will keep the old language on screen.
+- **Never spell a product name in a translation.** `{{app}}` and `{{synthv}}` are supplied
+  as i18next default variables from `src/shared/i18n/index.ts`.
+- **Units and suffixes are text too** (`units.seconds`, `units.times`, …). Do not append
+  `초`/`s`/`秒` in a template literal.
+- Write each key as a **whole sentence** and never assemble one from fragments: Korean
+  particles (을/를, 이/가) and word order do not survive being reused by another language.
+- The chosen language is the `language` preference (`"system"` plus the supported list);
+  `resolveLanguage` in `src/shared/language.ts` turns it into the one actually rendered.
+  Adding a language means a locale file plus an entry in `LANGUAGES` — nothing else.
+
 ## Tests
 
 Vitest, Node environment. A test sits next to the file it covers, as

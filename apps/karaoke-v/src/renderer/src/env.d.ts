@@ -35,6 +35,13 @@ declare global {
       /** Subscribe to grant changes. Returns an unsubscribe function. */
       onChange(callback: (status: PermissionsStatus) => void): () => void
     }
+    i18n: {
+      /**
+       * The OS's preferred languages, most wanted first. Chromium's own
+       * navigator.languages does not follow them, so main is asked instead.
+       */
+      systemLanguages(): Promise<string[]>
+    }
     preferences: {
       /** Current persisted preferences. */
       get(): Promise<Preferences>
