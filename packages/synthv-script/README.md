@@ -53,7 +53,6 @@ own file in `<app data>/karaoke-v/bridge/`, which **the app creates** (Lua has n
 | `session.json` | once at start | JSON, padded to a fixed width. The contract: protocol and layout version, and what the other channels are. |
 | `state` | every tick | Binary, fixed width, rewritten in place. |
 | `notes` | on edit | Binary, whole record in one write. |
-| `doorbell` | on cold updates | Empty file, re-created so a watcher has a directory change to notice. |
 
 Two rules make this safe without `os.rename`: **a record is always exactly one `write` call**
 — measured, a single write never tore against a reader `pread`ing as fast as it could — and
@@ -61,8 +60,10 @@ Two rules make this safe without `os.rename`: **a record is always exactly one `
 leaves the old tail behind.
 
 The hot channel is also the index: it carries each cold channel's sequence number, so a
-reader polling it once a frame learns the schedule moved without opening anything else. The
-doorbell is a hint on top of that, never the mechanism.
+reader polling it once a frame learns the schedule moved without opening anything else.
+That is why nothing here notifies anyone — a watcher cannot beat a reader that already
+looks every frame, and measured, `fs.watch` matches a 1 ms poll at the median and trails it
+by 287 ms at the tail.
 
 Records are binary because the encoder runs on SynthV's UI thread: a 2000-note schedule with
 pitch curves costs 18.8 ms to build as JSON and 2.0 ms with `string.pack`, which is the

@@ -118,22 +118,3 @@ export function coldChannel(directory: string, name: string): Channel {
     },
   }
 }
-
-/**
- * Not a channel — a directory entry that changes so the app's file watcher has
- * something it reliably notices. An in-place write to an existing file may
- * never reach `ReadDirectoryChangesW` on Windows, while a create does.
- *
- * It is a hint and only a hint: every cold channel is also announced by a
- * sequence number in the hot channel, so a missed ring costs one frame.
- */
-export function doorbell(directory: string, name: string): () => void {
-  const path = channelPath(directory, name)
-  return () => {
-    os.remove(path)
-    const [file] = io.open(path, "wb")
-    if (file !== undefined) {
-      file.close()
-    }
-  }
-}

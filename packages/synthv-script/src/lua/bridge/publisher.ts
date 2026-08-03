@@ -11,7 +11,9 @@
  *
  * The hot channel doubles as the index: it names the sequence number of each
  * cold channel, so a reader that already polls it once a frame learns that the
- * schedule moved without opening anything else.
+ * schedule moved without opening anything else. That is also why there is no
+ * notification of any kind here — a watcher cannot beat "the app already looks
+ * every frame", and measured, its tail latency is far worse.
  *
  * `session.json` is the exception that stays JSON and stays padded rather than
  * framed: it is written once, it is the document that tells a reader what the
@@ -20,7 +22,7 @@
  */
 
 import { encodeJson } from "../json"
-import { type Channel, coldChannel, doorbell, hotChannel } from "./channels"
+import { type Channel, coldChannel, hotChannel } from "./channels"
 import { encodeNotes, encodeState, LAYOUT, type NoteRecord } from "./codec"
 import { bridgeDirectory } from "./paths"
 
@@ -62,7 +64,6 @@ export function createPublisher(): Publisher {
   const session = hotChannel(directory, "session.json", SESSION_WIDTH)
   const state = hotChannel(directory, "state", STATE_WIDTH)
   const notes = coldChannel(directory, "notes")
-  const ring = doorbell(directory, "doorbell")
 
   const host = SV.getHostInfo()
   const announced = session.publish(
@@ -121,9 +122,7 @@ export function createPublisher(): Publisher {
       notesSeq = notesSeq + 1
       if (!notes.publish(encodeNotes(rev, value))) {
         lastError = "notes write failed"
-        return
       }
-      ring()
     },
 
     describe() {
