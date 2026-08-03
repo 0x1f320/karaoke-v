@@ -23,8 +23,8 @@ export function Permissions() {
       </h1>
 
       <p className="mt-2 select-none text-xs leading-relaxed text-muted">
-        karaoke-v는 SynthV 창의 피아노 롤을 읽어 그 위에 노트 이펙트를 겹쳐 그립니다. 화면을
-        녹화하거나 다른 앱의 내용을 읽지는 않습니다.
+        노트 이펙트처럼 피아노 롤 위에 무언가를 그리는 기능은, 노트가 화면 어디에 있는지 알아야
+        동작합니다. macOS에서는 그 위치를 읽으려면 손쉬운 사용 권한이 필요합니다.
       </p>
 
       <div className="mt-5 flex items-center gap-3 rounded-lg border border-border bg-titlebar px-4 py-3.5">
@@ -36,7 +36,9 @@ export function Permissions() {
         />
         <div className="min-w-0 select-none">
           <div className="text-sm">손쉬운 사용</div>
-          <p className="mt-0.5 text-xs text-muted">노트의 위치를 읽는 데 사용합니다. 필수입니다.</p>
+          <p className="mt-0.5 text-xs text-muted">
+            SynthV 창의 노트 위치만 읽습니다. 화면을 녹화하거나 다른 앱의 내용을 읽지는 않습니다.
+          </p>
         </div>
         <StatusPill granted={granted} />
       </div>
