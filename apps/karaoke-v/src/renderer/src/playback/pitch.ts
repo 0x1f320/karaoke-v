@@ -33,6 +33,14 @@ const VIBRATO_FADE_SEC = 0.18
 const VIBRATO_HZ = 5.5
 const VIBRATO_SEMITONES = 0.18
 
+/**
+ * Samples the bridge carries on each side of the note, mirroring `BEND_PAD` in
+ * `packages/synthv-script/src/lua/bridge/model.ts`. The curve runs into a note
+ * before it starts and out of it after it ends, and those are its steepest
+ * stretches — the padding is what makes them reachable here.
+ */
+const BEND_PAD = 8
+
 /** Step the speed is differenced over — one frame at 60Hz. */
 const SPEED_DT = 1 / 60
 
@@ -48,19 +56,43 @@ function smoothstep(t: number): number {
   return x * x * (3 - 2 * x)
 }
 
+/** How many samples of a padded contour cover the note itself. */
+function innerCount(length: number): number {
+  return length - 2 * BEND_PAD
+}
+
 /**
- * The contour the bridge sent, read at `progress` through the note. Samples are
- * evenly spaced from onset to end, so progress indexes them directly — there is
- * no separate time base to keep in step with the transport's.
+ * Where in a contour the note's own onset and end sit, as a fraction of the
+ * note's width. The bands drawn for a note have to reach the same distance
+ * sideways that the contour does, and that distance is only knowable from how
+ * many samples fall outside the note.
  */
-function bendAt(bend: ArrayLike<number>, progress: number): number {
+export function bendOverhang(bend: ArrayLike<number>): number {
+  const inner = innerCount(bend.length)
+  return inner > 1 ? BEND_PAD / (inner - 1) : 0
+}
+
+/**
+ * The contour the bridge sent, read `elapsed` seconds into a note spanning
+ * `span` seconds. Samples are evenly spaced in time, but the array starts
+ * before the note and ends after it, so elapsed zero lands at BEND_PAD rather
+ * than at the beginning.
+ */
+function bendAt(bend: ArrayLike<number>, elapsed: number, span: number): number {
   if (bend.length === 1) {
     return bend[0] / 100
   }
-  const at = clamp(progress, 0, 1) * (bend.length - 1)
-  const low = Math.floor(at)
+  const inner = innerCount(bend.length)
+  // A contour too short to hold its own padding is not one this build wrote;
+  // read it as evenly spread rather than indexing off the end of it.
+  const at =
+    inner > 1 && span > 0
+      ? BEND_PAD + (elapsed / span) * (inner - 1)
+      : clamp(span > 0 ? elapsed / span : 0, 0, 1) * (bend.length - 1)
+  const bounded = clamp(at, 0, bend.length - 1)
+  const low = Math.floor(bounded)
   const high = Math.min(low + 1, bend.length - 1)
-  const t = at - low
+  const t = bounded - low
   return (bend[low] * (1 - t) + bend[high] * t) / 100
 }
 
@@ -82,8 +114,7 @@ function synthesized(note: BridgeNote, previous: BridgeNote | null, elapsed: num
 
 function offsetAt(note: BridgeNote, previous: BridgeNote | null, elapsed: number): number {
   if (note.bend.length > 0) {
-    const span = note.offS - note.onS
-    return bendAt(note.bend, span > 0 ? elapsed / span : 0)
+    return bendAt(note.bend, elapsed, note.offS - note.onS)
   }
   return synthesized(note, previous, elapsed)
 }
@@ -129,15 +160,17 @@ export function pitchExtent(
   note: BridgeNote,
   previous: BridgeNote | null,
   range: number,
-): { lowest: number; highest: number } {
+): { lowest: number; highest: number; overhang: number } {
   let lowest = 0
   let highest = 0
+  let overhang = 0
   const reach = (value: number) => {
     lowest = Math.min(lowest, value)
     highest = Math.max(highest, value)
   }
 
   if (note.bend.length > 0) {
+    overhang = bendOverhang(note.bend)
     for (let i = 0; i < note.bend.length; i++) {
       reach(note.bend[i] / 100)
     }
@@ -154,7 +187,11 @@ export function pitchExtent(
     }
   }
 
-  return { lowest: clamp(lowest, -range, range), highest: clamp(highest, -range, range) }
+  return {
+    lowest: clamp(lowest, -range, range),
+    highest: clamp(highest, -range, range),
+    overhang,
+  }
 }
 
 /** What to multiply an effect's strength by, given how fast the pitch moves. */

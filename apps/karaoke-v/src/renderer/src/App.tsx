@@ -242,8 +242,12 @@ function Overlay() {
           if (!rect) {
             continue
           }
-          const { lowest, highest } = pitchExtent(note, transport.before(note), pitch.range)
-          bands.push(pitchBounds(rect, lowest, highest))
+          const { lowest, highest, overhang } = pitchExtent(
+            note,
+            transport.before(note),
+            pitch.range,
+          )
+          bands.push(pitchBounds(rect, lowest, highest, overhang))
         }
         reaches = bands
       }

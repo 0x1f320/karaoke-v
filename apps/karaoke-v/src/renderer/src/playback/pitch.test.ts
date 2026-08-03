@@ -14,6 +14,14 @@ function bend(...cents: number[]): Int16Array {
   return Int16Array.from(cents)
 }
 
+/**
+ * A contour shaped the way the bridge sends one: the note's own samples with
+ * eight edge-held samples of the curve on each side of it.
+ */
+function padded(inner: number[], lead = inner[0], tail = inner[inner.length - 1]): Int16Array {
+  return Int16Array.from([...Array(8).fill(lead), ...inner, ...Array(8).fill(tail)])
+}
+
 const RANGE = 12
 
 describe("samplePitch with a contour from the bridge", () => {
@@ -161,6 +169,7 @@ describe("pitchExtent", () => {
     expect(pitchExtent(note({ bend: bend(-250, 0, 380) }), null, RANGE)).toEqual({
       lowest: -2.5,
       highest: 3.8,
+      overhang: 0,
     })
   })
 
@@ -168,6 +177,7 @@ describe("pitchExtent", () => {
     expect(pitchExtent(note({ bend: bend(100, 200) }), null, RANGE)).toEqual({
       lowest: 0,
       highest: 2,
+      overhang: 0,
     })
   })
 
@@ -175,6 +185,7 @@ describe("pitchExtent", () => {
     expect(pitchExtent(note({ bend: bend(-6900, 6900) }), null, 3)).toEqual({
       lowest: -3,
       highest: 3,
+      overhang: 0,
     })
   })
 
@@ -187,6 +198,43 @@ describe("pitchExtent", () => {
     const held = pitchExtent(note({ offS: 4 }), null, RANGE)
     expect(held.highest).toBeGreaterThan(0)
     expect(held.lowest).toBeLessThan(0)
-    expect(pitchExtent(note({ offS: 0.2 }), null, RANGE)).toEqual({ lowest: 0, highest: 0 })
+    expect(pitchExtent(note({ offS: 0.2 }), null, RANGE)).toEqual({
+      lowest: 0,
+      highest: 0,
+      overhang: 0,
+    })
+  })
+})
+
+describe("a contour with the padding the bridge sends", () => {
+  // Nine samples over the note, so the note's own span is eight steps wide and
+  // the eight pad samples on each side are exactly one note-width of overhang.
+  const inner = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+  it("reads the note's onset and end at the pad, not at the array's ends", () => {
+    const n = note({ bend: padded(inner, -900, 900) })
+    expect(samplePitch(n, null, 0, RANGE).offset).toBeCloseTo(0)
+    expect(samplePitch(n, null, 1, RANGE).offset).toBeCloseTo(0)
+  })
+
+  it("still walks the note's own samples across it", () => {
+    const n = note({ bend: padded([0, 100, 200, 300, 400, 500, 600, 700, 800]) })
+    expect(samplePitch(n, null, 0, RANGE).offset).toBeCloseTo(0)
+    expect(samplePitch(n, null, 0.5, RANGE).offset).toBeCloseTo(4)
+    expect(samplePitch(n, null, 1, RANGE).offset).toBeCloseTo(8)
+  })
+
+  it("reaches the padding in the extent, which is what the band draws", () => {
+    const extent = pitchExtent(note({ bend: padded(inner, -900, 900) }), null, RANGE)
+    expect(extent.lowest).toBe(-9)
+    expect(extent.highest).toBe(9)
+  })
+
+  it("measures the overhang as a fraction of the note's width", () => {
+    expect(pitchExtent(note({ bend: padded(inner) }), null, RANGE).overhang).toBeCloseTo(1)
+  })
+
+  it("claims no overhang for a contour too short to carry the padding", () => {
+    expect(pitchExtent(note({ bend: bend(0, 50) }), null, RANGE).overhang).toBe(0)
   })
 })

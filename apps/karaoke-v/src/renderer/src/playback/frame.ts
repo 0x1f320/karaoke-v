@@ -45,15 +45,20 @@ export function frameTransform(
 }
 
 /**
- * The note's rectangle grown to everything the emission point can reach, for
- * the debug overlay. The union rather than the reach alone, so the note's own
- * lane stays visible inside the band it is being stretched into.
+ * The note's rectangle grown to everything its pitch curve covers — the union,
+ * so the note's own lane stays visible inside the band it is stretched into.
+ *
+ * Sideways as well as up and down. The curve runs into a note before it starts
+ * and out of it after it ends, and `overhang` is how far, as a fraction of the
+ * note's width; a band that stopped at the note's edges would cut off the
+ * steepest part of the very line it is drawn to show.
  */
-export function pitchBounds(hit: Rect, lowest: number, highest: number): Rect {
+export function pitchBounds(hit: Rect, lowest: number, highest: number, overhang = 0): Rect {
   const centre = hit.y + hit.h / 2
   const top = Math.min(hit.y, centre - highest * hit.h)
   const bottom = Math.max(hit.y + hit.h, centre - lowest * hit.h)
-  return { x: hit.x, y: top, w: hit.w, h: bottom - top }
+  const spill = hit.w * overhang
+  return { x: hit.x - spill, y: top, w: hit.w + 2 * spill, h: bottom - top }
 }
 
 export function composeFrame(

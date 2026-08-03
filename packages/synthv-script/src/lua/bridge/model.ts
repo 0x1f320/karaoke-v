@@ -64,6 +64,21 @@ const VOICED_FLOOR = 1
 const BEND_LIMIT = 32767
 
 /**
+ * Samples carried on each side of the note, beyond its own span.
+ *
+ * The curve does not start at the onset and stop at the end: the engine glides
+ * into a note before it begins and lets it go after it finishes, and those are
+ * the steepest parts of the whole line. Sampling the note alone cut them off,
+ * which left the app unable to show where the voice actually went.
+ *
+ * The app mirrors this constant to know where the note sits inside the array —
+ * see `renderer/src/playback/pitch.ts`. Every bend therefore carries exactly
+ * this many samples on each side, edge-held rather than clipped when the group
+ * runs out, so the count never has to be guessed from the length.
+ */
+const BEND_PAD = 8
+
+/**
  * The computed pitch across the whole group, or undefined if the engine has
  * none.
  *
@@ -102,8 +117,8 @@ function bendForNote(
   startB: number,
   note: NoteRecord,
 ): number[] | undefined {
-  const from = math.max(0, math.floor((note.onB - startB) / BEND_INTERVAL + 0.5))
-  const to = math.min(frames - 1, math.floor((note.offB - startB) / BEND_INTERVAL + 0.5))
+  const from = math.floor((note.onB - startB) / BEND_INTERVAL + 0.5) - BEND_PAD
+  const to = math.floor((note.offB - startB) / BEND_INTERVAL + 0.5) + BEND_PAD
   if (to < from) {
     return undefined
   }
@@ -112,7 +127,9 @@ function bendForNote(
   let last = 0
   let voiced = false
   for (let i = from; i <= to; i++) {
-    const sample = curve[i]
+    // Held at the edges rather than dropped, so the padding is always exactly
+    // BEND_PAD wide even for the first and last notes of the group.
+    const sample = curve[math.max(0, math.min(frames - 1, i))]
     // Unvoiced frames hold the previous offset rather than snapping to zero, so
     // a consonant in the middle of a note does not jerk the effect back.
     if (sample !== undefined && sample >= VOICED_FLOOR) {

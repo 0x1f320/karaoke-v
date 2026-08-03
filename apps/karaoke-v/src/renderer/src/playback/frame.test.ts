@@ -132,9 +132,17 @@ describe("pitchBounds", () => {
     expect(box.y + box.h).toBeGreaterThan(hit.y + hit.h)
   })
 
-  it("leaves x alone — the reach is vertical", () => {
+  it("leaves x alone when the contour does not run past the note", () => {
     const box = pitchBounds(hit, -5, 5)
     expect(box.x).toBe(hit.x)
     expect(box.w).toBe(hit.w)
+  })
+
+  it("spills sideways by the overhang, evenly on both sides", () => {
+    // Half a note's width of curve on each side: twice as wide, centred still.
+    const box = pitchBounds(hit, 0, 0, 0.5)
+    expect(box.x).toBe(550)
+    expect(box.w).toBe(200)
+    expect(box.x + box.w / 2).toBe(hit.x + hit.w / 2)
   })
 })
