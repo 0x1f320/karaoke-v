@@ -10,7 +10,7 @@ import {
   toDipViewport,
   type Viewport,
 } from "../shared/native"
-import type { PermissionsStatus } from "../shared/permissions"
+import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
 import type { Preferences, PreferencesPatch } from "../shared/preferences"
 
 // The helper reports in native units — points on macOS, physical pixels on
@@ -65,7 +65,8 @@ contextBridge.exposeInMainWorld("settings", {
 // it is the one that starts the app once the grant lands.
 contextBridge.exposeInMainWorld("permissions", {
   get: (): Promise<PermissionsStatus> => ipcRenderer.invoke("permissions:get"),
-  openSettings: (): Promise<void> => ipcRenderer.invoke("permissions:openSettings"),
+  openSettings: (key: PermissionKey): Promise<void> =>
+    ipcRenderer.invoke("permissions:openSettings", key),
   proceed: (): Promise<void> => ipcRenderer.invoke("permissions:continue"),
   onChange: (callback: (status: PermissionsStatus) => void): (() => void) => {
     const handler = (_event: IpcRendererEvent, status: PermissionsStatus) => callback(status)

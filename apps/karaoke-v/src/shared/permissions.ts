@@ -6,6 +6,8 @@
 // bounds, pid and layer out of CGWindowList, none of which that permission
 // covers — it gates window titles and pixel capture, which nothing here reads.
 
+export type PermissionKey = "accessibility"
+
 export interface PermissionsStatus {
   accessibility: boolean
 }

@@ -1,19 +1,23 @@
 import path from "node:path"
 import { app, BrowserWindow, ipcMain, screen, shell, systemPreferences } from "electron"
-import type { PermissionsStatus } from "../shared/permissions"
+import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
 
 // The first-run gate: without Accessibility the AX reads fail and the overlay
 // can never align, so nothing else starts until it is granted.
 
-const SIZE = { width: 520, height: 390 }
+const SIZE = { width: 580, height: 390 }
 
 // macOS reports the trust state to a running process, but only when asked —
 // there is no notification for it, so the window polls the whole time it is up.
 // Both directions: the switch in System Settings can go back off just as easily.
 const POLL_MS = 1000
 
-const ACCESSIBILITY_PANE =
-  "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+// Each permission lands on its own System Settings pane. Keyed rather than
+// taking the URL from the renderer: this ends in shell.openExternal, which will
+// launch whatever scheme it is handed.
+const PANES: Record<PermissionKey, string> = {
+  accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+}
 
 let win: BrowserWindow | null = null
 let poll: NodeJS.Timeout | null = null
@@ -129,7 +133,10 @@ export function openPermissionsWindow(granted: () => void): void {
 
 export function registerPermissionsIpc(): void {
   ipcMain.handle("permissions:get", () => status())
-  ipcMain.handle("permissions:openSettings", () => shell.openExternal(ACCESSIBILITY_PANE))
+  ipcMain.handle("permissions:openSettings", (_event, key: PermissionKey) => {
+    const pane = PANES[key]
+    return pane ? shell.openExternal(pane) : undefined
+  })
   ipcMain.handle("permissions:continue", () => {
     if (!isAccessibilityTrusted()) {
       // Switched back off between the last poll and the click. Correcting the

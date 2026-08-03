@@ -1,6 +1,6 @@
 import type { BridgeMessage } from "../../shared/bridge"
 import type { PianoRoll, Viewport } from "../../shared/geometry"
-import type { PermissionsStatus } from "../../shared/permissions"
+import type { PermissionKey, PermissionsStatus } from "../../shared/permissions"
 import type { Preferences, PreferencesPatch } from "../../shared/preferences"
 
 declare global {
@@ -26,8 +26,8 @@ declare global {
     permissions: {
       /** Current grant status. */
       get(): Promise<PermissionsStatus>
-      /** Open the Accessibility pane of System Settings. */
-      openSettings(): Promise<void>
+      /** Open the System Settings pane this permission is granted from. */
+      openSettings(key: PermissionKey): Promise<void>
       /** Leave the gate and start the app. Ignored while still untrusted. */
       proceed(): Promise<void>
       /** Subscribe to grant changes. Returns an unsubscribe function. */

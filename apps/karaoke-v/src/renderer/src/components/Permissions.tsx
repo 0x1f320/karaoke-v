@@ -1,9 +1,10 @@
 import { Check, ExternalLink, KeyRound } from "lucide-react"
 import { useEffect, useState } from "react"
+import type { PermissionKey } from "../../../shared/permissions"
 import { Button } from "./ui/Button"
 
 const STEPS = [
-  "아래 버튼으로 시스템 설정의 '손쉬운 사용' 항목을 엽니다.",
+  "권한 카드의 '시스템 설정 열기'를 눌러 해당 항목을 엽니다.",
   "목록에서 karaoke-v를 찾아 스위치를 켭니다.",
   "이 창으로 돌아와 시작하기를 누릅니다.",
 ]
@@ -26,18 +27,13 @@ export function Permissions() {
         특수화된 기능을 사용하기 위해 다음과 같은 권한이 필요합니다.
       </p>
 
-      <div className="mt-5 flex items-center gap-3 rounded-lg border border-border bg-titlebar px-4 py-3.5">
-        <KeyRound
-          size={20}
-          strokeWidth={1.75}
-          aria-hidden="true"
-          className={`flex-none ${granted ? "text-accent" : "text-muted"}`}
+      <div className="mt-5 flex flex-col gap-2">
+        <PermissionCard
+          permission="accessibility"
+          title="손쉬운 사용"
+          description="노트의 위치를 읽기 위해 필요한 권한입니다."
+          granted={granted}
         />
-        <div className="min-w-0 select-none">
-          <div className="text-sm">손쉬운 사용</div>
-          <p className="mt-0.5 text-xs text-muted">노트의 위치를 읽기 위해 필요한 권한입니다.</p>
-        </div>
-        <Status granted={granted} />
       </div>
 
       {!granted && (
@@ -53,11 +49,7 @@ export function Permissions() {
         </ol>
       )}
 
-      <div className="mt-auto flex items-center justify-end gap-2 pt-5">
-        <Button onClick={() => window.permissions.openSettings()}>
-          <ExternalLink size={13} strokeWidth={2} aria-hidden="true" />
-          시스템 설정 열기
-        </Button>
+      <div className="mt-auto flex justify-end pt-5">
         <Button tone="primary" disabled={!granted} onClick={() => window.permissions.proceed()}>
           시작하기
         </Button>
@@ -66,11 +58,49 @@ export function Permissions() {
   )
 }
 
+function PermissionCard({
+  permission,
+  title,
+  description,
+  granted,
+}: {
+  permission: PermissionKey
+  title: string
+  description: string
+  granted: boolean
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-titlebar px-4 py-3.5">
+      <KeyRound
+        size={20}
+        strokeWidth={1.75}
+        aria-hidden="true"
+        className={`flex-none ${granted ? "text-accent" : "text-muted"}`}
+      />
+      <div className="min-w-0 flex-1 select-none">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm">{title}</span>
+          <Status granted={granted} />
+        </div>
+        <p className="mt-0.5 text-xs text-muted">{description}</p>
+      </div>
+      <Button
+        className="flex-none"
+        aria-label={`${title} 시스템 설정 열기`}
+        onClick={() => window.permissions.openSettings(permission)}
+      >
+        <ExternalLink size={13} strokeWidth={2} aria-hidden="true" />
+        시스템 설정 열기
+      </Button>
+    </div>
+  )
+}
+
 function Status({ granted }: { granted: boolean }) {
   return (
     <span
       role="status"
-      className={`ml-auto inline-flex flex-none select-none items-center gap-1.5 text-2xs ${
+      className={`inline-flex flex-none select-none items-center gap-1.5 text-2xs ${
         granted ? "text-accent" : "text-warn"
       }`}
     >
