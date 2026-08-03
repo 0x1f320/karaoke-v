@@ -9,6 +9,7 @@
  * is pressed.
  */
 
+import type { NoteRecord } from "./bridge/codec"
 import { createPublisher } from "./bridge/publisher"
 import { svIndex } from "./sv-index"
 
@@ -31,6 +32,32 @@ function viewMapping() {
   }
 }
 
+function collectNotes(): NoteRecord[] {
+  const group = SV.getMainEditor().getCurrentGroup()
+  if (group === undefined) {
+    return []
+  }
+  const timeAxis = SV.getProject().getTimeAxis()
+  const offset = group.getTimeOffset()
+  const target = group.getTarget()
+  const count = target.getNumNotes()
+  const notes: NoteRecord[] = []
+  for (let i = 0; i < count; i++) {
+    const note = target.getNote(svIndex(i))
+    const onB = note.getOnset() + offset
+    const offB = note.getEnd() + offset
+    notes[i] = {
+      onB,
+      offB,
+      onS: timeAxis.getSecondsFromBlick(onB),
+      offS: timeAxis.getSecondsFromBlick(offB),
+      pitch: note.getPitch(),
+      lyric: note.getLyrics(),
+    }
+  }
+  return notes
+}
+
 function revision(): string {
   const group = SV.getMainEditor().getCurrentGroup()
   if (group === undefined) {
@@ -39,36 +66,26 @@ function revision(): string {
   return `${group.getTimeOffset()}:${group.getTarget().getNumNotes()}`
 }
 
-function collectLyrics(): string[] {
-  const group = SV.getMainEditor().getCurrentGroup()
-  if (group === undefined) {
-    return []
-  }
-  const target = group.getTarget()
-  const count = target.getNumNotes()
-  const lyrics: string[] = []
-  for (let i = 0; i < count; i++) {
-    lyrics[i] = target.getNote(svIndex(i)).getLyrics()
-  }
-  return lyrics
-}
-
 notesButton.setValueChangeCallback((value) => {
   lastCallback = `button value=${tostring(value)} (${type(value)})`
-  const lyrics = collectLyrics()
-  lastNotes = lyrics.length
-  publisher.publishNotes(revision(), lyrics)
+  const notes = collectNotes()
+  lastNotes = notes.length
+  publisher.publishNotes(revision(), notes)
   SV.refreshSidePanel()
 })
 
 function loop(): void {
   ticks = ticks + 1
   const playback = SV.getPlayback()
+  const px = viewMapping()
   publisher.publishState({
     at: playback.getPlayhead(),
     status: playback.getStatus(),
     loop: null,
-    px: viewMapping(),
+    perBlick: px.perBlick,
+    perSemitone: px.perSemitone,
+    viewLeft: px.viewLeft,
+    viewTop: px.viewTop,
     rev: revision(),
   })
   if (ticks % 10 === 0) {

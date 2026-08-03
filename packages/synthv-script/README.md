@@ -39,8 +39,36 @@ encode them (all three measured against 2.3.0tp1, not read off the docs):
   `2116800000.0` or `1e+15`.
 
 `src/lua/smoke.ts` is the end-to-end check for all of the above: a side panel section that
-loops on `SV:setTimeout`, reads notes through 1-based indices and writes an encoded payload
-with `io.open` + `os.rename`. Run it after touching the toolchain.
+loops on `SV:setTimeout`, reads notes through 1-based indices and publishes them through the
+real channels. Run it after touching the toolchain.
+
+## Channels
+
+The script does not send one payload. Values do not change together — the view transform
+moves sixty times a second, the schedule moves when the user edits — so each cadence is its
+own file in `<app data>/karaoke-v/bridge/`, which **the app creates** (Lua has no mkdir).
+
+| Channel | Cadence | Written |
+| --- | --- | --- |
+| `session.json` | once at start | JSON, padded to a fixed width. The contract: protocol and layout version, and what the other channels are. |
+| `state` | every tick | Binary, fixed width, rewritten in place. |
+| `notes` | on edit | Binary, whole record in one write. |
+| `doorbell` | on cold updates | Empty file, re-created so a watcher has a directory change to notice. |
+
+Two rules make this safe without `os.rename`: **a record is always exactly one `write` call**
+— measured, a single write never tore against a reader `pread`ing as fast as it could — and
+**a record carries its own length**, because an in-place write shorter than the last one
+leaves the old tail behind.
+
+The hot channel is also the index: it carries each cold channel's sequence number, so a
+reader polling it once a frame learns the schedule moved without opening anything else. The
+doorbell is a hint on top of that, never the mechanism.
+
+Records are binary because the encoder runs on SynthV's UI thread: a 2000-note schedule with
+pitch curves costs 18.8 ms to build as JSON and 2.0 ms with `string.pack`, which is the
+difference between the editor dropping a frame on every edit and not. What that costs is
+`cat`, and `pnpm --filter @karaoke-v/synthv-script run dump` pays it back — it decodes every
+channel and is the reference for what the app's reader does.
 
 ## Install it into the editor
 

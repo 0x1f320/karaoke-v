@@ -11,27 +11,20 @@
  *
  * Two consequences that are not optional:
  *
- * - Records carry their own length. An in-place write that is shorter than the
- *   last one leaves the old tail behind, and nothing about atomicity fixes that.
+ * - Records carry their own length (in the header `codec.ts` writes). An
+ *   in-place write shorter than the last one leaves the old tail behind, and
+ *   nothing about atomicity fixes that.
  * - The stdio buffer is off. Buffered writes are not one syscall, and on the
  *   reading side a buffered handle will happily serve a stale copy — measured
  *   4.6M reads that observed a single generation.
  */
 
-import { encodeJson, type JsonValue } from "../json"
 import { channelPath } from "./paths"
 
-/** Prefix on every record, so a reader never depends on the file's size. */
-const LENGTH_DIGITS = 8
-
 export interface Channel {
-  publish(value: JsonValue): boolean
+  /** One framed record — see `codec.ts`; never a fragment. */
+  publish(record: string): boolean
   close(): void
-}
-
-function frame(value: JsonValue): string {
-  const body = encodeJson(value)
-  return string.format(`%0${LENGTH_DIGITS}d%s`, string.len(body), body)
 }
 
 function open(path: string): LuaFile | undefined {
@@ -60,8 +53,7 @@ export function hotChannel(directory: string, name: string, width: number): Chan
   let handle = open(path)
 
   return {
-    publish(value) {
-      const record = frame(value)
+    publish(record) {
       if (string.len(record) > width) {
         return false
       }
@@ -102,7 +94,7 @@ export function coldChannel(directory: string, name: string): Channel {
   let handle = open(path)
 
   return {
-    publish(value) {
+    publish(record) {
       if (handle === undefined) {
         handle = open(path)
         if (handle === undefined) {
@@ -110,7 +102,7 @@ export function coldChannel(directory: string, name: string): Channel {
         }
       }
       handle.seek("set", 0)
-      const [written] = handle.write(frame(value))
+      const [written] = handle.write(record)
       if (written === undefined) {
         handle.close()
         handle = undefined

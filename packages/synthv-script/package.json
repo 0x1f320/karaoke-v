@@ -6,7 +6,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.lua.json",
     "build": "pnpm typecheck && node scripts/build.mjs && tstl -p tsconfig.lua.json",
-    "deploy": "node scripts/deploy.mjs"
+    "deploy": "node scripts/deploy.mjs",
+    "dump": "node scripts/dump.mjs"
   },
   "devDependencies": {
     "@swc/core": "^1.15.46",

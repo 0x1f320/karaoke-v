@@ -12,10 +12,16 @@
  * The hot channel doubles as the index: it names the sequence number of each
  * cold channel, so a reader that already polls it once a frame learns that the
  * schedule moved without opening anything else.
+ *
+ * `session.json` is the exception that stays JSON and stays padded rather than
+ * framed: it is written once, it is the document that tells a reader what the
+ * binary channels are and which layout they use, and it has to survive being
+ * read by a person with `cat`.
  */
 
-import type { JsonValue } from "../json"
-import { coldChannel, doorbell, hotChannel } from "./channels"
+import { encodeJson } from "../json"
+import { type Channel, coldChannel, doorbell, hotChannel } from "./channels"
+import { encodeNotes, encodeState, LAYOUT, type NoteRecord } from "./codec"
 import { bridgeDirectory } from "./paths"
 
 const PROTOCOL = 1
@@ -24,20 +30,25 @@ const PROTOCOL = 1
  * The hot record is padded to this, so it must fit the longest `rev` a project
  * can produce. Publishing fails rather than truncating if it ever does not.
  */
-const STATE_WIDTH = 512
+const STATE_WIDTH = 256
+
+const SESSION_WIDTH = 1024
 
 export interface StateValue {
   at: number
   status: string
   loop: { start: number; end: number } | null
-  px: JsonValue
+  perBlick: number
+  perSemitone: number
+  viewLeft: number
+  viewTop: number
   rev: string
 }
 
 export interface Publisher {
   readonly ready: boolean
   publishState(state: StateValue): void
-  publishNotes(rev: string, notes: JsonValue): void
+  publishNotes(rev: string, notes: NoteRecord[]): void
   describe(): string
   close(): void
 }
@@ -48,32 +59,33 @@ export function createPublisher(): Publisher {
     return unavailable("no home directory")
   }
 
-  const session = coldChannel(directory, "session.json")
+  const session = hotChannel(directory, "session.json", SESSION_WIDTH)
   const state = hotChannel(directory, "state", STATE_WIDTH)
-  const notes = coldChannel(directory, "notes.json")
+  const notes = coldChannel(directory, "notes")
   const ring = doorbell(directory, "doorbell")
 
   const host = SV.getHostInfo()
-  const announced = session.publish({
-    v: PROTOCOL,
-    session: `${os.time()}`,
-    host: {
-      osType: host.osType,
-      hostName: host.hostName,
-      hostVersion: host.hostVersion,
-      hostVersionNumber: host.hostVersionNumber,
-    },
-    channels: [
-      { name: "state", kind: "hot", width: STATE_WIDTH },
-      { name: "notes.json", kind: "cold" },
-    ],
-  })
+  const announced = session.publish(
+    encodeJson({
+      v: PROTOCOL,
+      layout: LAYOUT,
+      session: `${os.time()}`,
+      host: {
+        osType: host.osType,
+        hostName: host.hostName,
+        hostVersion: host.hostVersion,
+        hostVersionNumber: host.hostVersionNumber,
+      },
+      channels: [
+        { name: "state", kind: "hot", encoding: "binary", width: STATE_WIDTH },
+        { name: "notes", kind: "cold", encoding: "binary" },
+      ],
+    }),
+  )
   if (!announced) {
     // Nothing else can work either, and saying so once is more useful than
     // failing silently sixty times a second.
-    session.close()
-    state.close()
-    notes.close()
+    closeAll([session, state, notes])
     return unavailable(`cannot write to ${directory}`)
   }
 
@@ -86,16 +98,20 @@ export function createPublisher(): Publisher {
 
     publishState(value) {
       seq = seq + 1
-      const ok = state.publish({
-        v: PROTOCOL,
-        seq,
-        at: value.at,
-        status: value.status,
-        loop: value.loop,
-        px: value.px,
-        rev: value.rev,
-        notesSeq,
-      })
+      const ok = state.publish(
+        encodeState({
+          seq,
+          notesSeq,
+          at: value.at,
+          status: value.status,
+          loop: value.loop,
+          perBlick: value.perBlick,
+          perSemitone: value.perSemitone,
+          viewLeft: value.viewLeft,
+          viewTop: value.viewTop,
+          rev: value.rev,
+        }),
+      )
       if (!ok) {
         lastError = "state write failed"
       }
@@ -103,8 +119,7 @@ export function createPublisher(): Publisher {
 
     publishNotes(rev, value) {
       notesSeq = notesSeq + 1
-      const ok = notes.publish({ v: PROTOCOL, seq: notesSeq, rev, notes: value })
-      if (!ok) {
+      if (!notes.publish(encodeNotes(rev, value))) {
         lastError = "notes write failed"
         return
       }
@@ -116,10 +131,14 @@ export function createPublisher(): Publisher {
     },
 
     close() {
-      session.close()
-      state.close()
-      notes.close()
+      closeAll([session, state, notes])
     },
+  }
+}
+
+function closeAll(channels: Channel[]): void {
+  for (const channel of channels) {
+    channel.close()
   }
 }
 
