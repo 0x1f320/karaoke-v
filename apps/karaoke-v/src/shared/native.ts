@@ -2,11 +2,15 @@ import * as macHelper from "@karaoke-v/macos-helper"
 import * as winHelper from "@karaoke-v/windows-helper"
 import type { PianoRoll, Rect, Viewport } from "./geometry"
 
-// One native surface for both platforms. The two helpers arrive at the same
-// answers from opposite directions — macOS reads geometry out of the
-// Accessibility API, Windows computes it from the bridge script's own view
-// transform — but they agree on the shapes, so nothing above this line has to
-// know which one is running.
+// One native surface for both platforms. What the two helpers have in common is
+// window work — following the target, its frame, the shared clock — and that is
+// the part nothing above this line has to think about.
+//
+// Geometry is where they differ, and the difference is not hidden here because
+// it is not a detail: macOS reads note rectangles out of the Accessibility API,
+// while Windows has no tree to read and computes them from the bridge script's
+// view transform (`windowsGeometry.ts`), needing the helper only to find where
+// the canvas is. The preload composes whichever applies.
 //
 // Importing both is deliberate: each loads its .node lazily, so the wrong-platform
 // module costs a `require` of a few hundred lines of JavaScript and nothing else.
@@ -23,10 +27,15 @@ export interface NativeHelper {
   disableAnimations(view: Buffer): void
   /** Windows only: hand the window to the OS to keep glued to the target. */
   follow?(handle: Buffer): void
-  getViewport(): Viewport | null
-  getPianoRoll(target?: string): PianoRoll | null
-  getPianoRollAsync(target?: string): Promise<PianoRoll | null>
   monotonicNow(): number
+
+  /** macOS: the Accessibility API answers both of these directly. */
+  getViewport?(): Viewport | null
+  getPianoRollAsync?(target?: string): Promise<PianoRoll | null>
+
+  /** Windows: UI Automation answers only where the canvas is. */
+  getCanvas?(want: { width: number; height: number }, target?: string): Rect | null
+  getCanvasOrigin?(): { x: number; y: number } | undefined
 }
 
 export const isWindows = process.platform === "win32"

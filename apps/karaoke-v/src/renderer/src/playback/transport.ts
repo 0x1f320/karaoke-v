@@ -1,31 +1,36 @@
-import type {
-  BridgeMessage,
-  BridgeNote,
-  BridgeStatus,
-  BridgeViewMapping,
-} from "../../../shared/bridge"
+import type { BridgeNote, BridgeStatus, BridgeViewMapping } from "../../../shared/bridgeChannels"
 
-// Turns the bridge's sparse anchors into a continuous playhead.
+// Turns the bridge's state channel into a continuous playhead.
 //
-// The bridge speaks only when something changes, so between payloads this runs
-// entirely on the local clock. That is sound because both clocks are on this
-// machine: drift is parts-per-million, far under a frame, and every transport
-// event re-anchors anyway.
+// The script publishes state on every tick and the app reads it once a frame,
+// so this no longer waits to be told about seeks, wraps and stops — it sees
+// them. What it still does is interpolate: the script's tick and this frame loop
+// beat against each other, so between two fresh records the playhead runs on the
+// local clock. That is sound because both clocks are on this machine and every
+// read re-anchors.
 //
-// Timing is read from the payload alone. Where a note sits on screen is not —
+// Timing is read from the channel alone. Where a note sits on screen is not —
 // that comes from the AX pipeline, which is already exact and self-correcting
 // under scroll. All this contributes to geometry is the view mapping and the
-// scroll position at anchor time, so a note can be found among the AX rects.
+// scroll position it was read at, so a note can be found among the AX rects.
 
 export interface TransportView {
   mapping: BridgeViewMapping
-  /** Horizontal scroll at the moment the anchor was taken. */
+  /** Horizontal scroll at the moment the mapping was read. */
   contentX: number
-  /** Horizontal zoom scale at the moment the anchor was taken. */
+  /** Horizontal zoom scale at the moment the mapping was read. */
   contentW: number
-  /** Canvas x at the moment the anchor was taken. */
+  /** Canvas x at the moment the mapping was read. */
   canvasX: number
 }
+
+/**
+ * How long the state channel may stand still before the script counts as gone.
+ * It publishes every 16ms playing and every 50ms stopped, so this is generous
+ * enough to survive a stalled editor and short enough that a closed SynthV stops
+ * driving effects almost immediately.
+ */
+const SILENCE_MS = 500
 
 export class Transport {
   private schedule: readonly BridgeNote[] = []
@@ -35,25 +40,60 @@ export class Transport {
   private anchored = false
   private loop: { start: number; end: number } | null = null
   private viewState: TransportView | null = null
-  private unsubscribe: (() => void) | null = null
+  private lastSeq = -1
+  private lastSeqClockMs = 0
+  private notesSeq = -1
 
-  start(): void {
-    this.unsubscribe = window.bridge.onPayload((message) => this.apply(message, true))
-    // Catch up if playback is already under way — the next transport event could
-    // be a whole song away.
-    window.bridge.last().then((message) => {
-      if (message && !this.anchored) {
-        this.apply(message, false)
+  /** Reads the channels. Call once a frame, before anything else here. */
+  poll(nowMs: number): void {
+    const state = window.bridge.readState()
+    if (state === null) {
+      this.forget()
+      return
+    }
+
+    if (state.seq === this.lastSeq) {
+      // The script has not ticked since the last frame. Keep extrapolating —
+      // unless it has been quiet long enough to have gone away, in which case
+      // there is nothing left to extrapolate from.
+      if (nowMs - this.lastSeqClockMs > SILENCE_MS) {
+        this.forget()
       }
-    })
+      return
+    }
+    this.lastSeq = state.seq
+    this.lastSeqClockMs = nowMs
+
+    if (state.notesSeq !== this.notesSeq) {
+      const schedule = window.bridge.readSchedule()
+      // A torn or half-written schedule leaves notesSeq alone, so the next frame
+      // tries again rather than holding a schedule that never arrived.
+      if (schedule !== null) {
+        this.schedule = schedule.notes
+        this.notesSeq = state.notesSeq
+      }
+    }
+
+    this.loop = state.loop
+    this.status = state.status
+    this.anchorAt = state.at
+    this.anchorClockMs = nowMs
+    this.anchored = true
+
+    // The mapping is only usable paired with the scroll position it was read at,
+    // and both are read here, one after the other, in the same frame.
+    const vp = window.overlay.getViewport()
+    this.viewState = vp
+      ? {
+          mapping: state.px,
+          contentX: vp.contentX,
+          contentW: vp.contentW,
+          canvasX: vp.canvas.x,
+        }
+      : null
   }
 
-  stop(): void {
-    this.unsubscribe?.()
-    this.unsubscribe = null
-  }
-
-  /** Seconds of playhead, or null before the first anchor. */
+  /** Seconds of playhead, or null before the first read. */
   playhead(nowMs: number): number | null {
     if (!this.anchored) {
       return null
@@ -63,7 +103,7 @@ export class Transport {
     }
 
     let t = this.anchorAt + (nowMs - this.anchorClockMs) / 1000
-    // Wrapping locally only keeps the picture right until the wrap's own anchor
+    // Wrapping locally only keeps the picture right until the wrap's own record
     // lands; it is a smoothing hint, never the source of truth.
     const loop = this.loop
     if (loop && loop.end > loop.start && t >= loop.end) {
@@ -76,7 +116,7 @@ export class Transport {
     return this.anchored && this.status !== "stopped"
   }
 
-  /** Null until a live payload arrives — a replayed one has a stale scroll. */
+  /** Null until a state record has been paired with a viewport read. */
   get view(): TransportView | null {
     return this.viewState
   }
@@ -103,32 +143,15 @@ export class Transport {
     return seconds < note.offS ? note : null
   }
 
-  private apply(message: BridgeMessage, live: boolean): void {
-    const { payload, monotonicMs } = message
-    if (payload.notes) {
-      this.schedule = payload.notes
-    }
-    this.loop = payload.loop
-    this.status = payload.status
-    this.anchorAt = payload.at
-    this.anchorClockMs = monotonicMs
-    this.anchored = true
-
-    // The mapping is only usable paired with the scroll position it was taken
-    // at. On a replayed payload that pairing is long gone, so keep no view at
-    // all rather than one that quietly points a note somewhere else.
-    if (live && payload.px) {
-      const vp = window.overlay.getViewport()
-      this.viewState = vp
-        ? {
-            mapping: payload.px,
-            contentX: vp.contentX,
-            contentW: vp.contentW,
-            canvasX: vp.canvas.x,
-          }
-        : null
-    } else if (!live) {
-      this.viewState = null
-    }
+  /**
+   * The script is not there. The schedule is kept — it is still the right answer
+   * for the project that was open — but nothing may be extrapolated from a
+   * playhead that has stopped arriving, and a view mapping with no live scroll
+   * to pair it with would point notes somewhere they are not.
+   */
+  private forget(): void {
+    this.anchored = false
+    this.viewState = null
+    this.lastSeq = -1
   }
 }

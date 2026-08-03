@@ -5,7 +5,7 @@
       "conditions": [
         ["OS!=\"mac\"", { "type": "none" }],
         ["OS==\"mac\"", {
-          "sources": ["src/stick.mm", "src/pianoroll.mm", "src/bridge.mm"],
+          "sources": ["src/stick.mm", "src/pianoroll.mm", "src/clock.mm"],
           "include_dirs": ["<!@(node -p \"require('node-addon-api').include_dir\")"],
           "defines": ["NAPI_CPP_EXCEPTIONS", "NAPI_VERSION=8"],
           "xcode_settings": {

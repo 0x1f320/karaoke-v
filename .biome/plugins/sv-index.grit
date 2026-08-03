@@ -1,0 +1,9 @@
+language js
+
+`$value as SVIndex` where {
+  $filename <: not r".*/sv-index\.ts",
+  register_diagnostic(
+    span = $value,
+    message = "Build a 1-based SynthV index with svIndex(), not a cast: SynthV's Lua API errors on index 0."
+  )
+}

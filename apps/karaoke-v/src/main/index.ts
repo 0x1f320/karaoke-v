@@ -3,7 +3,7 @@ import { app, type BrowserWindow, ipcMain } from "electron"
 import { APP_NAME } from "../shared/i18n"
 import { native, type Rect } from "../shared/native"
 import { registerAssetIpc, registerAssetScheme } from "./assets"
-import { registerBridgeIpc, startBridge, stopBridge } from "./bridge"
+import { prepareBridgeDirectory } from "./bridge"
 import { registerDipIpc, toDipFrame, updateDipTransform } from "./dip"
 import { initI18n } from "./i18n"
 import { createOverlayWindow, positionOverlay } from "./overlay"
@@ -116,12 +116,13 @@ function start(): void {
   }
   startTracking()
 
-  // Last: window tracking is the core of the app, so a bridge that fails to
-  // start (a stale native build, say) must not take it down with it.
+  // Last: window tracking is the core of the app, so a bridge directory that
+  // cannot be created must not take it down with it. The renderer simply finds
+  // no channels and draws nothing.
   try {
-    startBridge()
+    prepareBridgeDirectory()
   } catch (error) {
-    console.error("failed to start the SynthV bridge receiver:", error)
+    console.error("failed to prepare the SynthV bridge directory:", error)
   }
 }
 
@@ -181,7 +182,6 @@ app.whenReady().then(() => {
   initI18n()
   // After i18n: the import dialog spells its file-type filter.
   registerAssetIpc()
-  registerBridgeIpc()
   registerDipIpc()
   registerPermissionsIpc()
   ipcMain.handle("settings:open", () => openSettingsWindow())
@@ -195,7 +195,6 @@ app.whenReady().then(() => {
 })
 
 app.on("before-quit", () => {
-  stopBridge()
   native.stop()
   destroyTray()
 })

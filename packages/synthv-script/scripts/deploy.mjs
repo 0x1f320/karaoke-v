@@ -1,10 +1,10 @@
-import { copyFile, mkdir, stat } from "node:fs/promises"
+import { copyFile, mkdir, readdir, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
-const built = join(root, "out", "overlay-bridge.js")
+const outDir = join(root, "out")
 
 const EDITION = "Synthesizer V Studio 2"
 
@@ -56,6 +56,14 @@ if (!dest) {
   process.exit(1)
 }
 
+const built = (await readdir(outDir)).filter((name) => name.endsWith(".lua"))
+if (built.length === 0) {
+  console.error("synthv-script: nothing built. Run the build first.")
+  process.exit(1)
+}
+
 await mkdir(dest, { recursive: true })
-await copyFile(built, join(dest, "overlay-bridge.js"))
-console.log(`synthv-script: deployed overlay-bridge.js -> ${dest}`)
+for (const name of built) {
+  await copyFile(join(outDir, name), join(dest, name))
+}
+console.log(`synthv-script: deployed ${built.join(", ")} -> ${dest}`)

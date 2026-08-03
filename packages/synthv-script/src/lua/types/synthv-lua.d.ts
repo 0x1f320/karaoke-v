@@ -1,4 +1,27 @@
+/**
+ * The SynthV script API as the **Lua** host exposes it. Measured against
+ * Synthesizer V Studio 2 Pro 2.3.0tp1: every member below was read back out of
+ * the live host, and the two rules that make these declarations differ from
+ * `src/types/synthv.d.ts` are load-bearing.
+ *
+ * 1. Indices are **1-based**. `getNote(0)` is not a silent off-by-one, it is an
+ *    "out-of-bound access (index = 0, size = 70)" error at runtime — so every
+ *    index parameter takes `SVIndex`, which only `svIndex()` can produce.
+ * 2. Callbacks are invoked **by the host**, with no `self`. They must be
+ *    declared `this: void` or typescript-to-lua gives the emitted function a
+ *    leading self parameter and the real argument lands in it.
+ *
+ * Arrays need no such care: the API returns 1-based tables and tstl shifts
+ * TypeScript's 0-based indices by one, so `getTimeViewRange()[0]` reads the
+ * first element correctly.
+ */
+
 type Blick = number
+
+type Status = "playing" | "looping" | "stopped"
+
+/** A 1-based index into a SynthV collection. See `svIndex`. */
+type SVIndex = number & { readonly __svOneBased: unique symbol }
 
 interface SVClientInfo {
   name: string
@@ -10,11 +33,11 @@ interface SVClientInfo {
 }
 
 interface WidgetValue {
-  getValue(): any
-  setValue(value: any): void
+  getValue(): unknown
+  setValue(value: unknown): void
   getEnabled(): boolean
   setEnabled(enabled: boolean): void
-  setValueChangeCallback(callback: () => void): void
+  setValueChangeCallback(callback: (this: void, value: unknown) => void): void
 }
 
 interface CoordinateSystem {
@@ -31,111 +54,65 @@ interface CoordinateSystem {
   x2t(x: number): Blick
   v2y(v: number): number
   y2v(y: number): number
-  getParent(): unknown
 }
 
 interface Note {
   getOnset(): Blick
   getEnd(): Blick
   getDuration(): Blick
-  setTimeRange(onset: Blick, duration: Blick): void
-  setOnset(onset: Blick): void
-  setDuration(duration: Blick): void
   getPitch(): number
   setPitch(pitch: number): void
-  getDetune(): number
-  setDetune(detune: number): void
   getLyrics(): string
   setLyrics(lyrics: string): void
   getPhonemes(): string
-  setPhonemes(phonemes: string): void
-  getIndexInParent(): number
-  clone(): Note
-  [key: string]: any
-}
-
-interface Automation {
-  get(b: Blick): number
-  add(b: Blick, value: number): void
-  remove(from: Blick, to: Blick): void
-  getPoints(from: Blick, to: Blick): Array<[Blick, number]>
-  getDefinition(): { defaultValue: number; [key: string]: any }
-  [key: string]: any
+  getIndexInParent(): SVIndex
 }
 
 interface NoteGroup {
   getName(): string
-  setName(name: string): void
   getNumNotes(): number
-  getNote(index: number): Note
-  addNote(note: Note): number
-  removeNote(index: number): void
-  getParameter(type: string): Automation
+  getNote(index: SVIndex): Note
   getUUID(): string
-  getIndexInParent(): number
-  clone(): NoteGroup
-  [key: string]: any
+  getIndexInParent(): SVIndex
 }
 
 interface NoteGroupReference {
   getTarget(): NoteGroup
-  setTarget(group: NoteGroup): void
   getOnset(): Blick
   getEnd(): Blick
   getDuration(): Blick
   getTimeOffset(): Blick
-  setTimeOffset(offset: Blick): void
   getPitchOffset(): number
-  setPitchOffset(semitones: number): void
   isInstrumental(): boolean
   isMain(): boolean
   isMuted(): boolean
-  setMuted(muted: boolean): void
-  getVoice(): unknown
-  getIndexInParent(): number
+  getIndexInParent(): SVIndex
   getParent(): Track
-  clone(): NoteGroupReference
-  [key: string]: any
 }
 
 interface Track {
   getName(): string
-  setName(name: string): void
   getNumGroups(): number
-  getGroupReference(index: number): NoteGroupReference
-  addGroupReference(ref: NoteGroupReference): number
-  removeGroupReference(index: number): void
+  getGroupReference(index: SVIndex): NoteGroupReference
   getDisplayColor(): string
   getDisplayOrder(): number
   getDuration(): Blick
-  getIndexInParent(): number
-  clone(): Track
-  [key: string]: any
 }
 
 interface TimeAxis {
   getBlickFromSeconds(seconds: number): Blick
   getSecondsFromBlick(b: Blick): number
-  addTempoMark(b: Blick, bpm: number): void
-  getAllTempoMarks(): unknown[]
-  getAllMeasureMarks(): unknown[]
-  [key: string]: any
 }
 
 interface Project {
   getNumTracks(): number
-  getTrack(index: number): Track
-  addTrack(track: Track): number
-  removeTrack(index: number): void
-  getNoteGroup(index: number): NoteGroup
+  getTrack(index: SVIndex): Track
+  getNoteGroup(index: SVIndex): NoteGroup
   getNumNoteGroupsInLibrary(): number
-  addNoteGroup(group: NoteGroup, index?: number): number
-  removeNoteGroup(index: number): void
   getTimeAxis(): TimeAxis
   getDuration(): Blick
   getFileName(): string
   newUndoRecord(): void
-  [key: string]: any
 }
 
 interface SelectionState {
@@ -144,25 +121,20 @@ interface SelectionState {
   hasSelectedNotes(): boolean
   hasSelectedContent(): boolean
   clearAll(): void
-  selectNote(note: Note): void
-  registerSelectionCallback(callback: (type: string, selected: boolean) => void): void
-  registerClearCallback(callback: (type: string) => void): void
-  [key: string]: any
+  registerSelectionCallback(callback: (this: void, type: string, selected: boolean) => void): void
+  registerClearCallback(callback: (this: void, type: string) => void): void
 }
 
 interface MainEditorView {
   getNavigation(): CoordinateSystem
   getSelection(): SelectionState
-  getCurrentGroup(): NoteGroupReference
+  getCurrentGroup(): NoteGroupReference | undefined
   setCurrentGroup(ref: NoteGroupReference): void
   getCurrentTrack(): Track
-  setCurrentTrack(track: Track): void
-  getParent(): unknown
 }
 
 interface Arrangement {
   getNavigation(): CoordinateSystem
-  [key: string]: any
 }
 
 interface PlaybackControl {
@@ -171,7 +143,7 @@ interface PlaybackControl {
   stop(): void
   seek(seconds: number): void
   loop(begin: number, end: number): void
-  getStatus(): "playing" | "looping" | "stopped"
+  getStatus(): Status
   getPlayhead(): number
 }
 
@@ -180,20 +152,8 @@ interface HostInfo {
   hostVersion: string
   hostVersionNumber: number
   osType: string
+  osName: string
   languageCode: string
-  [key: string]: any
-}
-
-interface SVDialogResult {
-  status: boolean
-  answers: { [name: string]: any }
-}
-
-interface SVCustomDialogForm {
-  title: string
-  message?: string
-  buttons?: string
-  widgets: Array<{ [key: string]: any }>
 }
 
 interface SVPanelWidget {
@@ -225,45 +185,39 @@ interface SVHost {
 
   T(text: string): string
   create(type: "WidgetValue"): WidgetValue
-  create(type: "Automation", paramType: string): Automation
-  create(type: string, ...args: any[]): any
   finish(): void
 
   getMainEditor(): MainEditorView
+  getArrangement(): Arrangement
   getProject(): Project
+  getPlayback(): PlaybackControl
+  getHostInfo(): HostInfo
 
   /**
-   * Rendered pitch for a group, sampled on a uniform blick grid, in semitones
-   * (MIDI note numbers as floating point). Since 2.1.1.
-   *
-   * It does not block: it reads whatever pitch computation state exists right
-   * now and returns an EMPTY array if that computation has not finished for the
-   * group — so an empty result means "not ready", never "silent".
-   *
-   * `blickStart` is absolute, with the reference's time offset already added.
-   * The reference matters and not just its target: one NoteGroup reached
-   * through references that differ in tempo or vocal mode yields different
-   * curves, so a curve may only be cached against the reference it came from.
+   * Rendered pitch for a group on a uniform blick grid, in semitones. Measured
+   * on a computed group: `numFrames` entries, no nil holes, unvoiced frames
+   * read 0 rather than nil — but an EMPTY table means computation has not
+   * finished, never silence. Trust `numFrames` over `#curve` regardless: one
+   * nil entry would truncate the length operator.
    */
   getComputedPitchForGroup(
     groupReference: NoteGroupReference,
     blickStart: Blick,
     blickInterval: Blick,
     numFrames: number,
-  ): Array<number | null>
-  getPlayback(): PlaybackControl
-  getArrangement(): Arrangement
-  getHostInfo(): HostInfo
+  ): number[]
+  getPhonemesForGroup(groupReference: NoteGroupReference): string[]
 
   getHostClipboard(): string
   setHostClipboard(text: string): void
 
   showMessageBox(title: string, message: string): void
-  showCustomDialog(form: SVCustomDialogForm): SVDialogResult
   showInputBox(title: string, message: string, defaultText: string): string
   refreshSidePanel(): void
 
-  setTimeout(milliseconds: number, callback: () => void): void
+  setTimeout(milliseconds: number, callback: (this: void) => void): void
+
+  print(...args: unknown[]): void
 
   blick2Quarter(b: Blick): number
   quarter2Blick(q: number): Blick
@@ -271,8 +225,6 @@ interface SVHost {
   seconds2Blick(s: number, bpm: number): Blick
   freq2Pitch(frequency: number): number
   pitch2Freq(pitch: number): number
-
-  [key: string]: any
 }
 
 declare const SV: SVHost

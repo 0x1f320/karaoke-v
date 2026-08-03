@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest"
-import type { BridgeNote } from "../../../shared/bridge"
+import type { BridgeNote } from "../../../shared/bridgeChannels"
 import type { Rect, Viewport } from "../../../shared/geometry"
 import { locateNote } from "./locate"
 import type { TransportView } from "./transport"
 
 // One blick is one pixel here, so a note's expected x/w read straight off onB/offB.
 const VIEW: TransportView = {
-  mapping: { perBlick: 1, perSemitone: 12, viewLeft: 0, viewTop: 0 },
+  mapping: {
+    perBlick: 1,
+    perSemitone: 12,
+    viewLeft: 0,
+    viewRight: 1000,
+    viewTop: 0,
+    viewBottom: -12,
+  },
   contentX: 0,
   contentW: 1000,
   canvasX: 0,
@@ -22,7 +29,7 @@ const VP: Viewport = {
 const IDENTITY = { scaleX: 1, offsetX: 0 }
 
 function note(onB: number, offB: number): BridgeNote {
-  return { onB, offB, onS: 0, offS: 1, pitch: 60, lyric: "a" }
+  return { onB, offB, onS: 0, offS: 1, pitch: 60, lyric: "a", bend: new Int16Array(0) }
 }
 
 function rect(x: number, w: number): Rect {

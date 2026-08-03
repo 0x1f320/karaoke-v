@@ -1,5 +1,5 @@
 import type { Rect, Viewport } from "@karaoke-v/macos-helper"
-import type { BridgeNote } from "../../../shared/bridge"
+import type { BridgeNote } from "../../../shared/bridgeChannels"
 import type { TransportView } from "./transport"
 
 // Finds which AX rect is the note the bridge says is playing.

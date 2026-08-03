@@ -1,4 +1,4 @@
-import type { BridgeMessage } from "../../shared/bridge"
+import type { BridgeSchedule, BridgeState } from "../../shared/bridgeChannels"
 import type { PianoRoll, Viewport } from "../../shared/geometry"
 import type { PermissionKey, PermissionsStatus } from "../../shared/permissions"
 import type { Preferences, PreferencesPatch } from "../../shared/preferences"
@@ -12,12 +12,12 @@ declare global {
       readNotes(): Promise<PianoRoll | null>
     }
     bridge: {
-      /** Most recent payload, so a window opening mid-playback can catch up. */
-      last(): Promise<BridgeMessage | null>
-      /** The clock payloads are stamped with — subtract to get a payload's age. */
+      /** The hot channel: playhead, transport and view transform. Safe per-frame. */
+      readState(): BridgeState | null
+      /** The note schedule. Only worth reading when readState's notesSeq changes. */
+      readSchedule(): BridgeSchedule | null
+      /** Monotonic clock shared with the AX reads, for measuring a read's age. */
       monotonicNow(): number
-      /** Subscribe to payloads. Returns an unsubscribe function. */
-      onPayload(callback: (message: BridgeMessage) => void): () => void
     }
     settings: {
       /** Open the settings window, or focus it if it is already open. */
