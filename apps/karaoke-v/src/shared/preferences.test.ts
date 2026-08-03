@@ -191,6 +191,29 @@ describe("sanitizePreferences", () => {
     })
   })
 
+  it("carries an image-backed preset through a save and a reload", () => {
+    const image = {
+      source: "image" as const,
+      asset: "0123456789abcdef.png",
+      blend: "normal" as const,
+    }
+    const saved: EffectPreset = {
+      id: "a",
+      name: "Petals",
+      particles: { ...DEFAULT_EFFECTS.particles, ...image, spin: 360 },
+      glow: { ...DEFAULT_EFFECTS.glow, ...image },
+    }
+    const stored = JSON.parse(JSON.stringify({ presets: [saved] }))
+    expect(sanitizePreferences(stored).presets).toEqual([saved])
+  })
+
+  it("leaves an image-backed preset without its asset rather than dropping the preset", () => {
+    const [clean] = sanitizePreferences({
+      presets: [{ id: "a", name: "Gone", glow: { source: "image", asset: "../../etc/passwd" } }],
+    }).presets as EffectPreset[]
+    expect(clean.glow).toEqual({ ...DEFAULT_EFFECTS.glow, source: "image" })
+  })
+
   it("skips presets without a usable id or name", () => {
     expect(
       sanitizePreferences({
