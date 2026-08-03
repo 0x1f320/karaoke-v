@@ -12,13 +12,6 @@ const native = require("../../packages/windows-helper/build/Release/winhelper.no
 
 // Everything main.cc registers.
 const NATIVE = [
-  "attach",
-  "detach",
-  "isAttached",
-  "readState",
-  "getScheduleRevision",
-  "readSchedule",
-  "sendCommand",
   "findCanvas",
   "getCanvasRect",
   "getTargetOrigin",
@@ -33,18 +26,10 @@ const NATIVE = [
 ]
 
 // The public surface, which is deliberately not the native one: findCanvas and
-// getCanvasRect stay internal, and getViewport/getPianoRoll are assembled here.
+// getCanvasRect stay internal behind the caching getCanvas.
 const PUBLIC = [
-  "attach",
-  "detach",
-  "isAttached",
-  "readState",
-  "getScheduleRevision",
-  "readSchedule",
-  "sendCommand",
-  "getViewport",
-  "getPianoRoll",
-  "getPianoRollAsync",
+  "getCanvas",
+  "getCanvasOrigin",
   "start",
   "stop",
   "follow",
@@ -63,9 +48,9 @@ for (const name of PUBLIC) {
   assert.equal(typeof helper[name], "function", `index.js is missing ${name}()`)
 }
 
-// Safe without SynthV running: these only report that nothing is attached.
-assert.equal(helper.isAttached(), false)
-assert.equal(helper.attach("no-such-process-here"), null)
+// Safe without SynthV running: nothing to find, so nothing is returned.
+assert.equal(helper.getCanvas({ width: 800, height: 600 }, "no-such-process-here"), null)
+assert.equal(helper.getCanvasOrigin(), undefined)
 assert.ok(helper.monotonicNow() > 0)
 
 console.log(
