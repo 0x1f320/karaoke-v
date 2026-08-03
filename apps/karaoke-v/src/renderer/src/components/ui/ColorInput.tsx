@@ -1,5 +1,6 @@
 import { Popover } from "radix-ui"
 import { HexColorInput, HexColorPicker } from "react-colorful"
+import { useTranslation } from "react-i18next"
 import { useDisabled } from "./disabled"
 
 export function ColorInput({
@@ -15,6 +16,8 @@ export function ColorInput({
   className?: string
   "aria-label"?: string
 }) {
+  const { t } = useTranslation()
+
   return (
     <Popover.Root>
       <Popover.Trigger
@@ -35,7 +38,7 @@ export function ColorInput({
             prefixed
             color={value}
             onChange={onChange}
-            aria-label="색상 코드"
+            aria-label={t("common.colorCode")}
             className="w-full rounded-md border border-border bg-black/15 px-2.5 py-1.5 text-center text-xs uppercase tabular-nums text-fg outline-none focus-visible:border-accent"
           />
         </Popover.Content>

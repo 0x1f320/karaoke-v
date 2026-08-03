@@ -1,8 +1,10 @@
 import path from "node:path"
 import { app, type BrowserWindow, ipcMain } from "electron"
+import { APP_NAME } from "../shared/i18n"
 import { native, type Rect } from "../shared/native"
 import { registerBridgeIpc, startBridge, stopBridge } from "./bridge"
 import { registerDipIpc, toDipFrame, updateDipTransform } from "./dip"
+import { initI18n } from "./i18n"
 import { createOverlayWindow, positionOverlay } from "./overlay"
 import {
   isAccessibilityTrusted,
@@ -49,7 +51,7 @@ let toolbarWin: BrowserWindow | null = null
 
 // Names the macOS app menu, the About panel and notification attribution, which
 // would otherwise read the package name.
-app.setName("KaraokeV")
+app.setName(APP_NAME)
 
 // setName would otherwise move userData to ".../KaraokeV" and orphan every
 // existing install's preferences, so the path stays on the package name it was
@@ -170,6 +172,9 @@ app.whenReady().then(() => {
     app.dock.hide()
   }
   registerPreferencesIpc()
+  // After the preferences IPC, whose store it reads the language from, and
+  // before anything that spells a user-facing string.
+  initI18n()
   registerBridgeIpc()
   registerDipIpc()
   registerPermissionsIpc()

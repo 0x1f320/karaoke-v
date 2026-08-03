@@ -1,5 +1,7 @@
 import path from "node:path"
 import { app, Menu, type NativeImage, Notification, nativeImage, nativeTheme, Tray } from "electron"
+import { APP_NAME } from "../shared/i18n"
+import { onLanguageChanged, t } from "./i18n"
 import { getPreferences, onPreferencesChanged, updatePreferences } from "./preferences"
 import { openSettingsWindow } from "./settings"
 
@@ -22,6 +24,7 @@ let status: Status = "waiting"
 let graceTimer: NodeJS.Timeout | null = null
 let notified = false
 let unsubscribePreferences: (() => void) | null = null
+let unsubscribeLanguage: (() => void) | null = null
 
 // Assets ship outside the bundle, so the packaged path is Electron's resources
 // directory rather than anything relative to the compiled main process.
@@ -53,17 +56,17 @@ function applyThemedIcon(): void {
   }
 }
 
+// The observer's state comes in as a bare string, so an unknown one has to land
+// somewhere rather than showing a raw key.
+const STATUS_KEYS: Record<Status, string> = {
+  attached: "tray.status.attached",
+  hidden: "tray.status.hidden",
+  permission: "tray.status.permission",
+  waiting: "tray.status.waiting",
+}
+
 function statusLabel(): string {
-  switch (status) {
-    case "attached":
-      return "SynthV: 연결됨"
-    case "hidden":
-      return "SynthV: 창 숨김"
-    case "permission":
-      return "SynthV: 접근 권한 필요"
-    default:
-      return "SynthV: 실행 중 아님"
-  }
+  return t(STATUS_KEYS[status] ?? STATUS_KEYS.waiting)
 }
 
 function rebuildMenu(): void {
@@ -75,14 +78,14 @@ function rebuildMenu(): void {
       { label: statusLabel(), enabled: false },
       { type: "separator" },
       {
-        label: "노트 이펙트",
+        label: t("tray.effects"),
         type: "checkbox",
         checked: getPreferences().effects,
         click: (item) => updatePreferences({ effects: item.checked }),
       },
-      { label: "설정…", click: () => openSettingsWindow() },
+      { label: t("tray.settings"), click: () => openSettingsWindow() },
       { type: "separator" },
-      { label: "KaraokeV 종료", click: () => app.quit() },
+      { label: t("tray.quit"), click: () => app.quit() },
     ]),
   )
 }
@@ -93,8 +96,8 @@ function notifyNotRunning(): void {
   }
   notified = true
   const notification = new Notification({
-    title: "SynthV가 실행되고 있지 않습니다",
-    body: "SynthV를 열면 KaraokeV가 자동으로 연결됩니다.",
+    title: t("tray.notRunning.title"),
+    body: t("tray.notRunning.body"),
   })
   notification.on("click", () => openSettingsWindow())
   notification.show()
@@ -105,7 +108,7 @@ export function createTray(): void {
     return
   }
   tray = new Tray(trayIcon())
-  tray.setToolTip("KaraokeV")
+  tray.setToolTip(APP_NAME)
   rebuildMenu()
 
   // macOS opens the menu on either button; Windows reserves the left click, and
@@ -119,6 +122,7 @@ export function createTray(): void {
   // The toolbar and the settings window can both flip effects, and the tray menu
   // is built ahead of being shown, so its checkbox has to be told.
   unsubscribePreferences = onPreferencesChanged(rebuildMenu)
+  unsubscribeLanguage = onLanguageChanged(rebuildMenu)
 
   graceTimer = setTimeout(() => {
     graceTimer = null
@@ -146,6 +150,8 @@ export function destroyTray(): void {
   }
   unsubscribePreferences?.()
   unsubscribePreferences = null
+  unsubscribeLanguage?.()
+  unsubscribeLanguage = null
   nativeTheme.off("updated", applyThemedIcon)
   tray?.destroy()
   tray = null

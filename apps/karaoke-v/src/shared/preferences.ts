@@ -1,3 +1,5 @@
+import { isLanguagePreference, type LanguagePreference } from "./language"
+
 // Persisted user preferences. The main process owns the values and the
 // defaults; the renderer only ever imports the type.
 
@@ -82,6 +84,8 @@ export type EffectPreset = EffectSettings & {
 }
 
 export type Preferences = {
+  /** Which language the UI speaks; "system" follows the OS. */
+  language: LanguagePreference
   /** Draw note bounding boxes on the overlay. */
   debug: boolean
   /**
@@ -98,13 +102,14 @@ export type Preferences = {
    * Which preset the effect settings were last loaded from, or null for the
    * built-in defaults. Not the same question as "which preset do the values
    * equal": editing after loading one leaves the values matching nothing, and
-   * this is what still says where they came from — so 저장 knows what to
-   * overwrite and 되돌리기 knows what to go back to.
+   * this is what still says where they came from — so saving knows what to
+   * overwrite and reverting knows what to go back to.
    */
   activePreset: string | null
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
+  language: "system",
   debug: false,
   effects: true,
   particles: {
@@ -169,6 +174,7 @@ export const GLOW_LIMITS = {
 
 /** A partial update. Nested groups may be partial too — one slider at a time. */
 export type PreferencesPatch = {
+  language?: LanguagePreference
   debug?: boolean
   effects?: boolean
   particles?: Partial<ParticlePreferences>
@@ -186,6 +192,7 @@ export type PreferencesPatch = {
  */
 export function mergePreferences(base: Preferences, patch: PreferencesPatch): Preferences {
   const next: Preferences = {
+    language: patch.language ?? base.language,
     debug: patch.debug ?? base.debug,
     effects: patch.effects ?? base.effects,
     particles: { ...base.particles, ...patch.particles },
@@ -196,7 +203,7 @@ export function mergePreferences(base: Preferences, patch: PreferencesPatch): Pr
   }
   // Enforced here rather than at each call site, so deleting a preset cannot
   // leave the pointer dangling however the deletion was expressed: an id naming
-  // nothing would give 저장 no target and 되돌리기 nowhere to go.
+  // nothing would give saving no target and reverting nowhere to go.
   if (next.activePreset !== null && !next.presets.some((p) => p.id === next.activePreset)) {
     next.activePreset = null
   }
@@ -303,10 +310,13 @@ export function sanitizePreferences(input: unknown): PreferencesPatch {
   if (typeof input !== "object" || input === null) {
     return out
   }
-  const { debug, effects, particles, glow, presets, activePreset } = input as Record<
+  const { language, debug, effects, particles, glow, presets, activePreset } = input as Record<
     string,
     unknown
   >
+  if (isLanguagePreference(language)) {
+    out.language = language
+  }
   if (typeof debug === "boolean") {
     out.debug = debug
   }

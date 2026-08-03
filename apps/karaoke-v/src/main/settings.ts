@@ -1,5 +1,6 @@
 import path from "node:path"
 import { app, BrowserWindow, screen } from "electron"
+import { onLanguageChanged, t } from "./i18n"
 
 // The settings window: an ordinary framed window, opened from the toolbar. It
 // is a singleton — reopening focuses the existing one instead of stacking.
@@ -40,7 +41,7 @@ export function openSettingsWindow(): void {
     ...centeredBounds(),
     width: SIZE.width,
     height: SIZE.height,
-    title: "설정",
+    title: t("settings.title"),
     backgroundColor: "#2D2B2E",
     show: false,
     resizable: false,
@@ -65,7 +66,12 @@ export function openSettingsWindow(): void {
     event.preventDefault()
   })
 
+  // The window this titles is the one the language is changed from, so it has to
+  // relabel itself while it is up.
+  const unsubscribeLanguage = onLanguageChanged(() => win?.setTitle(t("settings.title")))
+
   win.on("closed", () => {
+    unsubscribeLanguage()
     win = null
   })
 

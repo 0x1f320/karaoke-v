@@ -78,6 +78,13 @@ contextBridge.exposeInMainWorld("permissions", {
   },
 })
 
+// Chromium's navigator.languages is the browser's, not the OS's — it stays on
+// en-US whatever the system is set to — so the renderer's idea of "system
+// language" has to come from main.
+contextBridge.exposeInMainWorld("i18n", {
+  systemLanguages: (): Promise<string[]> => ipcRenderer.invoke("i18n:systemLanguages"),
+})
+
 // Preferences are owned and persisted by main. Every window sees the same state
 // because each update is broadcast back to all of them.
 contextBridge.exposeInMainWorld("preferences", {

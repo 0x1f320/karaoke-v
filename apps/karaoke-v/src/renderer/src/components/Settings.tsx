@@ -1,5 +1,11 @@
 import { BookmarkPlus, Check, SlidersHorizontal, Sparkles, Trash2, Undo2 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
+import {
+  LANGUAGE_LABELS,
+  LANGUAGE_PREFERENCES,
+  type LanguagePreference,
+} from "../../../shared/language"
 import {
   DEFAULT_EFFECTS,
   type EffectPreset,
@@ -31,26 +37,18 @@ import { Slider } from "./ui/Slider"
 import { Switch } from "./ui/Switch"
 import { TextInput } from "./ui/TextInput"
 
-// Left-hand nav sections. Adding a section means adding an entry here and a
-// case in SectionBody.
+// Left-hand nav sections. Adding a section means adding an entry here, a case in
+// SectionBody, and a label under settings.sections.
 const SECTIONS = [
-  { id: "general", label: "일반", Icon: SlidersHorizontal },
-  { id: "effects", label: "노트 이펙트", Icon: Sparkles },
+  { id: "general", Icon: SlidersHorizontal },
+  { id: "effects", Icon: Sparkles },
 ] as const
 
 type SectionId = (typeof SECTIONS)[number]["id"]
 
-const DIRECTION_OPTIONS: readonly { value: ParticleDirection; label: string }[] = [
-  { value: "directional", label: "한 방향" },
-  { value: "radial", label: "방사형" },
-]
+const DIRECTIONS: readonly ParticleDirection[] = ["directional", "radial"]
 
-const SHAPE_OPTIONS: readonly { value: GlowShape; label: string }[] = [
-  { value: "bloom", label: "원형" },
-  { value: "cross", label: "십자" },
-  { value: "x", label: "X자" },
-  { value: "star", label: "별" },
-]
+const SHAPES: readonly GlowShape[] = ["bloom", "cross", "x", "star"]
 
 // Picker entries that are not presets. Neither can collide with a preset id:
 // those are UUIDs.
@@ -59,6 +57,7 @@ const DEFAULT_ENTRY = "default"
 const CUSTOM_ENTRY = "custom"
 
 export function Settings() {
+  const { t } = useTranslation()
   const [active, setActive] = useState<SectionId>("general")
   // One state, and it is the live one: every control writes straight through,
   // so what this panel shows is what the overlay is drawing. Whether a setting
@@ -70,7 +69,6 @@ export function Settings() {
   // slider backwards. So while any write of ours is outstanding the local value
   // is the truth; once things are quiet, another window's change is welcome.
   const outstanding = useRef(0)
-  const section = SECTIONS.find((s) => s.id === active)
 
   useEffect(() => {
     window.preferences.get().then(setPrefs)
@@ -93,10 +91,10 @@ export function Settings() {
   return (
     <div className="flex h-full w-full bg-app text-fg antialiased">
       <nav className="flex w-55 flex-none select-none flex-col gap-0.5 border-r border-border bg-titlebar p-2">
-        {SECTIONS.map(({ id, label, Icon }) => (
+        {SECTIONS.map(({ id, Icon }) => (
           <NavItem key={id} active={id === active} onClick={() => setActive(id)}>
             <Icon size={15} strokeWidth={1.75} aria-hidden="true" className="flex-none" />
-            {label}
+            {t(`settings.sections.${id}`)}
           </NavItem>
         ))}
       </nav>
@@ -109,7 +107,7 @@ export function Settings() {
           band of padding it cannot reach into. */}
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <h1 className="flex-none select-none px-6 pt-5 pb-2 text-base font-medium">
-          {section?.label}
+          {t(`settings.sections.${active}`)}
         </h1>
         {prefs && <SectionBody id={active} prefs={prefs} update={update} />}
       </main>
@@ -128,25 +126,56 @@ function SectionBody({
 }) {
   switch (id) {
     case "general":
-      return (
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="px-6 pb-5">
-            <SettingRow
-              label="디버깅 모드 활성화"
-              description="디버깅에 도움을 줄 수 있는 정보를 화면에 표시 합니다."
-            >
-              <Switch
-                aria-label="디버깅 모드 활성화"
-                checked={prefs.debug}
-                onCheckedChange={(debug) => update({ debug })}
-              />
-            </SettingRow>
-          </div>
-        </ScrollArea>
-      )
+      return <GeneralSection prefs={prefs} update={update} />
     case "effects":
       return <EffectsSection prefs={prefs} update={update} />
   }
+}
+
+function GeneralSection({
+  prefs,
+  update,
+}: {
+  prefs: Preferences
+  update: (patch: PreferencesPatch) => void
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <ScrollArea className="min-h-0 flex-1">
+      <div className="px-6 pb-5">
+        <SettingRow
+          label={t("settings.general.language.label")}
+          description={t("settings.general.language.description")}
+        >
+          <Select
+            className="w-40"
+            aria-label={t("settings.general.language.label")}
+            value={prefs.language}
+            onValueChange={(language) => update({ language: language as LanguagePreference })}
+          >
+            {LANGUAGE_PREFERENCES.map((language) => (
+              <SelectItem key={language} value={language}>
+                {language === "system"
+                  ? t("settings.general.language.system")
+                  : LANGUAGE_LABELS[language]}
+              </SelectItem>
+            ))}
+          </Select>
+        </SettingRow>
+        <SettingRow
+          label={t("settings.general.debug.label")}
+          description={t("settings.general.debug.description")}
+        >
+          <Switch
+            aria-label={t("settings.general.debug.label")}
+            checked={prefs.debug}
+            onCheckedChange={(debug) => update({ debug })}
+          />
+        </SettingRow>
+      </div>
+    </ScrollArea>
+  )
 }
 
 // The picker says what is applied; the bar underneath asks whether to keep it.
@@ -159,9 +188,10 @@ function EffectsSection({
   prefs: Preferences
   update: (patch: PreferencesPatch) => void
 }) {
+  const { t } = useTranslation()
   const { particles, glow, presets, activePreset } = prefs
-  // Where the current values came from, and so what 저장 overwrites and
-  // 되돌리기 returns to. null is the built-in defaults, which cannot be
+  // Where the current values came from, and so what saving overwrites and
+  // reverting returns to. null is the built-in defaults, which cannot be
   // overwritten — edits made against them can only become a preset of their own.
   const origin = presets.find((p) => p.id === activePreset) ?? null
   const basis = origin ?? DEFAULT_EFFECTS
@@ -170,8 +200,8 @@ function EffectsSection({
   const [dialog, setDialog] = useState<"save" | "delete" | null>(null)
   // The unnamed values are a place you can be, so they have to be a place you
   // can get back to: leaving them for a preset stows them for the session, and
-  // 사용자 지정 stays on the list until they are picked back up. Without this,
-  // trying another preset to compare would quietly discard the tuning.
+  // the custom entry stays on the list until they are picked back up. Without
+  // this, trying another preset to compare would quietly discard the tuning.
   const [stash, setStash] = useState<(EffectSettings & { origin: string | null }) | null>(null)
   // Tracked as what the user has closed, so a group is open unless they said
   // otherwise — including any group added later.
@@ -228,7 +258,7 @@ function EffectsSection({
         ? presets.map((p) => (p.id === id ? { ...p, particles, glow } : p))
         : [...presets, { id, name, particles, glow }],
       // Saved and selected in one move: the values are that preset now, so
-      // leaving the picker on 사용자 지정 would be a lie.
+      // leaving the picker on the custom entry would be a lie.
       activePreset: id,
     })
     setDialog(null)
@@ -236,7 +266,7 @@ function EffectsSection({
 
   const deleteOrigin = () => {
     if (origin) {
-      // Nothing is left pointing at it — dropping to 기본 설정 is the same
+      // Nothing is left pointing at it — dropping to the defaults is the same
       // landing the picker would give, and mergePreferences would clear a
       // dangling id anyway.
       update({
@@ -276,15 +306,17 @@ function EffectsSection({
         <div className="mt-2 flex items-center gap-1.5">
           <Select
             className="min-w-0 flex-1"
-            aria-label="프리셋"
+            aria-label={t("settings.effects.preset.label")}
             value={entry}
             onValueChange={applyEntry}
           >
             {/* The values that belong to no preset. On the list whenever there
                 are any — the ones in effect now, or the ones set aside when a
                 preset was tried out. */}
-            {(drifted || stash) && <SelectItem value={CUSTOM_ENTRY}>사용자 지정</SelectItem>}
-            <SelectItem value={DEFAULT_ENTRY}>기본 설정</SelectItem>
+            {(drifted || stash) && (
+              <SelectItem value={CUSTOM_ENTRY}>{t("settings.effects.preset.custom")}</SelectItem>
+            )}
+            <SelectItem value={DEFAULT_ENTRY}>{t("settings.effects.preset.default")}</SelectItem>
             {presets.map((preset) => (
               <SelectItem key={preset.id} value={preset.id}>
                 {preset.name}
@@ -292,14 +324,14 @@ function EffectsSection({
             ))}
           </Select>
           {/* Only for what the picker is actually naming: while the values have
-              drifted it reads 사용자 지정, and a delete that reached past that
-              to the preset behind it would be a trap. */}
+              drifted it reads as the custom entry, and a delete that reached
+              past that to the preset behind it would be a trap. */}
           <IconButton
             tone="danger"
             className="size-7 flex-none rounded disabled:opacity-20"
             disabled={drifted || !origin}
-            title="프리셋 삭제"
-            aria-label="프리셋 삭제"
+            title={t("settings.effects.preset.delete")}
+            aria-label={t("settings.effects.preset.delete")}
             onClick={() => setDialog("delete")}
           >
             <Trash2 size={14} strokeWidth={1.75} aria-hidden="true" />
@@ -312,47 +344,68 @@ function EffectsSection({
             still be scrolled out from under it. */}
         <div className={`px-6 ${drifted ? "pb-20" : "pb-5"}`}>
           <EffectAccordion
-            title="하이라이트"
-            description="노트가 시작될 때 터지고, 소리가 나는 동안 유지되는 빛입니다."
+            title={t("settings.effects.glow.title")}
+            description={t("settings.effects.glow.description")}
             open={!collapsed.glow}
             onOpenChange={toggle("glow")}
             enabled={glow.enabled}
             onEnabledChange={(v) => setGlow({ enabled: v })}
           >
-            <SettingRow label="모양" description="빛이 퍼져 나가는 형태입니다.">
+            <SettingRow
+              label={t("settings.effects.glow.shape.label")}
+              description={t("settings.effects.glow.shape.description")}
+            >
               <Segmented
-                aria-label="모양"
+                aria-label={t("settings.effects.glow.shape.label")}
                 value={glow.shape}
-                options={SHAPE_OPTIONS}
+                options={SHAPES.map((shape) => ({
+                  value: shape,
+                  label: t(`settings.effects.glow.shape.${shape}`),
+                }))}
                 onChange={(shape) => setGlow({ shape })}
               />
             </SettingRow>
-            <SettingRow label="밝기" description="소리가 나는 동안 유지되는 밝기입니다.">
-              {glowSlider("level", `${Math.round(glow.level * 100)}%`)}
+            <SettingRow
+              label={t("settings.effects.glow.level.label")}
+              description={t("settings.effects.glow.level.description")}
+            >
+              {glowSlider("level", t("units.percent", { value: Math.round(glow.level * 100) }))}
             </SettingRow>
             <SettingRow
-              label="번쩍임 길이"
-              description="노트가 시작될 때의 섬광이 잦아드는 시간입니다."
+              label={t("settings.effects.glow.flash.label")}
+              description={t("settings.effects.glow.flash.description")}
             >
-              {glowSlider("flash", `${glow.flash.toFixed(2)}초`)}
-            </SettingRow>
-            <SettingRow label="크기" description="노트 높이에 대한 빛의 반지름 배율입니다.">
-              {glowSlider("size", `${glow.size.toFixed(1)}배`)}
+              {glowSlider("flash", t("units.seconds", { value: glow.flash.toFixed(2) }))}
             </SettingRow>
             <SettingRow
-              label="지터"
-              description="소리가 나는 동안 빛이 부들부들 떨리는 정도입니다. 0이면 흔들리지 않습니다."
+              label={t("settings.effects.glow.size.label")}
+              description={t("settings.effects.glow.size.description")}
             >
-              {glowSlider("jitter", `${Math.round(glow.jitter * 100)}%`)}
+              {glowSlider("size", t("units.times", { value: glow.size.toFixed(1) }))}
+            </SettingRow>
+            <SettingRow
+              label={t("settings.effects.glow.jitter.label")}
+              description={t("settings.effects.glow.jitter.description")}
+            >
+              {glowSlider("jitter", t("units.percent", { value: Math.round(glow.jitter * 100) }))}
             </SettingRow>
             {glow.jitter > 0 && (
-              <SettingRow label="지터 속도" description="빛이 떨리는 빠르기입니다.">
-                {glowSlider("jitterRate", `${Math.round(glow.jitterRate)}회/초`)}
+              <SettingRow
+                label={t("settings.effects.glow.jitterRate.label")}
+                description={t("settings.effects.glow.jitterRate.description")}
+              >
+                {glowSlider(
+                  "jitterRate",
+                  t("units.timesPerSecond", { value: Math.round(glow.jitterRate) }),
+                )}
               </SettingRow>
             )}
-            <SettingRow label="색상" description="빛을 칠할 색상입니다.">
+            <SettingRow
+              label={t("settings.effects.glow.color.label")}
+              description={t("settings.effects.glow.color.description")}
+            >
               <ColorInput
-                aria-label="빛 색상"
+                aria-label={t("settings.effects.glow.color.aria")}
                 value={glow.color}
                 onChange={(color) => setGlow({ color })}
               />
@@ -360,8 +413,8 @@ function EffectsSection({
           </EffectAccordion>
 
           <EffectAccordion
-            title="파티클"
-            description="플레이헤드가 노트를 지나며 흩뿌리는 불꽃입니다."
+            title={t("settings.effects.particles.title")}
+            description={t("settings.effects.particles.description")}
             open={!collapsed.particles}
             onOpenChange={toggle("particles")}
             enabled={particles.enabled}
@@ -370,54 +423,80 @@ function EffectsSection({
             {/* First: it decides what two of the rows below even mean, and the
                 angle stays pinned to it — a mode and its one parameter split up
                 by unrelated sliders would read as unrelated settings. */}
-            <SettingRow label="확산 방향" description="파티클이 퍼져 나가는 방식입니다.">
+            <SettingRow
+              label={t("settings.effects.particles.direction.label")}
+              description={t("settings.effects.particles.direction.description")}
+            >
               <Segmented
-                aria-label="확산 방향"
+                aria-label={t("settings.effects.particles.direction.label")}
                 value={particles.direction}
-                options={DIRECTION_OPTIONS}
+                options={DIRECTIONS.map((direction) => ({
+                  value: direction,
+                  label: t(`settings.effects.particles.direction.${direction}`),
+                }))}
                 onChange={(direction) => setParticles({ direction })}
               />
             </SettingRow>
             {particles.direction === "directional" && (
-              <SettingRow label="각도" description="0°가 위쪽이고, 시계 방향으로 돕니다.">
-                {particleSlider("angle", `${Math.round(particles.angle)}°`)}
+              <SettingRow
+                label={t("settings.effects.particles.angle.label")}
+                description={t("settings.effects.particles.angle.description")}
+              >
+                {particleSlider(
+                  "angle",
+                  t("units.degrees", { value: Math.round(particles.angle) }),
+                )}
               </SettingRow>
             )}
-            <SettingRow label="양" description="노트가 울리는 동안 초당 방출되는 개수입니다.">
-              {particleSlider("rate", `${Math.round(particles.rate)}/s`)}
+            <SettingRow
+              label={t("settings.effects.particles.rate.label")}
+              description={t("settings.effects.particles.rate.description")}
+            >
+              {particleSlider("rate", t("units.perSecond", { value: Math.round(particles.rate) }))}
             </SettingRow>
             <SettingRow
-              label="지속 시간"
-              description="파티클 하나가 사라지기까지 걸리는 시간입니다."
+              label={t("settings.effects.particles.life.label")}
+              description={t("settings.effects.particles.life.description")}
             >
-              {particleSlider("life", `${particles.life.toFixed(2)}초`)}
+              {particleSlider("life", t("units.seconds", { value: particles.life.toFixed(2) }))}
             </SettingRow>
             <SettingRow
-              label={radial ? "가로 반경" : "가로 확산"}
-              description={
-                radial
-                  ? "파티클이 좌우로 퍼져 나가는 반경입니다."
-                  : "파티클이 진행 방향과 직각으로 퍼지는 폭입니다."
-              }
+              label={t(`settings.effects.particles.${radial ? "radiusX" : "spreadX"}.label`)}
+              description={t(
+                `settings.effects.particles.${radial ? "radiusX" : "spreadX"}.description`,
+              )}
             >
-              {particleSlider("spreadX", `${Math.round(particles.spreadX)}px`)}
+              {particleSlider(
+                "spreadX",
+                t("units.pixels", { value: Math.round(particles.spreadX) }),
+              )}
             </SettingRow>
             <SettingRow
-              label={radial ? "세로 반경" : "이동 거리"}
-              description={
-                radial
-                  ? "파티클이 위아래로 퍼져 나가는 반경입니다."
-                  : "파티클이 진행 방향으로 나아가는 거리입니다."
-              }
+              label={t(`settings.effects.particles.${radial ? "radiusY" : "spreadY"}.label`)}
+              description={t(
+                `settings.effects.particles.${radial ? "radiusY" : "spreadY"}.description`,
+              )}
             >
-              {particleSlider("spreadY", `${Math.round(particles.spreadY)}px`)}
+              {particleSlider(
+                "spreadY",
+                t("units.pixels", { value: Math.round(particles.spreadY) }),
+              )}
             </SettingRow>
-            <SettingRow label="시작점 너비" description="파티클이 생겨나는 지점의 가로 폭입니다.">
-              {particleSlider("originX", `${Math.round(particles.originX)}px`)}
+            <SettingRow
+              label={t("settings.effects.particles.originX.label")}
+              description={t("settings.effects.particles.originX.description")}
+            >
+              {particleSlider(
+                "originX",
+                t("units.pixels", { value: Math.round(particles.originX) }),
+              )}
             </SettingRow>
-            <SettingRow label="색상" description="파티클을 칠할 색상입니다.">
+            <SettingRow
+              label={t("settings.effects.particles.color.label")}
+              description={t("settings.effects.particles.color.description")}
+            >
               <ColorInput
-                aria-label="파티클 색상"
+                aria-label={t("settings.effects.particles.color.aria")}
                 value={particles.color}
                 onChange={(color) => setParticles({ color })}
               />
@@ -435,11 +514,13 @@ function EffectsSection({
       {drifted && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-2 bg-linear-to-t from-app from-55% to-transparent px-6 pt-10 pb-5">
           <span className="pointer-events-auto mr-auto select-none text-xs text-muted">
-            {origin ? `'${origin.name}'에서 변경되었습니다.` : "기본 설정에서 변경되었습니다."}
+            {origin
+              ? t("settings.effects.preset.changedFrom", { name: origin.name })
+              : t("settings.effects.preset.changedFromDefault")}
           </span>
           <Button className="pointer-events-auto" onClick={revert}>
             <Undo2 size={13} strokeWidth={2} aria-hidden="true" />
-            되돌리기
+            {t("settings.effects.preset.revert")}
           </Button>
           <Button
             className="pointer-events-auto"
@@ -447,7 +528,7 @@ function EffectsSection({
             onClick={() => setDialog("save")}
           >
             <BookmarkPlus size={13} strokeWidth={2} aria-hidden="true" />
-            별도 프리셋으로 저장
+            {t("settings.effects.preset.saveAs")}
           </Button>
           {/* Absent rather than disabled on the defaults: there is no such
               thing as overwriting them, so offering it greyed out would only
@@ -455,7 +536,7 @@ function EffectsSection({
           {origin && (
             <Button className="pointer-events-auto" tone="primary" onClick={overwriteOrigin}>
               <Check size={13} strokeWidth={2.5} aria-hidden="true" />
-              저장
+              {t("common.save")}
             </Button>
           )}
         </div>
@@ -466,14 +547,14 @@ function EffectsSection({
       )}
       {dialog === "delete" && origin && (
         <Dialog
-          title="프리셋 삭제"
-          description={`'${origin.name}'을(를) 삭제합니다. 되돌릴 수 없습니다.`}
+          title={t("settings.effects.preset.delete")}
+          description={t("settings.effects.preset.deleteConfirm", { name: origin.name })}
           onClose={() => setDialog(null)}
         >
           <DialogActions>
-            <Button onClick={() => setDialog(null)}>취소</Button>
+            <Button onClick={() => setDialog(null)}>{t("common.cancel")}</Button>
             <Button tone="danger" onClick={deleteOrigin}>
-              삭제
+              {t("common.delete")}
             </Button>
           </DialogActions>
         </Dialog>
@@ -492,15 +573,16 @@ function SavePresetDialog({
   onSave: (name: string) => void
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   // Suggested rather than blank: naming a look is work, and most of the time
   // the number is answer enough.
   const [name, setName] = useState(() => {
     const taken = new Set(presets.map((p) => p.name))
     let n = presets.length + 1
-    while (taken.has(`프리셋 ${n}`)) {
+    while (taken.has(t("settings.effects.preset.suggestedName", { index: n }))) {
       n += 1
     }
-    return `프리셋 ${n}`
+    return t("settings.effects.preset.suggestedName", { index: n })
   })
 
   const trimmed = name.trim().slice(0, PRESET_LIMITS.nameLength)
@@ -508,8 +590,8 @@ function SavePresetDialog({
 
   return (
     <Dialog
-      title="별도 프리셋으로 저장"
-      description="지금 적용된 이펙트 설정을 이름 붙여 보관합니다."
+      title={t("settings.effects.preset.saveAs")}
+      description={t("settings.effects.preset.saveAsDescription")}
       onClose={onClose}
     >
       {/* A form, so Enter submits the way it does in every other dialog. */}
@@ -529,21 +611,21 @@ function SavePresetDialog({
             autoFocus
             value={name}
             maxLength={PRESET_LIMITS.nameLength}
-            placeholder="프리셋 이름"
-            aria-label="프리셋 이름"
+            placeholder={t("settings.effects.preset.name")}
+            aria-label={t("settings.effects.preset.name")}
             onChange={(e) => setName(e.currentTarget.value)}
             onFocus={(e) => e.currentTarget.select()}
           />
           {overwriting && (
             <p className="select-none text-2xs text-muted">
-              같은 이름의 프리셋이 이미 있습니다. 덮어쓰게 됩니다.
+              {t("settings.effects.preset.overwriteWarning")}
             </p>
           )}
         </div>
         <DialogActions>
-          <Button onClick={onClose}>취소</Button>
+          <Button onClick={onClose}>{t("common.cancel")}</Button>
           <Button type="submit" tone="primary" disabled={!trimmed}>
-            {overwriting ? "덮어쓰기" : "저장"}
+            {overwriting ? t("settings.effects.preset.overwrite") : t("common.save")}
           </Button>
         </DialogActions>
       </form>
