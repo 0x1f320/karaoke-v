@@ -57,23 +57,30 @@ const HAS_LOOP = 1
 
 export function encodeState(state: StateRecord): string {
   const loop = state.loop
+  // The format is built from the values rather than written beside them. Getting
+  // the two out of step is not a compile error and not a wrong number either:
+  // `string.pack` reads the next argument as whatever the next letter says, so
+  // one `d` too many consumed `rev` and raised — which the tick then swallowed.
+  const doubles = [
+    state.at,
+    loop !== null ? loop.start : 0,
+    loop !== null ? loop.end : 0,
+    state.perBlick,
+    state.perSemitone,
+    state.viewLeft,
+    state.viewRight,
+    state.viewTop,
+    state.viewBottom,
+  ]
   return record(
     CHANNEL_STATE,
     string.pack(
-      "<I4I4BBdddddddddds2",
+      `<I4I4BB${string.rep("d", doubles.length)}s2`,
       state.seq,
       state.notesSeq,
       STATUS_CODES[state.status] ?? 0,
       loop !== null ? HAS_LOOP : 0,
-      state.at,
-      loop !== null ? loop.start : 0,
-      loop !== null ? loop.end : 0,
-      state.perBlick,
-      state.perSemitone,
-      state.viewLeft,
-      state.viewRight,
-      state.viewTop,
-      state.viewBottom,
+      ...doubles,
       state.rev,
     ),
   )

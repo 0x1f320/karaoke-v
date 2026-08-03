@@ -95,6 +95,12 @@ class OverlayBridge {
       if (this.enabled) {
         this.tick()
       }
+      this.lastError = "none"
+    } catch (error) {
+      // Not just rescheduling past it: a tick that throws every time publishes
+      // nothing and looks exactly like a bridge that is switched off, which is
+      // how a packing bug went unnoticed until a channel stayed empty.
+      this.lastError = tostring(error)
     } finally {
       const active = this.enabled && this.lastStatus !== "stopped"
       SV.setTimeout(active ? CONFIG.activeInterval : CONFIG.idleInterval, () => this.loop())
