@@ -23,8 +23,7 @@ export function Permissions() {
       </h1>
 
       <p className="mt-2 select-none text-xs leading-relaxed text-muted">
-        노트 이펙트처럼 피아노 롤 위에 무언가를 그리는 기능은, 노트가 화면 어디에 있는지 알아야
-        동작합니다. macOS에서는 그 위치를 읽으려면 손쉬운 사용 권한이 필요합니다.
+        특수화된 기능을 사용하기 위해 다음과 같은 권한이 필요합니다.
       </p>
 
       <div className="mt-5 flex items-center gap-3 rounded-lg border border-border bg-titlebar px-4 py-3.5">
