@@ -8,7 +8,14 @@ import type {
 import type { Viewport } from "../../../shared/geometry"
 import { Transport } from "./transport"
 
-const MAPPING: BridgeViewMapping = { perBlick: 2, perSemitone: 12, viewLeft: 0, viewTop: 0 }
+const MAPPING: BridgeViewMapping = {
+  perBlick: 2,
+  perSemitone: 12,
+  viewLeft: 0,
+  viewRight: 100,
+  viewTop: 0,
+  viewBottom: -12,
+}
 
 const VIEWPORT: Viewport = {
   canvas: { x: 100, y: 50, w: 800, h: 400 },

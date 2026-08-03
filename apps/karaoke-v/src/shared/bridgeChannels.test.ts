@@ -40,7 +40,7 @@ class Writer {
     }
     return this
   }
-  header(channel: number, length: number, layout = 1, magic = MAGIC): this {
+  header(channel: number, length: number, layout = 2, magic = MAGIC): this {
     return this.u32(magic).u16(layout).u16(channel).u32(length)
   }
 
@@ -73,7 +73,9 @@ function stateRecord(fields: StateFields = {}): Uint8Array {
     .f64(2.13e-7)
     .f64(24)
     .f64(88355201996.439)
+    .f64(97030858275.339)
     .f64(88.6875)
+    .f64(60.5)
     .text(fields.rev ?? "91595700000:70:3183490408")
     .done()
 
@@ -127,7 +129,14 @@ describe("decodeState", () => {
       at: 91.646,
       status: "playing",
       loop: null,
-      px: { perBlick: 2.13e-7, perSemitone: 24, viewLeft: 88355201996.439, viewTop: 88.6875 },
+      px: {
+        perBlick: 2.13e-7,
+        perSemitone: 24,
+        viewLeft: 88355201996.439,
+        viewRight: 97030858275.339,
+        viewTop: 88.6875,
+        viewBottom: 60.5,
+      },
       rev: "91595700000:70:3183490408",
     })
   })
@@ -149,7 +158,8 @@ describe("decodeState", () => {
   })
 
   it("refuses a record from a layout it does not know", () => {
-    expect(decodeState(stateRecord({ layout: 2 }))).toBeNull()
+    expect(decodeState(stateRecord({ layout: 1 }))).toBeNull()
+    expect(decodeState(stateRecord({ layout: 3 }))).toBeNull()
   })
 
   it("refuses bytes that are not a record at all", () => {

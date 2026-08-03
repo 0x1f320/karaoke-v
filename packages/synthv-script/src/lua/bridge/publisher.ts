@@ -43,7 +43,9 @@ export interface StateValue {
   perBlick: number
   perSemitone: number
   viewLeft: number
+  viewRight: number
   viewTop: number
+  viewBottom: number
   rev: string
 }
 
@@ -109,7 +111,9 @@ export function createPublisher(): Publisher {
           perBlick: value.perBlick,
           perSemitone: value.perSemitone,
           viewLeft: value.viewLeft,
+          viewRight: value.viewRight,
           viewTop: value.viewTop,
+          viewBottom: value.viewBottom,
           rev: value.rev,
         }),
       )

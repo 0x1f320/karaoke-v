@@ -18,7 +18,7 @@
 
 const MAGIC = "KVB1"
 
-export const LAYOUT = 1
+export const LAYOUT = 2
 
 export const CHANNEL_STATE = 1
 export const CHANNEL_NOTES = 2
@@ -43,8 +43,13 @@ export interface StateRecord {
   loop: { start: number; end: number } | null
   perBlick: number
   perSemitone: number
+  /** Both edges of each view range, not just the near one: Windows identifies
+   * the piano-roll element by the size the ranges imply, having no accessibility
+   * tree to find it in. */
   viewLeft: number
+  viewRight: number
   viewTop: number
+  viewBottom: number
   rev: string
 }
 
@@ -55,7 +60,7 @@ export function encodeState(state: StateRecord): string {
   return record(
     CHANNEL_STATE,
     string.pack(
-      "<I4I4BBddddddds2",
+      "<I4I4BBdddddddddds2",
       state.seq,
       state.notesSeq,
       STATUS_CODES[state.status] ?? 0,
@@ -66,7 +71,9 @@ export function encodeState(state: StateRecord): string {
       state.perBlick,
       state.perSemitone,
       state.viewLeft,
+      state.viewRight,
       state.viewTop,
+      state.viewBottom,
       state.rev,
     ),
   )

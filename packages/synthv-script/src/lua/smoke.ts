@@ -66,7 +66,9 @@ function loop(): void {
     perBlick: px.perBlick,
     perSemitone: px.perSemitone,
     viewLeft: px.viewLeft,
+    viewRight: px.viewRight,
     viewTop: px.viewTop,
+    viewBottom: px.viewBottom,
     rev: currentRevision(),
   })
   // Rebuilding the panel is not free and it churns the widgets the user is

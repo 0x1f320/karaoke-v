@@ -10,7 +10,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 
 const MAGIC = "KVB1"
-const LAYOUT = 1
+const LAYOUT = 2
 const CHANNEL = { STATE: 1, NOTES: 2 }
 const STATUS = ["stopped", "playing", "looping"]
 
@@ -119,7 +119,9 @@ function decodeState(buffer) {
     perBlick: cursor.f64(),
     perSemitone: cursor.f64(),
     viewLeft: cursor.f64(),
+    viewRight: cursor.f64(),
     viewTop: cursor.f64(),
+    viewBottom: cursor.f64(),
     rev: cursor.str(),
   }
 }

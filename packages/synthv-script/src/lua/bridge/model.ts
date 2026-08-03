@@ -15,7 +15,9 @@ export interface ViewMapping {
   perBlick: number
   perSemitone: number
   viewLeft: number
+  viewRight: number
   viewTop: number
+  viewBottom: number
 }
 
 export function currentGroup(): NoteGroupReference | undefined {
@@ -29,11 +31,15 @@ export function currentGroup(): NoteGroupReference | undefined {
  */
 export function viewMapping(): ViewMapping {
   const nav = SV.getMainEditor().getNavigation()
+  const time = nav.getTimeViewRange()
+  const value = nav.getValueViewRange()
   return {
     perBlick: nav.getTimePxPerUnit(),
     perSemitone: nav.getValuePxPerUnit(),
-    viewLeft: nav.getTimeViewRange()[0],
-    viewTop: nav.getValueViewRange()[1],
+    viewLeft: time[0],
+    viewRight: time[1],
+    viewTop: value[1],
+    viewBottom: value[0],
   }
 }
 

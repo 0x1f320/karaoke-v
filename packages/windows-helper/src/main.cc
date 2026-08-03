@@ -1,20 +1,11 @@
 #include <napi.h>
 
-#include "shm.h"
 #include "stick.h"
 #include "uia.h"
 
 namespace {
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
-  exports.Set("attach", Napi::Function::New(env, shm::Attach));
-  exports.Set("detach", Napi::Function::New(env, shm::Detach));
-  exports.Set("isAttached", Napi::Function::New(env, shm::IsAttached));
-  exports.Set("readState", Napi::Function::New(env, shm::ReadState));
-  exports.Set("getScheduleRevision", Napi::Function::New(env, shm::GetScheduleRevision));
-  exports.Set("readSchedule", Napi::Function::New(env, shm::ReadSchedule));
-  exports.Set("sendCommand", Napi::Function::New(env, shm::SendCommand));
-
   exports.Set("findCanvas", Napi::Function::New(env, uia::FindCanvas));
   exports.Set("getTargetOrigin", Napi::Function::New(env, uia::GetTargetOrigin));
   exports.Set("getCanvasRect", Napi::Function::New(env, uia::GetCanvasRect));

@@ -6,7 +6,14 @@ import type { TransportView } from "./transport"
 
 // One blick is one pixel here, so a note's expected x/w read straight off onB/offB.
 const VIEW: TransportView = {
-  mapping: { perBlick: 1, perSemitone: 12, viewLeft: 0, viewTop: 0 },
+  mapping: {
+    perBlick: 1,
+    perSemitone: 12,
+    viewLeft: 0,
+    viewRight: 1000,
+    viewTop: 0,
+    viewBottom: -12,
+  },
   contentX: 0,
   contentW: 1000,
   canvasX: 0,

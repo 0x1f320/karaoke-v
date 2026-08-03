@@ -148,7 +148,9 @@ class OverlayBridge {
       perBlick: view.perBlick,
       perSemitone: view.perSemitone,
       viewLeft: view.viewLeft,
+      viewRight: view.viewRight,
       viewTop: view.viewTop,
+      viewBottom: view.viewBottom,
       rev: this.revision,
     })
 

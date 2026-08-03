@@ -15,7 +15,7 @@
 // time.
 
 const MAGIC = 0x3142564b // "KVB1", little-endian
-const LAYOUT = 1
+const LAYOUT = 2
 const HEADER_BYTES = 12
 
 const CHANNEL_STATE = 1
@@ -32,8 +32,15 @@ export type BridgeStatus = (typeof STATUSES)[number]
 export interface BridgeViewMapping {
   perBlick: number
   perSemitone: number
+  /**
+   * Both edges of each range, not just the near one. Windows has no
+   * accessibility tree to find the piano roll in and identifies the element by
+   * the size these ranges imply — see `windowsGeometry.ts`.
+   */
   viewLeft: number
+  viewRight: number
   viewTop: number
+  viewBottom: number
 }
 
 export interface BridgeState {
@@ -176,7 +183,9 @@ export function decodeState(bytes: Uint8Array): BridgeState | null {
       perBlick: cursor.f64(),
       perSemitone: cursor.f64(),
       viewLeft: cursor.f64(),
+      viewRight: cursor.f64(),
       viewTop: cursor.f64(),
+      viewBottom: cursor.f64(),
     },
     rev: cursor.text(),
   }
