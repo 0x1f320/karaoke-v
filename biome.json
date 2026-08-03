@@ -4,8 +4,11 @@
   "files": {
     "includes": [
       "apps/**/src/**",
+      "apps/**/scripts/**",
       "apps/**/*.json",
-      "packages/**/*.{js,ts,json}",
+      "packages/**/*.{js,mjs,ts,json}",
+      "packages/**/scripts/**",
+      ".github/scripts/**",
       "*.json",
       "!**/*.css"
     ]

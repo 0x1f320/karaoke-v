@@ -26,6 +26,9 @@ importers:
       '@karaoke-v/macos-helper':
         specifier: workspace:*
         version: link:../../packages/macos-helper
+      '@karaoke-v/windows-helper':
+        specifier: workspace:*
+        version: link:../../packages/windows-helper
       lucide-react:
         specifier: ^1.28.0
         version: 1.28.0(react@19.2.8)
@@ -77,6 +80,16 @@ importers:
         version: 6.4.3(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)
 
   packages/macos-helper:
+    dependencies:
+      node-addon-api:
+        specifier: ^8.3.0
+        version: 8.9.1
+    devDependencies:
+      node-gyp:
+        specifier: ^11.0.0
+        version: 11.5.0
+
+  packages/windows-helper:
     dependencies:
       node-addon-api:
         specifier: ^8.3.0

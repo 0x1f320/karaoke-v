@@ -1,12 +1,12 @@
 {
-  "name": "@karaoke-v/macos-helper",
+  "name": "@karaoke-v/windows-helper",
   "version": "0.1.0",
   "private": true,
-  "description": "Native macOS addon for karaoke-v: sticks an Electron window to a target app's window via the Accessibility API (in-process AXObserver).",
+  "description": "Native Windows addon for karaoke-v: reads the SynthV bridge script's shared buffer out of the SynthV process, and the piano-roll geometry through UI Automation.",
   "main": "index.js",
   "types": "index.d.ts",
   "os": [
-    "darwin"
+    "win32"
   ],
   "scripts": {
     "build": "node scripts/build.mjs"

@@ -71,3 +71,38 @@ jobs:
       # Recompiles it against the Electron ABI — the path dev/start use at runtime.
       - name: Rebuild for Electron ABI
         run: pnpm --filter @karaoke-v/app rebuild:native
+  windows-native:
+    name: Windows Native Addon
+    # Pinned: node-gyp probes for Visual Studio through PowerShell and does not
+    # recognise the VS 18 that windows-latest now ships, so it reports finding no
+    # toolchain at all.
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+      # Compiles the C++ addon (shm/uia/stick) with node-gyp, through MSBuild here
+      # rather than the Makefiles GYP emits on macOS.
+      - name: Build (node-gyp)
+        run: pnpm build
+
+      # The addon is N-API, so the binary Node loads is the one Electron loads too.
+      # Loading it here is what catches an export that was added to the C++ but not
+      # wired into the module — a rebuild that quietly did nothing looks identical
+      # to a successful one otherwise.
+      - name: Load the addon
+        run: node .github/scripts/check-windows-addon.mjs

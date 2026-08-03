@@ -1,6 +1,7 @@
-import * as macHelper from "@karaoke-v/macos-helper"
 import { app, type BrowserWindow, ipcMain } from "electron"
+import { native, type Rect } from "../shared/native"
 import { registerBridgeIpc, startBridge, stopBridge } from "./bridge"
+import { registerDipIpc, toDipFrame, updateDipTransform } from "./dip"
 import { createOverlayWindow, positionOverlay } from "./overlay"
 import { registerPreferencesIpc } from "./preferences"
 import { openSettingsWindow, setSettingsAnchorWindow } from "./settings"
@@ -10,6 +11,31 @@ import { createToolbarWindow, positionToolbar } from "./toolbar"
 // overlay (overlay.ts) covers the whole SynthV window, and the sticky toolbar
 // (toolbar.ts) docks beside it. Each module owns its window's creation and
 // positioning; this file only runs the follow loop.
+
+// Electron reapplies its own idea of a window's bounds when the window is shown,
+// so the overlay would snap back to its creation size after the helper moved it
+// natively. Syncing that idea once the movement settles keeps both in step
+// without setBounds arriving mid-drag with a frame-old position and dragging the
+// window backwards — which is exactly what a chase looks like on screen.
+const BOUNDS_SYNC_MS = 120
+let boundsSync: NodeJS.Timeout | null = null
+
+function syncOverlayBounds(win: BrowserWindow, frame: Rect): void {
+  if (boundsSync) {
+    clearTimeout(boundsSync)
+  }
+  boundsSync = setTimeout(() => {
+    boundsSync = null
+    if (!win.isDestroyed()) {
+      positionOverlay(win, frame)
+    }
+  }, BOUNDS_SYNC_MS)
+}
+
+// macOS matches on the app's localized name, Windows on the executable's.
+function nativeTarget(): string {
+  return process.platform === "win32" ? "synthv-studio" : "synth"
+}
 
 let overlayWin: BrowserWindow | null = null
 let toolbarWin: BrowserWindow | null = null
@@ -32,19 +58,33 @@ app.whenReady().then(() => {
   }
   registerPreferencesIpc()
   registerBridgeIpc()
+  registerDipIpc()
   ipcMain.handle("settings:open", () => openSettingsWindow())
 
   overlayWin = createOverlayWindow()
   toolbarWin = createToolbarWindow()
   setSettingsAnchorWindow(toolbarWin)
-  if (process.platform !== "darwin") {
+  if (process.platform !== "darwin" && process.platform !== "win32") {
     return
   }
-  macHelper.start({
-    target: "synth",
-    onFrame: (f) => {
+  if (native.follow && overlayWin) {
+    native.follow(overlayWin.getNativeWindowHandle())
+  }
+  native.start({
+    target: nativeTarget(),
+    onFrame: (raw) => {
+      // The helper speaks in native units — points on macOS, physical pixels on
+      // Windows — while window placement is in DIPs, so everything is converted
+      // before anything is positioned. Renderers get the same transform pushed.
+      updateDipTransform(raw)
+      const bounds = toDipFrame(raw)
+      const f = { x: bounds.x, y: bounds.y, w: bounds.width, h: bounds.height }
       if (overlayWin && !overlayWin.isDestroyed()) {
-        positionOverlay(overlayWin, f)
+        if (native.follow) {
+          syncOverlayBounds(overlayWin, f)
+        } else {
+          positionOverlay(overlayWin, f)
+        }
         if (!overlayWin.isVisible()) {
           overlayWin.showInactive()
         }
@@ -79,7 +119,7 @@ app.whenReady().then(() => {
 
 app.on("before-quit", () => {
   stopBridge()
-  macHelper.stop()
+  native.stop()
 })
 
 app.on("window-all-closed", () => app.quit())

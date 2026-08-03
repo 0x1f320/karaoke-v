@@ -1,6 +1,6 @@
 import path from "node:path"
-import * as macHelper from "@karaoke-v/macos-helper"
 import { BrowserWindow, screen } from "electron"
+import { native } from "../shared/native"
 
 // The sticky toolbar: a narrow frameless strip docked beside the SynthV window.
 // The follow loop lives in main/index.ts (shared with the overlay window) —
@@ -99,7 +99,7 @@ export function createToolbarWindow(): BrowserWindow {
   // No fade when the panel is shown/hidden on occlusion.
   if (process.platform === "darwin") {
     try {
-      macHelper.disableAnimations(win.getNativeWindowHandle())
+      native.disableAnimations(win.getNativeWindowHandle())
     } catch {}
   }
 

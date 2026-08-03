@@ -1,6 +1,6 @@
 import path from "node:path"
-import * as macHelper from "@karaoke-v/macos-helper"
 import { BrowserWindow } from "electron"
+import { native } from "../shared/native"
 
 // The overlay window: transparent, click-through, always-on-top, covering the
 // whole SynthV window. It is otherwise inert — all per-frame work (AX reads,
@@ -35,10 +35,14 @@ export function createOverlayWindow(): BrowserWindow {
   })
 
   win.setIgnoreMouseEvents(true, { forward: true })
-  win.setAlwaysOnTop(true, "floating")
+  // Windows keeps the overlay above SynthV through window ownership instead —
+  // topmost would also put it above every unrelated app, which is wrong.
+  if (process.platform !== "win32") {
+    win.setAlwaysOnTop(true, "floating")
+  }
   if (process.platform === "darwin") {
     try {
-      macHelper.disableAnimations(win.getNativeWindowHandle())
+      native.disableAnimations(win.getNativeWindowHandle())
     } catch {}
   }
 
