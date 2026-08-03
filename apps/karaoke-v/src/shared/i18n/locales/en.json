@@ -195,6 +195,25 @@
           "description": "The color the particles are painted in.",
           "aria": "Particle color"
         }
+      },
+      "pitch": {
+        "title": "Follow the pitch",
+        "description": "Effects ride the pitch that is actually sung instead of sitting at the note's centre.",
+        "mode": {
+          "label": "Drives",
+          "description": "What the sung pitch is allowed to move.",
+          "position": "Position",
+          "intensity": "Intensity",
+          "both": "Both"
+        },
+        "range": {
+          "label": "Range",
+          "description": "How far an effect may travel from its note."
+        },
+        "sensitivity": {
+          "label": "Sensitivity",
+          "description": "How much the glow and sparks swell where the pitch moves. Zero holds them level."
+        }
       }
     }
   },
@@ -205,6 +224,7 @@
     "seconds": "{{value}}s",
     "times": "{{value}}×",
     "perSecond": "{{value}}/s",
-    "timesPerSecond": "{{value}}/s"
+    "timesPerSecond": "{{value}}/s",
+    "semitones": "{{value}} st"
   }
 }

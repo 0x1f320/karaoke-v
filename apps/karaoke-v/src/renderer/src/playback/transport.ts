@@ -123,6 +123,26 @@ export class Transport {
 
   /** The note under `seconds`, or null in a gap between notes. */
   noteAt(seconds: number): BridgeNote | null {
+    const found = this.indexAt(seconds)
+    if (found < 0) {
+      return null
+    }
+    const note = this.schedule[found]
+    return seconds < note.offS ? note : null
+  }
+
+  /**
+   * The note before the one starting at or before `seconds`. A synthesized
+   * contour glides into a note from whatever was sung last, so it needs the
+   * neighbour even on frames where the gap between them is what is sounding.
+   */
+  noteBefore(seconds: number): BridgeNote | null {
+    const found = this.indexAt(seconds)
+    return found > 0 ? this.schedule[found - 1] : null
+  }
+
+  /** Index of the last note starting at or before `seconds`, or -1. */
+  private indexAt(seconds: number): number {
     const notes = this.schedule
     let lo = 0
     let hi = notes.length - 1
@@ -136,11 +156,7 @@ export class Transport {
         hi = mid - 1
       }
     }
-    if (found < 0) {
-      return null
-    }
-    const note = notes[found]
-    return seconds < note.offS ? note : null
+    return found
   }
 
   /**

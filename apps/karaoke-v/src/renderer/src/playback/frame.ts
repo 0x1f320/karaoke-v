@@ -52,6 +52,13 @@ export function composeFrame(
   /** The rect of the sounding note, and how far into it the playhead is. */
   hit: Rect | null,
   progress: number,
+  /**
+   * How far the voice is from the note's own pitch, in semitones. The rect is
+   * one semitone tall — measured against the editor's own `v2y`, the lyric chip
+   * matches its note's lane exactly — so this scales by the rect height and
+   * needs no mapping of its own.
+   */
+  offsetSemitones = 0,
 ): FrameLayout {
   return {
     offsetX: transform.contentOffsetX - origin.x,
@@ -65,6 +72,12 @@ export function composeFrame(
     },
     // Sparks come off where the playhead is inside the note, not off the note as
     // a whole — that is what makes the effect read as following the sound.
-    emit: hit ? { x: hit.x + hit.w * progress, y: hit.y + hit.h / 2, spread: hit.h } : null,
+    emit: hit
+      ? {
+          x: hit.x + hit.w * progress,
+          y: hit.y + hit.h / 2 - offsetSemitones * hit.h,
+          spread: hit.h,
+        }
+      : null,
   }
 }

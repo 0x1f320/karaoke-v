@@ -109,10 +109,35 @@ export type GlowPreferences = EffectImage & {
   color: string
 }
 
-/** The pair of groups that make up one look. Everything a preset carries. */
+/**
+ * What the sung pitch is allowed to drive.
+ *
+ * - `position` — the effect rides the pitch line instead of the note's centre.
+ * - `intensity` — glow and sparks swell where the voice moves.
+ * - `both` — at once.
+ */
+export type PitchMode = "position" | "intensity" | "both"
+
+export const PITCH_MODES: readonly PitchMode[] = ["position", "intensity", "both"]
+
+/** Effects following the voice inside the note rather than the note itself. */
+export type PitchPreferences = {
+  enabled: boolean
+  mode: PitchMode
+  /**
+   * How far the effect may leave the note, in semitones. Also the guard against
+   * a contour that names somewhere absurd.
+   */
+  range: number
+  /** How hard pitch movement drives intensity. Zero holds it level. */
+  sensitivity: number
+}
+
+/** The groups that make up one look. Everything a preset carries. */
 export type EffectSettings = {
   particles: ParticlePreferences
   glow: GlowPreferences
+  pitch: PitchPreferences
 }
 
 /** A named copy of the effect settings, saved by the user. */
@@ -135,6 +160,7 @@ export type Preferences = {
   effects: boolean
   particles: ParticlePreferences
   glow: GlowPreferences
+  pitch: PitchPreferences
   /** User-saved looks, in the order they appear in the picker. */
   presets: EffectPreset[]
   /**
@@ -180,6 +206,12 @@ export const DEFAULT_PREFERENCES: Preferences = {
     asset: null,
     blend: "add",
   },
+  pitch: {
+    enabled: false,
+    mode: "both",
+    range: 4,
+    sensitivity: 0.12,
+  },
   presets: [],
   activePreset: null,
 }
@@ -188,6 +220,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
 export const DEFAULT_EFFECTS: EffectSettings = {
   particles: DEFAULT_PREFERENCES.particles,
   glow: DEFAULT_PREFERENCES.glow,
+  pitch: DEFAULT_PREFERENCES.pitch,
 }
 
 /** Ceilings on the preset list, so a corrupt file cannot grow unbounded. */
@@ -197,7 +230,7 @@ export const PRESET_LIMITS = { count: 100, nameLength: 60 } as const
 export function sameEffects(a: EffectSettings, b: EffectSettings): boolean {
   const same = <T extends object>(x: T, y: T) =>
     (Object.keys(x) as (keyof T)[]).every((key) => x[key] === y[key])
-  return same(a.particles, b.particles) && same(a.glow, b.glow)
+  return same(a.particles, b.particles) && same(a.glow, b.glow) && same(a.pitch, b.pitch)
 }
 
 /** Ranges the settings UI offers, and the bounds sanitizing clamps to. */
@@ -221,6 +254,11 @@ export const GLOW_LIMITS = {
   jitterRate: { min: 2, max: 30, step: 1 },
 } as const
 
+export const PITCH_LIMITS = {
+  range: { min: 0.5, max: 12, step: 0.5 },
+  sensitivity: { min: 0, max: 0.5, step: 0.01 },
+} as const
+
 /** A partial update. Nested groups may be partial too — one slider at a time. */
 export type PreferencesPatch = {
   language?: LanguagePreference
@@ -228,6 +266,7 @@ export type PreferencesPatch = {
   effects?: boolean
   particles?: Partial<ParticlePreferences>
   glow?: Partial<GlowPreferences>
+  pitch?: Partial<PitchPreferences>
   /** The whole list, always: adding, renaming and deleting all rewrite it. */
   presets?: EffectPreset[]
   /** null is a value here, not an absence — it names the built-in defaults. */
@@ -246,6 +285,7 @@ export function mergePreferences(base: Preferences, patch: PreferencesPatch): Pr
     effects: patch.effects ?? base.effects,
     particles: { ...base.particles, ...patch.particles },
     glow: { ...base.glow, ...patch.glow },
+    pitch: { ...base.pitch, ...patch.pitch },
     presets: patch.presets ?? base.presets,
     // Not ??: null is the defaults, and only an absent key means "leave it".
     activePreset: patch.activePreset !== undefined ? patch.activePreset : base.activePreset,
@@ -325,6 +365,15 @@ function sanitizeParticles(input: unknown): Partial<ParticlePreferences> | undef
     : clean
 }
 
+function sanitizePitch(input: unknown): Partial<PitchPreferences> | undefined {
+  const clean = sanitizeGroup(input, PITCH_LIMITS)
+  if (!clean) {
+    return undefined
+  }
+  const mode = (input as Record<string, unknown>).mode
+  return PITCH_MODES.includes(mode as PitchMode) ? { ...clean, mode: mode as PitchMode } : clean
+}
+
 function sanitizeGlow(input: unknown): Partial<GlowPreferences> | undefined {
   const clean = sanitizeGroup(input, GLOW_LIMITS)
   if (!clean) {
@@ -348,7 +397,7 @@ function sanitizePresets(input: unknown): EffectPreset[] | undefined {
     if (typeof entry !== "object" || entry === null) {
       continue
     }
-    const { id, name, particles, glow } = entry as Record<string, unknown>
+    const { id, name, particles, glow, pitch } = entry as Record<string, unknown>
     if (typeof id !== "string" || !id || typeof name !== "string" || !name.trim()) {
       continue
     }
@@ -357,6 +406,7 @@ function sanitizePresets(input: unknown): EffectPreset[] | undefined {
       name: name.trim().slice(0, PRESET_LIMITS.nameLength),
       particles: { ...DEFAULT_EFFECTS.particles, ...sanitizeParticles(particles) },
       glow: { ...DEFAULT_EFFECTS.glow, ...sanitizeGlow(glow) },
+      pitch: { ...DEFAULT_EFFECTS.pitch, ...sanitizePitch(pitch) },
     })
   }
   return out
@@ -369,10 +419,8 @@ export function sanitizePreferences(input: unknown): PreferencesPatch {
   if (typeof input !== "object" || input === null) {
     return out
   }
-  const { language, debug, effects, particles, glow, presets, activePreset } = input as Record<
-    string,
-    unknown
-  >
+  const { language, debug, effects, particles, glow, pitch, presets, activePreset } =
+    input as Record<string, unknown>
   if (isLanguagePreference(language)) {
     out.language = language
   }
@@ -396,6 +444,10 @@ export function sanitizePreferences(input: unknown): PreferencesPatch {
   const cleanGlow = sanitizeGlow(glow)
   if (cleanGlow) {
     out.glow = cleanGlow
+  }
+  const cleanPitch = sanitizePitch(pitch)
+  if (cleanPitch) {
+    out.pitch = cleanPitch
   }
   return out
 }

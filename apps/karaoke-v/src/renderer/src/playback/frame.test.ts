@@ -91,4 +91,19 @@ describe("composeFrame", () => {
   it("has nothing to emit without a matched rect", () => {
     expect(composeFrame(TRANSFORM, VP, origin, null, 0.5).emit).toBeNull()
   })
+
+  it("lifts the emission point by the pitch offset, a rect height per semitone", () => {
+    const hit = { x: 600, y: 300, w: 100, h: 20 }
+    // Up the piano roll is a smaller y, so a higher pitch subtracts.
+    expect(composeFrame(TRANSFORM, VP, origin, hit, 0, 1).emit?.y).toBe(290)
+    expect(composeFrame(TRANSFORM, VP, origin, hit, 0, -1).emit?.y).toBe(330)
+    expect(composeFrame(TRANSFORM, VP, origin, hit, 0, 0.5).emit?.y).toBe(300)
+  })
+
+  it("leaves the emission point on the note's centre when the offset is zero", () => {
+    const hit = { x: 600, y: 300, w: 100, h: 20 }
+    expect(composeFrame(TRANSFORM, VP, origin, hit, 0.5, 0).emit).toEqual(
+      composeFrame(TRANSFORM, VP, origin, hit, 0.5).emit,
+    )
+  })
 })
