@@ -12,7 +12,7 @@
       "permission": "{{synthv}}: permission needed",
       "waiting": "{{synthv}}: not running"
     },
-    "effects": "Note effects",
+    "effects": "Enable note effects",
     "settings": "Settings…",
     "quit": "Quit {{app}}",
     "notRunning": {

@@ -12,7 +12,7 @@
       "permission": "{{synthv}}: アクセス権限が必要",
       "waiting": "{{synthv}}: 起動していません"
     },
-    "effects": "ノートエフェクト",
+    "effects": "ノートエフェクトを有効にする",
     "settings": "設定…",
     "quit": "{{app}} を終了",
     "notRunning": {
