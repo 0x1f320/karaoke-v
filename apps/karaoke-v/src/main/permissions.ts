@@ -1,5 +1,6 @@
 import path from "node:path"
 import { app, BrowserWindow, ipcMain, screen, shell, systemPreferences } from "electron"
+import { APP_NAME } from "../shared/i18n"
 import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
 
 // The first-run gate: without Accessibility the AX reads fail and the overlay
@@ -69,7 +70,7 @@ export function openPermissionsWindow(granted: () => void): void {
     ...centeredBounds(),
     width: SIZE.width,
     height: SIZE.height,
-    title: "KaraokeV",
+    title: APP_NAME,
     backgroundColor: "#2D2B2E",
     show: false,
     resizable: false,

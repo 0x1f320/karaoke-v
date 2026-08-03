@@ -1,9 +1,12 @@
 import { Settings, Sparkles } from "lucide-react"
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
+import { APP_NAME } from "../../../shared/i18n"
 import { IconButton } from "./ui/IconButton"
 
 // The narrow sticky-toolbar panel docked beside the SynthV window.
 export function Toolbar() {
+  const { t } = useTranslation()
   const [effects, setEffects] = useState(false)
 
   useEffect(() => {
@@ -22,7 +25,7 @@ export function Toolbar() {
       {/* The window follows SynthV, so the bar is a visual header only — no
           drag region, which would fight the stick observer's positioning. */}
       <header className="flex h-6 flex-none select-none items-center bg-titlebar px-2">
-        <span className="text-2xs leading-none font-medium text-muted">KaraokeV</span>
+        <span className="text-2xs leading-none font-medium text-muted">{APP_NAME}</span>
       </header>
       {/* Everything below the title bar, inset 12px on all sides. Buttons stack
           as a single centred column. */}
@@ -31,16 +34,16 @@ export function Toolbar() {
           className="w-3/4"
           on={effects}
           aria-pressed={effects}
-          title="노트 이펙트"
-          aria-label="노트 이펙트"
+          title={t("toolbar.effects")}
+          aria-label={t("toolbar.effects")}
           onClick={toggleEffects}
         >
           <Sparkles size={20} strokeWidth={1.5} />
         </IconButton>
         <IconButton
           className="w-3/4"
-          title="설정"
-          aria-label="설정"
+          title={t("toolbar.settings")}
+          aria-label={t("toolbar.settings")}
           onClick={() => window.settings.open()}
         >
           <Settings size={20} strokeWidth={1.5} />

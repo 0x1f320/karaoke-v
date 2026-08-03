@@ -1,0 +1,180 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "colorCode": "Color code"
+  },
+  "tray": {
+    "status": {
+      "attached": "{{synthv}}: connected",
+      "hidden": "{{synthv}}: window hidden",
+      "permission": "{{synthv}}: permission needed",
+      "waiting": "{{synthv}}: not running"
+    },
+    "effects": "Note effects",
+    "settings": "Settings…",
+    "quit": "Quit {{app}}",
+    "notRunning": {
+      "title": "{{synthv}} is not running",
+      "body": "Open {{synthv}} and {{app}} will attach to it on its own."
+    }
+  },
+  "toolbar": {
+    "effects": "Note effects",
+    "settings": "Settings"
+  },
+  "permissions": {
+    "title": {
+      "granted": "You are ready to start",
+      "pending": "One permission is needed to start"
+    },
+    "intro": "The following permission is what lets the app read the piano roll.",
+    "status": {
+      "granted": "Granted",
+      "waiting": "Waiting"
+    },
+    "howTo": "How to grant it",
+    "openSystemSettings": "Open System Settings",
+    "openSystemSettingsFor": "Open System Settings for {{permission}}",
+    "proceed": "Get started",
+    "accessibility": {
+      "title": "Accessibility",
+      "description": "Needed to read where the notes are.",
+      "steps": [
+        "Press 'Open System Settings' to open the Accessibility pane.",
+        "Find {{app}} in the list and turn its switch on.",
+        "Come back to this window and press Get started."
+      ]
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "sections": {
+      "general": "General",
+      "effects": "Note effects"
+    },
+    "general": {
+      "language": {
+        "label": "Language",
+        "description": "The language the app is shown in.",
+        "system": "System setting"
+      },
+      "debug": {
+        "label": "Enable debug mode",
+        "description": "Shows information on screen that can help with debugging."
+      }
+    },
+    "effects": {
+      "preset": {
+        "label": "Preset",
+        "custom": "Custom",
+        "default": "Default settings",
+        "delete": "Delete preset",
+        "deleteConfirm": "'{{name}}' will be deleted. This cannot be undone.",
+        "changedFrom": "Changed from '{{name}}'.",
+        "changedFromDefault": "Changed from the default settings.",
+        "revert": "Revert",
+        "saveAs": "Save as a new preset",
+        "saveAsDescription": "Keeps the effect settings in use right now under a name.",
+        "name": "Preset name",
+        "suggestedName": "Preset {{index}}",
+        "overwriteWarning": "A preset by that name already exists. It will be overwritten.",
+        "overwrite": "Overwrite"
+      },
+      "glow": {
+        "title": "Highlight",
+        "description": "The light that bursts as a note starts and holds while it sounds.",
+        "shape": {
+          "label": "Shape",
+          "description": "The form the light spreads in.",
+          "bloom": "Bloom",
+          "cross": "Cross",
+          "x": "X",
+          "star": "Star"
+        },
+        "level": {
+          "label": "Brightness",
+          "description": "The brightness held while a note sounds."
+        },
+        "flash": {
+          "label": "Flash length",
+          "description": "How long the flash at a note's onset takes to fade."
+        },
+        "size": {
+          "label": "Size",
+          "description": "The light's radius as a multiple of the note's height."
+        },
+        "jitter": {
+          "label": "Jitter",
+          "description": "How hard the light trembles while a note sounds. 0 holds it steady."
+        },
+        "jitterRate": {
+          "label": "Jitter rate",
+          "description": "How fast the light trembles."
+        },
+        "color": {
+          "label": "Color",
+          "description": "The color the light is painted in.",
+          "aria": "Light color"
+        }
+      },
+      "particles": {
+        "title": "Particles",
+        "description": "The sparks thrown off as the playhead crosses a note.",
+        "direction": {
+          "label": "Spread direction",
+          "description": "The way the particles spread out.",
+          "directional": "One way",
+          "radial": "Radial"
+        },
+        "angle": {
+          "label": "Angle",
+          "description": "0° is straight up, and it turns clockwise."
+        },
+        "rate": {
+          "label": "Amount",
+          "description": "How many are emitted per second while a note sounds."
+        },
+        "life": {
+          "label": "Lifetime",
+          "description": "How long one particle takes to disappear."
+        },
+        "spreadX": {
+          "label": "Sideways spread",
+          "description": "How wide the particles spread at right angles to their travel."
+        },
+        "radiusX": {
+          "label": "Horizontal radius",
+          "description": "The radius the particles spread to left and right."
+        },
+        "spreadY": {
+          "label": "Travel distance",
+          "description": "How far the particles travel along their direction."
+        },
+        "radiusY": {
+          "label": "Vertical radius",
+          "description": "The radius the particles spread to top and bottom."
+        },
+        "originX": {
+          "label": "Origin width",
+          "description": "The width of the band the particles are born along."
+        },
+        "color": {
+          "label": "Color",
+          "description": "The color the particles are painted in.",
+          "aria": "Particle color"
+        }
+      }
+    }
+  },
+  "units": {
+    "percent": "{{value}}%",
+    "pixels": "{{value}}px",
+    "degrees": "{{value}}°",
+    "seconds": "{{value}}s",
+    "times": "{{value}}×",
+    "perSecond": "{{value}}/s",
+    "timesPerSecond": "{{value}}/s"
+  }
+}

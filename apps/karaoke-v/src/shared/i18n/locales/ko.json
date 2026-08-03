@@ -1,0 +1,180 @@
+{
+  "common": {
+    "cancel": "취소",
+    "save": "저장",
+    "delete": "삭제",
+    "colorCode": "색상 코드"
+  },
+  "tray": {
+    "status": {
+      "attached": "{{synthv}}: 연결됨",
+      "hidden": "{{synthv}}: 창 숨김",
+      "permission": "{{synthv}}: 접근 권한 필요",
+      "waiting": "{{synthv}}: 실행 중 아님"
+    },
+    "effects": "노트 이펙트",
+    "settings": "설정…",
+    "quit": "{{app}} 종료",
+    "notRunning": {
+      "title": "{{synthv}}가 실행되고 있지 않습니다",
+      "body": "{{synthv}}를 열면 {{app}}가 자동으로 연결됩니다."
+    }
+  },
+  "toolbar": {
+    "effects": "노트 이펙트",
+    "settings": "설정"
+  },
+  "permissions": {
+    "title": {
+      "granted": "이제 시작할 수 있습니다",
+      "pending": "시작하려면 권한이 하나 필요합니다"
+    },
+    "intro": "특수화된 기능을 사용하기 위해 다음과 같은 권한이 필요합니다.",
+    "status": {
+      "granted": "허용됨",
+      "waiting": "기다리는 중"
+    },
+    "howTo": "허용하는 방법",
+    "openSystemSettings": "시스템 설정 열기",
+    "openSystemSettingsFor": "{{permission}} 시스템 설정 열기",
+    "proceed": "시작하기",
+    "accessibility": {
+      "title": "손쉬운 사용",
+      "description": "노트의 위치를 읽기 위해 필요한 권한입니다.",
+      "steps": [
+        "'시스템 설정 열기'를 눌러 손쉬운 사용 항목을 엽니다.",
+        "목록에서 {{app}}를 찾아 스위치를 켭니다.",
+        "이 창으로 돌아와 시작하기를 누릅니다."
+      ]
+    }
+  },
+  "settings": {
+    "title": "설정",
+    "sections": {
+      "general": "일반",
+      "effects": "노트 이펙트"
+    },
+    "general": {
+      "language": {
+        "label": "언어",
+        "description": "앱에 표시할 언어입니다.",
+        "system": "시스템 설정"
+      },
+      "debug": {
+        "label": "디버깅 모드 활성화",
+        "description": "디버깅에 도움을 줄 수 있는 정보를 화면에 표시 합니다."
+      }
+    },
+    "effects": {
+      "preset": {
+        "label": "프리셋",
+        "custom": "사용자 지정",
+        "default": "기본 설정",
+        "delete": "프리셋 삭제",
+        "deleteConfirm": "'{{name}}'을(를) 삭제합니다. 되돌릴 수 없습니다.",
+        "changedFrom": "'{{name}}'에서 변경되었습니다.",
+        "changedFromDefault": "기본 설정에서 변경되었습니다.",
+        "revert": "되돌리기",
+        "saveAs": "별도 프리셋으로 저장",
+        "saveAsDescription": "지금 적용된 이펙트 설정을 이름 붙여 보관합니다.",
+        "name": "프리셋 이름",
+        "suggestedName": "프리셋 {{index}}",
+        "overwriteWarning": "같은 이름의 프리셋이 이미 있습니다. 덮어쓰게 됩니다.",
+        "overwrite": "덮어쓰기"
+      },
+      "glow": {
+        "title": "하이라이트",
+        "description": "노트가 시작될 때 터지고, 소리가 나는 동안 유지되는 빛입니다.",
+        "shape": {
+          "label": "모양",
+          "description": "빛이 퍼져 나가는 형태입니다.",
+          "bloom": "원형",
+          "cross": "십자",
+          "x": "X자",
+          "star": "별"
+        },
+        "level": {
+          "label": "밝기",
+          "description": "소리가 나는 동안 유지되는 밝기입니다."
+        },
+        "flash": {
+          "label": "번쩍임 길이",
+          "description": "노트가 시작될 때의 섬광이 잦아드는 시간입니다."
+        },
+        "size": {
+          "label": "크기",
+          "description": "노트 높이에 대한 빛의 반지름 배율입니다."
+        },
+        "jitter": {
+          "label": "지터",
+          "description": "소리가 나는 동안 빛이 부들부들 떨리는 정도입니다. 0이면 흔들리지 않습니다."
+        },
+        "jitterRate": {
+          "label": "지터 속도",
+          "description": "빛이 떨리는 빠르기입니다."
+        },
+        "color": {
+          "label": "색상",
+          "description": "빛을 칠할 색상입니다.",
+          "aria": "빛 색상"
+        }
+      },
+      "particles": {
+        "title": "파티클",
+        "description": "플레이헤드가 노트를 지나며 흩뿌리는 불꽃입니다.",
+        "direction": {
+          "label": "확산 방향",
+          "description": "파티클이 퍼져 나가는 방식입니다.",
+          "directional": "한 방향",
+          "radial": "방사형"
+        },
+        "angle": {
+          "label": "각도",
+          "description": "0°가 위쪽이고, 시계 방향으로 돕니다."
+        },
+        "rate": {
+          "label": "양",
+          "description": "노트가 울리는 동안 초당 방출되는 개수입니다."
+        },
+        "life": {
+          "label": "지속 시간",
+          "description": "파티클 하나가 사라지기까지 걸리는 시간입니다."
+        },
+        "spreadX": {
+          "label": "가로 확산",
+          "description": "파티클이 진행 방향과 직각으로 퍼지는 폭입니다."
+        },
+        "radiusX": {
+          "label": "가로 반경",
+          "description": "파티클이 좌우로 퍼져 나가는 반경입니다."
+        },
+        "spreadY": {
+          "label": "이동 거리",
+          "description": "파티클이 진행 방향으로 나아가는 거리입니다."
+        },
+        "radiusY": {
+          "label": "세로 반경",
+          "description": "파티클이 위아래로 퍼져 나가는 반경입니다."
+        },
+        "originX": {
+          "label": "시작점 너비",
+          "description": "파티클이 생겨나는 지점의 가로 폭입니다."
+        },
+        "color": {
+          "label": "색상",
+          "description": "파티클을 칠할 색상입니다.",
+          "aria": "파티클 색상"
+        }
+      }
+    }
+  },
+  "units": {
+    "percent": "{{value}}%",
+    "pixels": "{{value}}px",
+    "degrees": "{{value}}°",
+    "seconds": "{{value}}초",
+    "times": "{{value}}배",
+    "perSecond": "{{value}}/s",
+    "timesPerSecond": "{{value}}회/초"
+  }
+}

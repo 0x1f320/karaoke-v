@@ -1,0 +1,180 @@
+{
+  "common": {
+    "cancel": "キャンセル",
+    "save": "保存",
+    "delete": "削除",
+    "colorCode": "カラーコード"
+  },
+  "tray": {
+    "status": {
+      "attached": "{{synthv}}: 接続済み",
+      "hidden": "{{synthv}}: ウィンドウ非表示",
+      "permission": "{{synthv}}: アクセス権限が必要",
+      "waiting": "{{synthv}}: 起動していません"
+    },
+    "effects": "ノートエフェクト",
+    "settings": "設定…",
+    "quit": "{{app}} を終了",
+    "notRunning": {
+      "title": "{{synthv}} が起動していません",
+      "body": "{{synthv}} を開くと {{app}} が自動的に接続します。"
+    }
+  },
+  "toolbar": {
+    "effects": "ノートエフェクト",
+    "settings": "設定"
+  },
+  "permissions": {
+    "title": {
+      "granted": "準備ができました",
+      "pending": "開始するには権限が 1 つ必要です"
+    },
+    "intro": "ピアノロールを読み取るために、次の権限が必要です。",
+    "status": {
+      "granted": "許可済み",
+      "waiting": "待機中"
+    },
+    "howTo": "許可する方法",
+    "openSystemSettings": "システム設定を開く",
+    "openSystemSettingsFor": "{{permission}}のシステム設定を開く",
+    "proceed": "はじめる",
+    "accessibility": {
+      "title": "アクセシビリティ",
+      "description": "ノートの位置を読み取るために必要な権限です。",
+      "steps": [
+        "「システム設定を開く」を押してアクセシビリティの項目を開きます。",
+        "一覧から {{app}} を見つけてスイッチをオンにします。",
+        "このウィンドウに戻って「はじめる」を押します。"
+      ]
+    }
+  },
+  "settings": {
+    "title": "設定",
+    "sections": {
+      "general": "一般",
+      "effects": "ノートエフェクト"
+    },
+    "general": {
+      "language": {
+        "label": "言語",
+        "description": "アプリを表示する言語です。",
+        "system": "システム設定"
+      },
+      "debug": {
+        "label": "デバッグモードを有効にする",
+        "description": "デバッグに役立つ情報を画面に表示します。"
+      }
+    },
+    "effects": {
+      "preset": {
+        "label": "プリセット",
+        "custom": "カスタム",
+        "default": "デフォルト設定",
+        "delete": "プリセットを削除",
+        "deleteConfirm": "「{{name}}」を削除します。元に戻せません。",
+        "changedFrom": "「{{name}}」から変更されています。",
+        "changedFromDefault": "デフォルト設定から変更されています。",
+        "revert": "元に戻す",
+        "saveAs": "別のプリセットとして保存",
+        "saveAsDescription": "現在適用中のエフェクト設定に名前を付けて保存します。",
+        "name": "プリセット名",
+        "suggestedName": "プリセット {{index}}",
+        "overwriteWarning": "同じ名前のプリセットが既にあります。上書きされます。",
+        "overwrite": "上書き"
+      },
+      "glow": {
+        "title": "ハイライト",
+        "description": "ノートの発音時に弾け、鳴っている間持続する光です。",
+        "shape": {
+          "label": "形",
+          "description": "光の広がり方です。",
+          "bloom": "円形",
+          "cross": "十字",
+          "x": "X字",
+          "star": "星"
+        },
+        "level": {
+          "label": "明るさ",
+          "description": "鳴っている間維持される明るさです。"
+        },
+        "flash": {
+          "label": "閃光の長さ",
+          "description": "ノートの発音時の閃光が消えるまでの時間です。"
+        },
+        "size": {
+          "label": "大きさ",
+          "description": "ノートの高さに対する光の半径の倍率です。"
+        },
+        "jitter": {
+          "label": "ジッター",
+          "description": "鳴っている間に光が震える強さです。0 なら揺れません。"
+        },
+        "jitterRate": {
+          "label": "ジッター速度",
+          "description": "光が震える速さです。"
+        },
+        "color": {
+          "label": "色",
+          "description": "光を塗る色です。",
+          "aria": "光の色"
+        }
+      },
+      "particles": {
+        "title": "パーティクル",
+        "description": "再生ヘッドがノートを通過するときに散る火花です。",
+        "direction": {
+          "label": "拡散方向",
+          "description": "パーティクルの広がり方です。",
+          "directional": "一方向",
+          "radial": "放射状"
+        },
+        "angle": {
+          "label": "角度",
+          "description": "0°が上で、時計回りに回ります。"
+        },
+        "rate": {
+          "label": "量",
+          "description": "ノートが鳴っている間に毎秒放出される数です。"
+        },
+        "life": {
+          "label": "持続時間",
+          "description": "パーティクル 1 つが消えるまでの時間です。"
+        },
+        "spreadX": {
+          "label": "横の拡散",
+          "description": "パーティクルが進行方向と直角に広がる幅です。"
+        },
+        "radiusX": {
+          "label": "横の半径",
+          "description": "パーティクルが左右に広がる半径です。"
+        },
+        "spreadY": {
+          "label": "移動距離",
+          "description": "パーティクルが進行方向に進む距離です。"
+        },
+        "radiusY": {
+          "label": "縦の半径",
+          "description": "パーティクルが上下に広がる半径です。"
+        },
+        "originX": {
+          "label": "発生点の幅",
+          "description": "パーティクルが生まれる地点の横幅です。"
+        },
+        "color": {
+          "label": "色",
+          "description": "パーティクルを塗る色です。",
+          "aria": "パーティクルの色"
+        }
+      }
+    }
+  },
+  "units": {
+    "percent": "{{value}}%",
+    "pixels": "{{value}}px",
+    "degrees": "{{value}}°",
+    "seconds": "{{value}}秒",
+    "times": "{{value}}倍",
+    "perSecond": "{{value}}/秒",
+    "timesPerSecond": "{{value}}回/秒"
+  }
+}

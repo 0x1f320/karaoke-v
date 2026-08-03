@@ -1,16 +1,12 @@
 import { Check, ChevronRight, ExternalLink, KeyRound } from "lucide-react"
 import { Collapsible } from "radix-ui"
 import { useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 import type { PermissionKey } from "../../../shared/permissions"
 import { Button } from "./ui/Button"
 
-const ACCESSIBILITY_STEPS = [
-  "'시스템 설정 열기'를 눌러 손쉬운 사용 항목을 엽니다.",
-  "목록에서 KaraokeV를 찾아 스위치를 켭니다.",
-  "이 창으로 돌아와 시작하기를 누릅니다.",
-]
-
 export function Permissions() {
+  const { t } = useTranslation()
   const [granted, setGranted] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -32,26 +28,26 @@ export function Permissions() {
   return (
     <div ref={rootRef} className="flex w-full flex-col bg-app px-8 py-7 text-fg antialiased">
       <h1 className="select-none text-base font-medium">
-        {granted ? "이제 시작할 수 있습니다" : "시작하려면 권한이 하나 필요합니다"}
+        {granted ? t("permissions.title.granted") : t("permissions.title.pending")}
       </h1>
 
       <p className="mt-2 select-none text-xs leading-relaxed text-muted">
-        특수화된 기능을 사용하기 위해 다음과 같은 권한이 필요합니다.
+        {t("permissions.intro")}
       </p>
 
       <div className="mt-5 flex flex-col gap-2">
         <PermissionCard
           permission="accessibility"
-          title="손쉬운 사용"
-          description="노트의 위치를 읽기 위해 필요한 권한입니다."
-          steps={ACCESSIBILITY_STEPS}
+          title={t("permissions.accessibility.title")}
+          description={t("permissions.accessibility.description")}
+          steps={t("permissions.accessibility.steps", { returnObjects: true }) as string[]}
           granted={granted}
         />
       </div>
 
       <div className="mt-6 flex justify-end">
         <Button tone="primary" disabled={!granted} onClick={() => window.permissions.proceed()}>
-          시작하기
+          {t("permissions.proceed")}
         </Button>
       </div>
     </div>
@@ -71,6 +67,7 @@ function PermissionCard({
   steps: readonly string[]
   granted: boolean
 }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(true)
 
   return (
@@ -91,11 +88,11 @@ function PermissionCard({
         </div>
         <Button
           className="flex-none"
-          aria-label={`${title} 시스템 설정 열기`}
+          aria-label={t("permissions.openSystemSettingsFor", { permission: title })}
           onClick={() => window.permissions.openSettings(permission)}
         >
           <ExternalLink size={13} strokeWidth={2} aria-hidden="true" />
-          시스템 설정 열기
+          {t("permissions.openSystemSettings")}
         </Button>
       </div>
 
@@ -108,7 +105,7 @@ function PermissionCard({
               aria-hidden="true"
               className="transition-transform group-data-[state=open]:rotate-90"
             />
-            허용하는 방법
+            {t("permissions.howTo")}
           </Collapsible.Trigger>
           <Collapsible.Content className="overflow-hidden data-[state=closed]:animate-collapse-up data-[state=open]:animate-collapse-down">
             <ol className="mt-3 flex select-none flex-col gap-2.5 text-xs text-muted">
@@ -129,6 +126,8 @@ function PermissionCard({
 }
 
 function Status({ granted }: { granted: boolean }) {
+  const { t } = useTranslation()
+
   return (
     <span
       role="status"
@@ -138,12 +137,12 @@ function Status({ granted }: { granted: boolean }) {
     >
       {granted ? (
         <>
-          허용됨
+          {t("permissions.status.granted")}
           <Check size={11} strokeWidth={2.75} aria-hidden="true" />
         </>
       ) : (
         <>
-          기다리는 중
+          {t("permissions.status.waiting")}
           <span className="relative flex size-1.5" aria-hidden="true">
             <span className="absolute inline-flex size-full animate-ping-wide rounded-full bg-warn" />
             <span className="relative inline-flex size-full rounded-full bg-warn" />
