@@ -42,6 +42,18 @@ files carry the key.
   `resolveLanguage` in `src/shared/language.ts` turns it into the one actually rendered.
   Adding a language means a locale file plus an entry in `LANGUAGES` — nothing else.
 
+## Tests
+
+Vitest, Node environment. A test sits next to the file it covers, as
+`<module>.test.ts` — `preferences.ts` is tested by `preferences.test.ts` beside it,
+never by a mirror tree somewhere else. `pnpm test` at the root runs them through
+Turborepo; CI and the pre-commit hook run the same task.
+
+They cover the pure logic only: bridge parsing, preferences merge/sanitize, the
+transport clock, note location, the frame math and the DIP transforms. Anything that
+needs Electron, the native add-ons or a real piano roll is out of scope — keep new
+logic testable by extracting it into a pure function rather than by mocking the world.
+
 ## Commit & PR conventions
 
 All **commit messages** and **PR titles** MUST follow

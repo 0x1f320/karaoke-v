@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"]
+  },
+  // env.d.ts carries the preload's window augmentations, which the renderer
+  // modules under test are typed against.
+  "include": ["src/**/*.test.ts", "src/renderer/src/env.d.ts", "vitest.config.ts"]
+}
