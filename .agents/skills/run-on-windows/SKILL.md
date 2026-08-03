@@ -90,20 +90,54 @@ Poll every 5s for up to 3 min. If it keeps failing, report that `prlctl exec` is
 usually Parallels Tools are missing or the guest sits at the lock screen — and stop. The Electron
 window needs an interactive desktop session anyway.
 
-## 5. Mirror the repo into the guest
+## 4b. Run everything as the logged-in user
 
-The Mac home directory is `\\Mac\Home` inside the guest, so a repo at `$HOME/<rel>` is
-`\\Mac\Home\<rel with backslashes>`. Mirror it into `C:\dev\karaoke-v`, skipping everything
-platform-specific:
+`prlctl exec` runs as **`nt authority\system` in session 0** by default. That breaks three
+things at once: the Electron window opens on an invisible desktop, `pnpm install` leaves
+`node_modules` that the real user cannot open (`EPERM` on `turbo`), and anything installed
+per-user — Python, for one — is not on `PATH`.
+
+So pass `--current-user` to every `prlctl exec` that installs, builds or runs:
 
 ```sh
-"$PRLCTL" exec <uuid> cmd.exe /c 'robocopy "\\Mac\Home\<rel>" "C:\dev\karaoke-v" /MIR /XD node_modules .git out dist .turbo build .context /NFL /NDL /NJH /NJS'
+"$PRLCTL" exec --current-user <uuid> cmd.exe /c "whoami"   # expect <host>\<user>, not nt authority\system
 ```
 
+If a previous run already installed as SYSTEM, hand the tree back before running:
+`icacls C:\dev\karaoke-v /grant <user>:(OI)(CI)M /T /Q /C` (minutes; ~84k files).
+
+## 5. Mirror the repo into the guest
+
+The Mac home directory is `\\Mac\Home` inside the guest — but by default Parallels shares
+only Desktop, Documents and Downloads through it, so a repo elsewhere in `$HOME` is not
+there. Check first:
+
+```sh
+"$PRLCTL" exec <uuid> cmd.exe /c "dir \\Mac\<share>"
+```
+
+If the repo is not reachable, propose adding a **read-only** share for it and wait for a yes
+(this changes VM configuration):
+
+```sh
+"$PRLCTL" set <uuid> --shf-host on
+"$PRLCTL" set <uuid> --shf-host-add karaoke-v --path <repo root> --mode ro
+```
+
+Read-only on purpose: it makes the "never build in the share" rule unbreakable rather than
+merely stated. Remove it later with `--shf-host-del karaoke-v`.
+
+Then mirror into `C:\dev\karaoke-v`, skipping everything platform-specific:
+
+```sh
+"$PRLCTL" exec <uuid> cmd.exe /c 'robocopy "\\Mac\karaoke-v" "C:\dev\karaoke-v" /MIR /R:1 /W:1 /XD node_modules .git out dist .turbo build .context /NFL /NDL /NJH /NJS'
+```
+
+`/R:1 /W:1` is not optional. Robocopy's default is **one million retries thirty seconds
+apart**, so a single file held open in the guest hangs the copy for what looks like forever.
+
 Robocopy's exit codes below 8 mean success (1 = files copied, 3 = copied + extras removed);
-only >= 8 is a real failure. If the repo lives outside `$HOME` (no `\\Mac\Home` mapping),
-ask the user to share that folder with the VM, or fall back to
-`git clone` + `git -C ... fetch` inside the guest, which loses uncommitted work — say so first.
+only >= 8 is a real failure.
 
 This step is incremental: re-running the skill after edits just re-syncs.
 
@@ -115,7 +149,12 @@ Check, don't assume:
 "$PRLCTL" exec <uuid> cmd.exe /c "node -v && pnpm -v"
 ```
 
-If something is missing, propose and wait for a yes:
+Run this with `--current-user`; as SYSTEM it will miss a per-user Python and report
+"Could not find any Python installation to use" from node-gyp even when one is installed.
+If a per-user Python has to be used from a SYSTEM shell, point node-gyp at it:
+`set "npm_config_python=C:\Users\<user>\AppData\Local\Programs\Python\<ver>\python.exe"`.
+
+If something really is missing, propose and wait for a yes:
 
 - Node: `winget install OpenJS.NodeJS.LTS`
 - pnpm: `corepack enable && corepack prepare pnpm@10.15.0 --activate` (match `packageManager`)
@@ -126,9 +165,26 @@ If something is missing, propose and wait for a yes:
 ## 7. Install and run
 
 ```sh
-"$PRLCTL" exec <uuid> cmd.exe /c "cd /d C:\dev\karaoke-v && pnpm install"
-"$PRLCTL" exec <uuid> cmd.exe /c "cd /d C:\dev\karaoke-v && pnpm dev"
+"$PRLCTL" exec --current-user <uuid> cmd.exe /c "cd /d C:\dev\karaoke-v && pnpm install --config.confirmModulesPurge=false"
+"$PRLCTL" exec --current-user <uuid> cmd.exe /c "cd /d C:\dev\karaoke-v && pnpm dev > C:\dev\dev.log 2>&1"
 ```
+
+`--config.confirmModulesPurge=false` answers the "remove and reinstall from scratch?" prompt
+that pnpm raises when the guest's `node_modules` predates the current lockfile; without it the
+command waits on a keypress nobody can send.
+
+The bridge script is a separate install. The overlay reads channels that only the script
+writes, so a guest running an old script — or none — looks exactly like a broken app. SynthV's
+scripts directory in the guest is `%APPDATA%\Dreamtonics\Synthesizer V Studio 2\scripts`
+(not `Documents\`), and the editor picks up changes on **Scripts → Rescan**:
+
+```sh
+"$PRLCTL" exec --current-user <uuid> cmd.exe /c "copy /Y \"\\\\Mac\\karaoke-v\\packages\\synthv-script\\out\\overlay-bridge.lua\" \"%APPDATA%\\Dreamtonics\\Synthesizer V Studio 2\\scripts\\\""
+```
+
+`prlctl capture <uuid> --file shot.png` grabs the guest screen, but returns black unless the
+Parallels window is actually on screen — ask the user to look rather than trusting a black
+frame.
 
 `pnpm dev` is long-running (electron-vite watch) — start it in the background and stream its
 output rather than blocking. The Electron window appears on the VM's desktop; bring the VM
