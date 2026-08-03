@@ -10,11 +10,10 @@
  */
 
 import { hotChannel } from "./bridge/channels"
-import type { NoteRecord } from "./bridge/codec"
+import { collectNotes, currentRevision, viewMapping } from "./bridge/model"
 import { bridgeDirectory } from "./bridge/paths"
 import { createPublisher } from "./bridge/publisher"
 import { encodeJson } from "./json"
-import { svIndex } from "./sv-index"
 
 const SCRIPT_TITLE = "karaoke-v Lua smoke"
 
@@ -42,56 +41,12 @@ function report(): void {
   )
 }
 
-function viewMapping() {
-  const nav = SV.getMainEditor().getNavigation()
-  return {
-    perBlick: nav.getTimePxPerUnit(),
-    perSemitone: nav.getValuePxPerUnit(),
-    viewLeft: nav.getTimeViewRange()[0],
-    viewTop: nav.getValueViewRange()[1],
-  }
-}
-
-function collectNotes(): NoteRecord[] {
-  const group = SV.getMainEditor().getCurrentGroup()
-  if (group === undefined) {
-    return []
-  }
-  const timeAxis = SV.getProject().getTimeAxis()
-  const offset = group.getTimeOffset()
-  const target = group.getTarget()
-  const count = target.getNumNotes()
-  const notes: NoteRecord[] = []
-  for (let i = 0; i < count; i++) {
-    const note = target.getNote(svIndex(i))
-    const onB = note.getOnset() + offset
-    const offB = note.getEnd() + offset
-    notes[i] = {
-      onB,
-      offB,
-      onS: timeAxis.getSecondsFromBlick(onB),
-      offS: timeAxis.getSecondsFromBlick(offB),
-      pitch: note.getPitch(),
-      lyric: note.getLyrics(),
-    }
-  }
-  return notes
-}
-
-function revision(): string {
-  const group = SV.getMainEditor().getCurrentGroup()
-  if (group === undefined) {
-    return "0"
-  }
-  return `${group.getTimeOffset()}:${group.getTarget().getNumNotes()}`
-}
-
 notesButton.setValueChangeCallback((value) => {
   lastCallback = `button value=${tostring(value)} (${type(value)})`
   try {
     const notes = collectNotes()
     lastNotes = notes.length
-    publisher.publishNotes(revision(), notes)
+    publisher.publishNotes(currentRevision(), notes)
     lastError = "none"
   } catch (error) {
     lastError = tostring(error)
@@ -112,7 +67,7 @@ function loop(): void {
     perSemitone: px.perSemitone,
     viewLeft: px.viewLeft,
     viewTop: px.viewTop,
-    rev: revision(),
+    rev: currentRevision(),
   })
   // Rebuilding the panel is not free and it churns the widgets the user is
   // trying to click: at ten ticks the button never received a press at all.
