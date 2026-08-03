@@ -36,11 +36,9 @@ export function Permissions() {
         />
         <div className="min-w-0 select-none">
           <div className="text-sm">손쉬운 사용</div>
-          <p className="mt-0.5 text-xs text-muted">
-            SynthV 창의 노트 위치만 읽습니다. 화면을 녹화하거나 다른 앱의 내용을 읽지는 않습니다.
-          </p>
+          <p className="mt-0.5 text-xs text-muted">노트의 위치를 읽기 위해 필요한 권한입니다.</p>
         </div>
-        <StatusPill granted={granted} />
+        <Status granted={granted} />
       </div>
 
       {!granted && (
@@ -69,26 +67,26 @@ export function Permissions() {
   )
 }
 
-function StatusPill({ granted }: { granted: boolean }) {
+function Status({ granted }: { granted: boolean }) {
   return (
     <span
       role="status"
-      className={`ml-auto inline-flex flex-none select-none items-center gap-1 rounded-full px-2 py-1 text-2xs ${
-        granted ? "bg-accent/15 text-accent" : "bg-warn/15 text-warn"
+      className={`ml-auto inline-flex flex-none select-none items-center gap-1.5 text-2xs ${
+        granted ? "text-accent" : "text-warn"
       }`}
     >
       {granted ? (
         <>
-          <Check size={11} strokeWidth={2.75} aria-hidden="true" />
           허용됨
+          <Check size={11} strokeWidth={2.75} aria-hidden="true" />
         </>
       ) : (
         <>
+          기다리는 중
           <span className="relative flex size-1.5" aria-hidden="true">
             <span className="absolute inline-flex size-full animate-ping-wide rounded-full bg-warn" />
             <span className="relative inline-flex size-full rounded-full bg-warn" />
           </span>
-          기다리는 중
         </>
       )}
     </span>
