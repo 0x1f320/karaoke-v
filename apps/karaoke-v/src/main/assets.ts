@@ -19,15 +19,26 @@ function assetDir(): string {
 }
 
 /**
- * Must run before the app is ready, or the scheme stays a plain one: `standard`
- * is what gives it an origin (so a texture load is not opaque), and `secure` is
- * what lets the settings window fetch it over the dev server's http origin.
+ * Must run before the app is ready, or the scheme stays a plain one.
+ *
+ * `corsEnabled` is the one that decides whether this works at all: a window is
+ * served from http (the dev server) or file (packaged), so every asset:// read
+ * is cross-origin, and without it `fetch` is refused. Pixi loads a texture by
+ * fetching it — in a worker at that — so the refusal would surface only as an
+ * effect that quietly goes on drawing its built-in shape. An <img> tag is not
+ * held to the same rule, so the settings thumbnail would appear regardless.
  */
 export function registerAssetScheme(): void {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: ASSET_SCHEME,
-      privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        stream: true,
+        corsEnabled: true,
+      },
     },
   ])
 }
