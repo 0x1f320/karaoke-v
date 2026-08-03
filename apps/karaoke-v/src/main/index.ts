@@ -6,6 +6,7 @@ import { createOverlayWindow, positionOverlay } from "./overlay"
 import { registerPreferencesIpc } from "./preferences"
 import { openSettingsWindow, setSettingsAnchorWindow } from "./settings"
 import { createToolbarWindow, positionToolbar } from "./toolbar"
+import { createTray, destroyTray, hasTray, setTrayStatus } from "./tray"
 
 // The main process wires two windows to the same native stick observer: the
 // overlay (overlay.ts) covers the whole SynthV window, and the sticky toolbar
@@ -48,6 +49,11 @@ if (!app.requestSingleInstanceLock()) {
   app.exit(0)
 }
 
+// Windows attributes tray icons and toast notifications by AppUserModelID, and
+// falls back to "electron.app.Electron" without one. It has to match the ID the
+// installer writes into the shortcut, or shipped toasts go missing.
+app.setAppUserModelId("io.github.0x1f320.karaoke-v")
+
 // The dock icon is hidden and the overlay only appears while SynthV is attached,
 // so a relaunch has nothing to raise — show settings as the visible ack instead.
 app.on("second-instance", () => openSettingsWindow())
@@ -67,6 +73,7 @@ app.whenReady().then(() => {
   if (process.platform !== "darwin" && process.platform !== "win32") {
     return
   }
+  createTray()
   if (native.follow && overlayWin) {
     native.follow(overlayWin.getNativeWindowHandle())
   }
@@ -97,6 +104,7 @@ app.whenReady().then(() => {
       }
     },
     onStatus: (s) => {
+      setTrayStatus(s.state)
       if (s.state === "attached") {
         return
       }
@@ -120,6 +128,13 @@ app.whenReady().then(() => {
 app.on("before-quit", () => {
   stopBridge()
   native.stop()
+  destroyTray()
 })
 
-app.on("window-all-closed", () => app.quit())
+// Closing the settings window leaves an app with no windows at all, which is the
+// normal resting state once the tray is the handle back in.
+app.on("window-all-closed", () => {
+  if (!hasTray()) {
+    app.quit()
+  }
+})
