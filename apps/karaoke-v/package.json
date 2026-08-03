@@ -5,7 +5,8 @@
   "description": "Electron + React app (hello world).",
   "main": "./out/main/index.js",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
     "rebuild:native": "node scripts/rebuild-native.mjs",
     "dev": "pnpm rebuild:native && electron-vite dev --watch",
     "build": "electron-vite build",
@@ -31,6 +32,7 @@
     "electron": "^41.0.0",
     "electron-vite": "^3.1.0",
     "tailwindcss": "^4.1.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^4.1.10"
   }
 }

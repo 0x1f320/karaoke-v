@@ -19,6 +19,17 @@ must not be added.
 - Existing comments are not a licence to add more; when you touch code whose comment has
   gone stale, fix or delete it.
 
+## Tests
+
+Vitest, Node environment, in `apps/karaoke-v/test/*.test.ts` — one flat directory,
+never colocated with the source. `pnpm test` at the root runs them through Turborepo;
+CI runs the same task on every PR.
+
+They cover the pure logic only: bridge parsing, preferences merge/sanitize, the
+transport clock, note location, the frame math and the DIP transforms. Anything that
+needs Electron, the native add-ons or a real piano roll is out of scope — keep new
+logic testable by extracting it into a pure function rather than by mocking the world.
+
 ## Commit & PR conventions
 
 All **commit messages** and **PR titles** MUST follow

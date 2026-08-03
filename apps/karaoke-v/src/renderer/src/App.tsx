@@ -8,6 +8,7 @@ import {
 import { Permissions } from "./components/Permissions"
 import { Settings } from "./components/Settings"
 import { Toolbar } from "./components/Toolbar"
+import { composeFrame, frameTransform } from "./playback/frame"
 import { locateNote } from "./playback/locate"
 import { Transport } from "./playback/transport"
 import { NoteRenderer } from "./render/noteRenderer"
@@ -19,10 +20,6 @@ import { BORDER_PX, FILL, glowParams, PLAYING_FILL, particleParams, STROKE } fro
 const NOTE_READ_GAP_MS = 30
 // Back-off when SynthV / the piano roll isn't found.
 const NOT_FOUND_RETRY_MS = 500
-
-function horizontalScale(currentW: number, readW: number): number {
-  return currentW > 0 && readW > 0 ? currentW / readW : 1
-}
 
 // One renderer bundle serves every window; each is loaded with the hash naming
 // its view, the overlay with no hash.
@@ -173,9 +170,7 @@ function Overlay() {
         uploaded = wanted
       }
 
-      const scaleX = horizontalScale(vp.contentW, read.contentW)
-      const contentOffsetX = vp.contentX - read.contentX * scaleX
-      const dy = vp.refY - read.refY
+      const transform = frameTransform(read, vp, vp.refY)
 
       // Which note is sounding, and which rect is it? The bridge answers the
       // first exactly; only the AX read can answer the second.
@@ -188,7 +183,10 @@ function Overlay() {
         const note = transport.noteAt(seconds)
         if (note) {
           onset = note.onB
-          hit = locateNote(note, view, vp, read.notes, { scaleX, offsetX: contentOffsetX })
+          hit = locateNote(note, view, vp, read.notes, {
+            scaleX: transform.scaleX,
+            offsetX: transform.contentOffsetX,
+          })
           const span = note.offS - note.onS
           progress = span > 0 ? Math.min(Math.max((seconds - note.onS) / span, 0), 1) : 0
         }
@@ -196,32 +194,28 @@ function Overlay() {
       const noteStarted = onset !== null && onset !== soundingOnset
       soundingOnset = onset
 
-      // Sparks come off where the playhead is inside the note, not off the note
-      // as a whole — that is what makes the effect read as following the sound.
-      const emit = hit ? { x: hit.x + hit.w * progress, y: hit.y + hit.h / 2, spread: hit.h } : null
-
       // The overlay window covers the whole SynthV window; map global screen
       // coords to window-local ones and clip to the note canvas so nothing draws
       // over the phoneme lane, piano keys, or toolbars.
       // The helper reports the window origin alongside the viewport when it can,
       // and that pair is sampled together; window.screenX updates on its own
       // schedule, so during a drag the two disagree and the drawing slides.
-      const ox = vp.origin ? vp.origin.x : window.screenX
-      const oy = vp.origin ? vp.origin.y : window.screenY
+      const origin = vp.origin ?? { x: window.screenX, y: window.screenY }
+      const frame = composeFrame(transform, vp, origin, hit, progress)
       renderer.draw({
         width: w,
         height: h,
         dpr,
-        offsetX: contentOffsetX - ox,
-        offsetY: dy - oy,
-        scaleX,
-        clip: { x: vp.canvas.x - ox, y: vp.canvas.y - oy, w: vp.canvas.w, h: vp.canvas.h },
+        offsetX: frame.offsetX,
+        offsetY: frame.offsetY,
+        scaleX: frame.scaleX,
+        clip: frame.clip,
         fill: FILL,
         stroke: STROKE,
         border: BORDER_PX,
         playing: debug ? hit : null,
         playingFill: PLAYING_FILL,
-        emit,
+        emit: frame.emit,
         particles,
         noteStarted,
         glow,

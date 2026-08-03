@@ -4,6 +4,7 @@
   "files": {
     "includes": [
       "apps/**/src/**",
+      "apps/**/test/**",
       "apps/**/scripts/**",
       "apps/**/*.json",
       "packages/**/*.{js,mjs,ts,json}",
