@@ -69,7 +69,7 @@ export function openPermissionsWindow(granted: () => void): void {
     ...centeredBounds(),
     width: SIZE.width,
     height: SIZE.height,
-    title: "karaoke-v",
+    title: "KaraokeV",
     backgroundColor: "#2D2B2E",
     show: false,
     resizable: false,

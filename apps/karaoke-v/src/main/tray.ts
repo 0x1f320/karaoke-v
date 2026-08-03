@@ -82,7 +82,7 @@ function rebuildMenu(): void {
       },
       { label: "설정…", click: () => openSettingsWindow() },
       { type: "separator" },
-      { label: "karaoke-v 종료", click: () => app.quit() },
+      { label: "KaraokeV 종료", click: () => app.quit() },
     ]),
   )
 }
@@ -94,7 +94,7 @@ function notifyNotRunning(): void {
   notified = true
   const notification = new Notification({
     title: "SynthV가 실행되고 있지 않습니다",
-    body: "SynthV를 열면 karaoke-v가 자동으로 연결됩니다.",
+    body: "SynthV를 열면 KaraokeV가 자동으로 연결됩니다.",
   })
   notification.on("click", () => openSettingsWindow())
   notification.show()
@@ -105,7 +105,7 @@ export function createTray(): void {
     return
   }
   tray = new Tray(trayIcon())
-  tray.setToolTip("karaoke-v")
+  tray.setToolTip("KaraokeV")
   rebuildMenu()
 
   // macOS opens the menu on either button; Windows reserves the left click, and

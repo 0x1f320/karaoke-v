@@ -6,7 +6,7 @@ import { Button } from "./ui/Button"
 
 const ACCESSIBILITY_STEPS = [
   "'시스템 설정 열기'를 눌러 손쉬운 사용 항목을 엽니다.",
-  "목록에서 karaoke-v를 찾아 스위치를 켭니다.",
+  "목록에서 KaraokeV를 찾아 스위치를 켭니다.",
   "이 창으로 돌아와 시작하기를 누릅니다.",
 ]
 
