@@ -2,6 +2,7 @@ import path from "node:path"
 import { app, type BrowserWindow, ipcMain } from "electron"
 import { APP_NAME } from "../shared/i18n"
 import { native, type Rect } from "../shared/native"
+import { registerAssetIpc, registerAssetScheme } from "./assets"
 import { registerBridgeIpc, startBridge, stopBridge } from "./bridge"
 import { registerDipIpc, toDipFrame, updateDipTransform } from "./dip"
 import { initI18n } from "./i18n"
@@ -72,6 +73,9 @@ if (!app.requestSingleInstanceLock()) {
 // falls back to "electron.app.Electron" without one. It has to match the ID the
 // installer writes into the shortcut, or shipped toasts go missing.
 app.setAppUserModelId("io.github.0x1f320.karaoke-v")
+
+// Schemes can only be given their privileges before the app is ready.
+registerAssetScheme()
 
 // The dock icon is hidden and the overlay only appears while SynthV is attached,
 // so a relaunch has nothing to raise — show settings as the visible ack instead,
@@ -175,6 +179,8 @@ app.whenReady().then(() => {
   // After the preferences IPC, whose store it reads the language from, and
   // before anything that spells a user-facing string.
   initI18n()
+  // After i18n: the import dialog spells its file-type filter.
+  registerAssetIpc()
   registerBridgeIpc()
   registerDipIpc()
   registerPermissionsIpc()

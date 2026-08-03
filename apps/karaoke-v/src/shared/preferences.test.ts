@@ -154,6 +154,31 @@ describe("sanitizePreferences", () => {
     expect(sanitizePreferences({ glow: { shape: "blob" } }).glow?.shape).toBeUndefined()
   })
 
+  it("keeps only known source and blend values", () => {
+    const patch = sanitizePreferences({
+      glow: { source: "image", blend: "normal" },
+      particles: { source: "sprite", blend: "screen" },
+    })
+    expect(patch.glow).toEqual({ source: "image", blend: "normal" })
+    expect(patch.particles).toEqual({})
+  })
+
+  it("keeps an asset name we could have written, and nothing else", () => {
+    const name = "0123456789abcdef.png"
+    expect(sanitizePreferences({ glow: { asset: name } }).glow?.asset).toBe(name)
+    expect(sanitizePreferences({ glow: { asset: null } }).glow?.asset).toBeNull()
+    for (const asset of [
+      "../escape.png",
+      "0123456789abcdef.exe",
+      "0123456789abcdeg.png",
+      "0123456789abcdef",
+      "/tmp/0123456789abcdef.png",
+      7,
+    ]) {
+      expect(sanitizePreferences({ glow: { asset } }).glow?.asset).toBeUndefined()
+    }
+  })
+
   it("fills a preset's gaps from the defaults rather than leaving it partial", () => {
     const [clean] = sanitizePreferences({
       presets: [{ id: "a", name: "  Neon  ", glow: { level: 0.25 } }],

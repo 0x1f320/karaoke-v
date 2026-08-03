@@ -83,6 +83,27 @@
         "overwriteWarning": "A preset by that name already exists. It will be overwritten.",
         "overwrite": "Overwrite"
       },
+      "image": {
+        "source": {
+          "label": "Source",
+          "description": "Whether the effect is drawn with a color or an imported image.",
+          "color": "Color",
+          "image": "Image"
+        },
+        "file": {
+          "label": "Image",
+          "description": "The picture drawn in place of the built-in shape.",
+          "choose": "Choose image…",
+          "change": "Change image…"
+        },
+        "blend": {
+          "label": "Blending",
+          "description": "How the picture is mixed with what shows behind it.",
+          "add": "Add (light)",
+          "normal": "Normal"
+        },
+        "filter": "Images"
+      },
       "glow": {
         "title": "Highlight",
         "description": "The light that bursts as a note starts and holds while it sounds.",
@@ -160,6 +181,14 @@
         "originX": {
           "label": "Origin width",
           "description": "The width of the band the particles are born along."
+        },
+        "size": {
+          "label": "Size",
+          "description": "How big one particle is drawn, as a multiple of its normal size."
+        },
+        "spin": {
+          "label": "Rotation",
+          "description": "How far one particle turns before it disappears. Which way round differs per particle."
         },
         "color": {
           "label": "Color",

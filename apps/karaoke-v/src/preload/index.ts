@@ -82,6 +82,12 @@ contextBridge.exposeInMainWorld("permissions", {
   },
 })
 
+// Images for the effects. Main runs the file dialog and owns the copy under
+// userData; what comes back is the stored name, which is all preferences carry.
+contextBridge.exposeInMainWorld("assets", {
+  import: (): Promise<string | null> => ipcRenderer.invoke("assets:import"),
+})
+
 // Chromium's navigator.languages is the browser's, not the OS's — it stays on
 // en-US whatever the system is set to — so the renderer's idea of "system
 // language" has to come from main.

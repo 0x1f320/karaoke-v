@@ -83,6 +83,27 @@
         "overwriteWarning": "同じ名前のプリセットが既にあります。上書きされます。",
         "overwrite": "上書き"
       },
+      "image": {
+        "source": {
+          "label": "描画方法",
+          "description": "エフェクトを色で描くか、読み込んだ画像で描くかを決めます。",
+          "color": "色",
+          "image": "画像"
+        },
+        "file": {
+          "label": "画像",
+          "description": "組み込みの形の代わりに描く画像です。",
+          "choose": "画像を選択…",
+          "change": "画像を変更…"
+        },
+        "blend": {
+          "label": "合成方法",
+          "description": "画像が背景と重なるときの合成方法です。",
+          "add": "加算（光）",
+          "normal": "通常"
+        },
+        "filter": "画像"
+      },
       "glow": {
         "title": "ハイライト",
         "description": "ノートの発音時に弾け、鳴っている間持続する光です。",
@@ -160,6 +181,14 @@
         "originX": {
           "label": "発生点の幅",
           "description": "パーティクルが生まれる地点の横幅です。"
+        },
+        "size": {
+          "label": "大きさ",
+          "description": "パーティクル 1 つを基本の大きさの何倍で描くかを決めます。"
+        },
+        "spin": {
+          "label": "回転量",
+          "description": "パーティクル 1 つが消えるまでに回る角度です。回る向きはパーティクルごとに異なります。"
         },
         "color": {
           "label": "色",

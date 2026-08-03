@@ -26,7 +26,12 @@ export function particleParams(prefs: ParticlePreferences): ParticleParams {
     spreadX: prefs.spreadX,
     spreadY: prefs.spreadY,
     originX: prefs.originX,
+    size: prefs.size,
+    spin: prefs.spin,
     color: hexToInt(prefs.color),
+    source: prefs.source,
+    asset: prefs.asset,
+    blend: prefs.blend,
   }
 }
 
@@ -40,5 +45,8 @@ export function glowParams(prefs: GlowPreferences): GlowParams {
     jitter: prefs.jitter,
     jitterRate: prefs.jitterRate,
     color: hexToInt(prefs.color),
+    source: prefs.source,
+    asset: prefs.asset,
+    blend: prefs.blend,
   }
 }

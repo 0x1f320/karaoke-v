@@ -1,7 +1,39 @@
+import { isAssetName } from "./assets"
 import { isLanguagePreference, type LanguagePreference } from "./language"
 
 // Persisted user preferences. The main process owns the values and the
 // defaults; the renderer only ever imports the type.
+
+/**
+ * What an effect draws.
+ *
+ * - `color` — the built-in shape or spark, painted in `color`.
+ * - `image` — a picture the user imported, drawn as it is.
+ */
+export type EffectSource = "color" | "image"
+
+export const EFFECT_SOURCES: readonly EffectSource[] = ["color", "image"]
+
+/**
+ * How an effect's sprite meets what is behind it. Additive is what reads as
+ * light, and what every built-in shape is drawn for; an opaque picture washes
+ * out under it, so an imported one usually wants `normal`.
+ */
+export type EffectBlend = "add" | "normal"
+
+export const EFFECT_BLENDS: readonly EffectBlend[] = ["add", "normal"]
+
+/** What either effect carries about the picture it may be drawing. */
+export type EffectImage = {
+  source: EffectSource
+  /**
+   * The imported file's stored name, or null when nothing has been picked. An
+   * `image` source whose asset is missing falls back to the built-in look —
+   * a preset shared between machines names a file this one may not have.
+   */
+  asset: string | null
+  blend: EffectBlend
+}
 
 /**
  * Which way sparks fly.
@@ -14,7 +46,7 @@ export type ParticleDirection = "directional" | "radial"
 export const PARTICLE_DIRECTIONS: readonly ParticleDirection[] = ["directional", "radial"]
 
 /** Sparks thrown off where the playhead crosses a note. */
-export type ParticlePreferences = {
+export type ParticlePreferences = EffectImage & {
   enabled: boolean
   /** Sparks emitted per second while a note sounds. */
   rate: number
@@ -32,6 +64,13 @@ export type ParticlePreferences = {
   spreadY: number
   /** Width of the band sparks are born along, px. 0 emits from a bare line. */
   originX: number
+  /** How big one spark is drawn, as a multiple of its natural size. */
+  size: number
+  /**
+   * How far a spark turns over its whole life, degrees. Which way round is
+   * decided per spark, so a spray does not rotate as one piece.
+   */
+  spin: number
   /** "#rrggbb". */
   color: string
 }
@@ -50,7 +89,7 @@ export type GlowShape = "bloom" | "cross" | "x" | "star"
 export const GLOW_SHAPES: readonly GlowShape[] = ["bloom", "cross", "x", "star"]
 
 /** The bloom riding on the playhead, struck anew at every note onset. */
-export type GlowPreferences = {
+export type GlowPreferences = EffectImage & {
   enabled: boolean
   shape: GlowShape
   /** Brightness held while a note sounds, 0..1. Zero turns it off. */
@@ -121,7 +160,12 @@ export const DEFAULT_PREFERENCES: Preferences = {
     spreadX: 30,
     spreadY: 70,
     originX: 8,
+    size: 1,
+    spin: 180,
     color: "#ffd27a",
+    source: "color",
+    asset: null,
+    blend: "add",
   },
   glow: {
     enabled: true,
@@ -132,6 +176,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
     jitter: 0.35,
     jitterRate: 12,
     color: "#ff78c8",
+    source: "color",
+    asset: null,
+    blend: "add",
   },
   presets: [],
   activePreset: null,
@@ -162,6 +209,8 @@ export const PARTICLE_LIMITS = {
   spreadX: { min: 0, max: 200, step: 5 },
   spreadY: { min: 0, max: 300, step: 5 },
   originX: { min: 0, max: 200, step: 2 },
+  size: { min: 0.25, max: 12, step: 0.25 },
+  spin: { min: 0, max: 1080, step: 15 },
 } as const
 
 export const GLOW_LIMITS = {
@@ -234,23 +283,33 @@ function clampAll<K extends string>(
   return out
 }
 
+type GroupExtras = { color?: string; enabled?: boolean } & Partial<EffectImage>
+
 function sanitizeGroup<K extends string>(
   input: unknown,
   limits: Record<K, { min: number; max: number }>,
-): (Partial<Record<K, number>> & { color?: string; enabled?: boolean }) | undefined {
+): (Partial<Record<K, number>> & GroupExtras) | undefined {
   if (typeof input !== "object" || input === null) {
     return undefined
   }
-  const source = input as Record<string, unknown>
-  const out: Partial<Record<K, number>> & { color?: string; enabled?: boolean } = clampAll(
-    source,
-    limits,
-  )
-  if (typeof source.color === "string" && HEX_COLOR.test(source.color)) {
-    out.color = source.color
+  const group = input as Record<string, unknown>
+  const out: Partial<Record<K, number>> & GroupExtras = clampAll(group, limits)
+  if (typeof group.color === "string" && HEX_COLOR.test(group.color)) {
+    out.color = group.color
   }
-  if (typeof source.enabled === "boolean") {
-    out.enabled = source.enabled
+  if (typeof group.enabled === "boolean") {
+    out.enabled = group.enabled
+  }
+  if (EFFECT_SOURCES.includes(group.source as EffectSource)) {
+    out.source = group.source as EffectSource
+  }
+  if (EFFECT_BLENDS.includes(group.blend as EffectBlend)) {
+    out.blend = group.blend as EffectBlend
+  }
+  // A name that is not one we could have written names no file of ours, so it
+  // is the same answer as none: the effect draws its built-in look.
+  if (group.asset === null || isAssetName(group.asset)) {
+    out.asset = group.asset as string | null
   }
   return out
 }
