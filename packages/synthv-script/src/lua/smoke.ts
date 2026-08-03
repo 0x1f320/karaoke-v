@@ -1,87 +1,80 @@
 /**
- * The end-to-end check for the Lua toolchain: the smallest script that uses
- * every mechanism the bridge will depend on, so that a toolchain regression
- * shows up here instead of inside the bridge.
+ * The end-to-end check for the Lua toolchain and the channel layer: the
+ * smallest script that uses every mechanism the bridge depends on, so that a
+ * regression shows up here instead of inside the bridge.
  *
  * It is a side panel section (the bridge is one), it loops on `SV:setTimeout`,
- * it reads notes through 1-based indices, it encodes a payload, and it writes
- * that payload to a file the way the transport will — temp file plus
- * `os.rename`, which is atomic for a reader watching the destination.
+ * it reads notes through 1-based indices, and it publishes them through the
+ * real channels — hot state on every tick, the note list only when the button
+ * is pressed.
  */
 
-import { encodeJson } from "./json"
+import { createPublisher } from "./bridge/publisher"
 import { svIndex } from "./sv-index"
 
 const SCRIPT_TITLE = "karaoke-v Lua smoke"
-const OUT_PATH = "/tmp/karaoke-v-lua-smoke.json"
 
 let ticks = 0
 let lastCallback = "none yet"
-let lastWrite = "not tried"
+let lastNotes = 0
 
-const writeButton = SV.create("WidgetValue")
+const publisher = createPublisher()
+const notesButton = SV.create("WidgetValue")
 
-function writeAtomically(path: string, text: string): string {
-  const temp = `${path}.tmp`
-  const [file, openError] = io.open(temp, "w")
-  if (file === undefined) {
-    return `io.open failed: ${openError}`
-  }
-  file.write(text)
-  file.close()
-
-  const [renamed, renameError] = os.rename(temp, path)
-  if (renamed === undefined) {
-    os.remove(temp)
-    return `os.rename failed: ${renameError}`
-  }
-  return `wrote ${string.len(text)} bytes`
-}
-
-function snapshot(): string {
-  const playback = SV.getPlayback()
+function viewMapping() {
   const nav = SV.getMainEditor().getNavigation()
-  const group = SV.getMainEditor().getCurrentGroup()
-
-  const lyrics: string[] = []
-  let offset = 0
-  if (group !== undefined) {
-    const target = group.getTarget()
-    offset = group.getTimeOffset()
-    const count = target.getNumNotes()
-    for (let i = 0; i < count && i < 8; i++) {
-      lyrics[i] = target.getNote(svIndex(i)).getLyrics()
-    }
+  return {
+    perBlick: nav.getTimePxPerUnit(),
+    perSemitone: nav.getValuePxPerUnit(),
+    viewLeft: nav.getTimeViewRange()[0],
+    viewTop: nav.getValueViewRange()[1],
   }
-
-  return encodeJson({
-    v: 1,
-    at: playback.getPlayhead(),
-    status: playback.getStatus(),
-    px: {
-      perBlick: nav.getTimePxPerUnit(),
-      perSemitone: nav.getValuePxPerUnit(),
-      viewLeft: nav.getTimeViewRange()[0],
-      viewTop: nav.getValueViewRange()[1],
-    },
-    offset,
-    lyrics,
-    loop: null,
-  })
 }
 
-writeButton.setValueChangeCallback((value) => {
+function revision(): string {
+  const group = SV.getMainEditor().getCurrentGroup()
+  if (group === undefined) {
+    return "0"
+  }
+  return `${group.getTimeOffset()}:${group.getTarget().getNumNotes()}`
+}
+
+function collectLyrics(): string[] {
+  const group = SV.getMainEditor().getCurrentGroup()
+  if (group === undefined) {
+    return []
+  }
+  const target = group.getTarget()
+  const count = target.getNumNotes()
+  const lyrics: string[] = []
+  for (let i = 0; i < count; i++) {
+    lyrics[i] = target.getNote(svIndex(i)).getLyrics()
+  }
+  return lyrics
+}
+
+notesButton.setValueChangeCallback((value) => {
   lastCallback = `button value=${tostring(value)} (${type(value)})`
-  lastWrite = writeAtomically(OUT_PATH, snapshot())
+  const lyrics = collectLyrics()
+  lastNotes = lyrics.length
+  publisher.publishNotes(revision(), lyrics)
   SV.refreshSidePanel()
 })
 
 function loop(): void {
   ticks = ticks + 1
+  const playback = SV.getPlayback()
+  publisher.publishState({
+    at: playback.getPlayhead(),
+    status: playback.getStatus(),
+    loop: null,
+    px: viewMapping(),
+    rev: revision(),
+  })
   if (ticks % 10 === 0) {
     SV.refreshSidePanel()
   }
-  SV.setTimeout(100, loop)
+  SV.setTimeout(16, loop)
 }
 
 loop()
@@ -99,11 +92,12 @@ globalThis.getSidePanelSectionState = () => ({
   title: SCRIPT_TITLE,
   rows: [
     { type: "Label", text: `ticks: ${ticks}` },
+    { type: "Label", text: `channels: ${publisher.describe()}` },
     { type: "Label", text: `callback: ${lastCallback}` },
-    { type: "Label", text: `file: ${lastWrite}` },
+    { type: "Label", text: `last notes published: ${lastNotes}` },
     {
       type: "Container",
-      columns: [{ type: "Button", text: "Write a payload", value: writeButton, width: 1 }],
+      columns: [{ type: "Button", text: "Publish notes", value: notesButton, width: 1 }],
     },
   ],
 })
