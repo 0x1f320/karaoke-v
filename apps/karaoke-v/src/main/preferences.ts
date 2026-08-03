@@ -25,6 +25,15 @@ const WRITE_DELAY_MS = 400
 
 let cache: Preferences | null = null
 let writeTimer: NodeJS.Timeout | null = null
+const listeners = new Set<(preferences: Preferences) => void>()
+
+/** For main-process consumers, which do not receive the renderer broadcast. */
+export function onPreferencesChanged(listener: (preferences: Preferences) => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
 
 function filePath(): string {
   return path.join(app.getPath("userData"), FILE_NAME)
@@ -77,6 +86,9 @@ export function updatePreferences(patch: unknown): Preferences {
     if (!win.isDestroyed()) {
       win.webContents.send("preferences:changed", next)
     }
+  }
+  for (const listener of listeners) {
+    listener(next)
   }
   return next
 }
