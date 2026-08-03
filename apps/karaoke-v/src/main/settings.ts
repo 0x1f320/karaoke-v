@@ -2,10 +2,17 @@ import path from "node:path"
 import { app, BrowserWindow, screen } from "electron"
 import { onLanguageChanged, t } from "./i18n"
 
-// The settings window: an ordinary framed window, opened from the toolbar. It
-// is a singleton — reopening focuses the existing one instead of stacking.
+// The settings window, opened from the toolbar. It is a singleton — reopening
+// focuses the existing one instead of stacking.
 
 const SIZE = { width: 800, height: 800 }
+
+// Windows' own caption is a light strip over a dark panel, so it is hidden and
+// the renderer paints one (see ui/TitleBar). "hidden" rather than frame:false
+// keeps the native frame, and with it the shadow and the snap behaviour; macOS
+// keeps its system title bar, which already matches.
+const TITLE_BAR: Pick<Electron.BrowserWindowConstructorOptions, "titleBarStyle"> =
+  process.platform === "win32" ? { titleBarStyle: "hidden" } : {}
 
 let win: BrowserWindow | null = null
 let anchorWin: BrowserWindow | null = null
@@ -43,6 +50,7 @@ export function openSettingsWindow(): void {
     height: SIZE.height,
     title: t("settings.title"),
     backgroundColor: "#2D2B2E",
+    ...TITLE_BAR,
     show: false,
     resizable: false,
     maximizable: false,
@@ -86,5 +94,11 @@ export function openSettingsWindow(): void {
     win.loadURL(`${process.env.ELECTRON_RENDERER_URL}#settings`)
   } else {
     win.loadFile(path.join(__dirname, "..", "renderer", "index.html"), { hash: "settings" })
+  }
+}
+
+export function closeSettingsWindow(): void {
+  if (win && !win.isDestroyed()) {
+    win.close()
   }
 }

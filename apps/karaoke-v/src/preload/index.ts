@@ -59,6 +59,10 @@ contextBridge.exposeInMainWorld("bridge", {
 // "toolbar": that collides with the built-in Window.toolbar (BarProp).
 contextBridge.exposeInMainWorld("settings", {
   open: (): Promise<void> => ipcRenderer.invoke("settings:open"),
+  close: (): Promise<void> => ipcRenderer.invoke("settings:close"),
+  // Windows is the platform whose caption the window hides, so it is the one
+  // where the renderer owes it a title bar of its own.
+  customTitleBar: isWindows,
 })
 
 // The permissions gate. Main owns the status because only it can ask macOS, and

@@ -60,6 +60,14 @@
   }
 }
 
+@utility drag-region {
+  -webkit-app-region: drag;
+}
+
+@utility no-drag {
+  -webkit-app-region: no-drag;
+}
+
 @layer base {
   html,
   body,
