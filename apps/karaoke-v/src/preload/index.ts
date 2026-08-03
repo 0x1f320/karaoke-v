@@ -1,5 +1,5 @@
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron"
-import type { BridgeMessage } from "../shared/bridge"
+import type { BridgeSchedule, BridgeState } from "../shared/bridgeChannels"
 import {
   type DipTransform,
   IDENTITY_DIP,
@@ -12,6 +12,7 @@ import {
 } from "../shared/native"
 import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
 import type { Preferences, PreferencesPatch } from "../shared/preferences"
+import { readSchedule, readState } from "./bridgeReader"
 
 // The helper reports in native units — points on macOS, physical pixels on
 // Windows — and only main can ask Electron for the mapping to DIPs, so it pushes
@@ -40,19 +41,14 @@ contextBridge.exposeInMainWorld("overlay", {
     native.getPianoRollAsync(NATIVE_TARGET).then((read) => read && toDipPianoRoll(dip, read)),
 })
 
-// Transport data from the SynthV bridge script. Main owns the one receiver and
-// fans payloads out; monotonicNow reads the same clock the payload was stamped
-// with, so its age is measurable without comparing process clocks.
+// Transport data from the SynthV bridge script, read from its channels in this
+// process for the same reason the geometry is: the renderer asks at rAF time and
+// nothing crosses to main. readState is per-frame and allocation-free;
+// readSchedule is only called when the state record says the schedule changed.
 contextBridge.exposeInMainWorld("bridge", {
-  last: (): Promise<BridgeMessage | null> => ipcRenderer.invoke("bridge:last"),
+  readState: (): BridgeState | null => readState(),
+  readSchedule: (): BridgeSchedule | null => readSchedule(),
   monotonicNow: (): number => native.monotonicNow(),
-  onPayload: (callback: (message: BridgeMessage) => void): (() => void) => {
-    const handler = (_event: IpcRendererEvent, message: BridgeMessage) => callback(message)
-    ipcRenderer.on("bridge:payload", handler)
-    return () => {
-      ipcRenderer.off("bridge:payload", handler)
-    }
-  },
 })
 
 // Window management stays in main — the toolbar just asks for it. Not named

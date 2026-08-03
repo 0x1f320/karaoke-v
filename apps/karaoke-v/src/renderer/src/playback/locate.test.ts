@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { BridgeNote } from "../../../shared/bridge"
+import type { BridgeNote } from "../../../shared/bridgeChannels"
 import type { Rect, Viewport } from "../../../shared/geometry"
 import { locateNote } from "./locate"
 import type { TransportView } from "./transport"
@@ -22,7 +22,7 @@ const VP: Viewport = {
 const IDENTITY = { scaleX: 1, offsetX: 0 }
 
 function note(onB: number, offB: number): BridgeNote {
-  return { onB, offB, onS: 0, offS: 1, pitch: 60, lyric: "a" }
+  return { onB, offB, onS: 0, offS: 1, pitch: 60, lyric: "a", bend: new Int16Array(0) }
 }
 
 function rect(x: number, w: number): Rect {

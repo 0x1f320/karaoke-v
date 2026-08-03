@@ -70,10 +70,9 @@ function Overlay() {
     window.preferences.get().then(adopt)
     const unsubscribe = window.preferences.onChange(adopt)
 
-    // Playback state from the SynthV bridge. It only speaks on transport events;
-    // the playhead in between comes from the local clock.
+    // Playback state from the SynthV bridge. Its channels are read once a frame
+    // below; the playhead between two reads comes from the local clock.
     const transport = new Transport()
-    transport.start()
 
     let alive = true
 
@@ -111,6 +110,10 @@ function Overlay() {
     let soundingOnset: number | null = null
     const draw = () => {
       raf = requestAnimationFrame(draw)
+      // Before anything asks what is playing. The read is a pread into a reused
+      // buffer, so it costs less than the question it answers.
+      const nowMs = window.bridge.monotonicNow()
+      transport.poll(nowMs)
       const dpr = window.devicePixelRatio || 1
       const w = window.innerWidth
       const h = window.innerHeight
@@ -178,7 +181,7 @@ function Overlay() {
       let progress = 0
       let onset: number | null = null
       const view = transport.view
-      const seconds = transport.playing ? transport.playhead(window.bridge.monotonicNow()) : null
+      const seconds = transport.playing ? transport.playhead(nowMs) : null
       if (view && seconds !== null) {
         const note = transport.noteAt(seconds)
         if (note) {
@@ -227,7 +230,6 @@ function Overlay() {
       alive = false
       cancelAnimationFrame(raf)
       unsubscribe()
-      transport.stop()
       renderer.dispose()
     }
   }, [])
