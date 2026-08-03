@@ -1,7 +1,15 @@
 import { useEffect, useRef } from "react"
 import type { GlowPreferences, ParticlePreferences } from "../../../shared/preferences"
 import { NoteRenderer } from "../render/noteRenderer"
-import { BORDER_PX, FILL, glowParams, particleParams, STROKE } from "../render/palette"
+import {
+  BORDER_PX,
+  FILL,
+  glowParams,
+  particleParams,
+  REACH_FILL,
+  REACH_STROKE,
+  STROKE,
+} from "../render/palette"
 
 // Live preview of the effect settings. It drives the overlay's own NoteRenderer
 // with a synthetic phrase and a playhead sweeping across it, so what shows here
@@ -110,6 +118,9 @@ export function EffectPreview({
         border: BORDER_PX,
         // The highlight rect is a debug aid on the overlay; here the note bar
         // alone is context enough for judging the effects.
+        reaches: [],
+        reachFill: REACH_FILL,
+        reachStroke: REACH_STROKE,
         playing: null,
         playingFill: FILL,
         emit: sounding

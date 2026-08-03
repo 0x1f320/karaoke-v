@@ -58,8 +58,8 @@ describe("samplePitch bounds", () => {
   // about ten semitones out, so the default has to clear that or it flattens
   // the very movement the feature exists to show.
   it("lets a real excursion through at the default range", () => {
-    const n = note({ bend: bend(-1036), offS: 0.4 })
-    expect(samplePitch(n, null, 0.2, DEFAULT_PREFERENCES.pitch.range).offset).toBeCloseTo(-10.36)
+    const n = note({ bend: bend(-1250), offS: 0.4 })
+    expect(samplePitch(n, null, 0.2, DEFAULT_PREFERENCES.pitch.range).offset).toBeCloseTo(-12.5)
   })
 
   // The engine reports unvoiced frames as a pitch of zero rather than as a gap,

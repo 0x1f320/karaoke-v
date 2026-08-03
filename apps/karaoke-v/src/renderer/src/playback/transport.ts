@@ -141,6 +141,31 @@ export class Transport {
     return found > 0 ? this.schedule[found - 1] : null
   }
 
+  /**
+   * Every note overlapping the blick range, which is how the visible ones are
+   * found: the view mapping says what span of the roll is on screen, and the
+   * schedule is the only thing that knows a note's pitch contour.
+   */
+  notesBetween(fromB: number, toB: number): BridgeNote[] {
+    const out: BridgeNote[] = []
+    for (const note of this.schedule) {
+      if (note.offB < fromB) {
+        continue
+      }
+      if (note.onB > toB) {
+        break
+      }
+      out.push(note)
+    }
+    return out
+  }
+
+  /** The note immediately before `note` in the schedule, or null. */
+  before(note: BridgeNote): BridgeNote | null {
+    const index = this.schedule.indexOf(note)
+    return index > 0 ? this.schedule[index - 1] : null
+  }
+
   /** Index of the last note starting at or before `seconds`, or -1. */
   private indexAt(seconds: number): number {
     const notes = this.schedule

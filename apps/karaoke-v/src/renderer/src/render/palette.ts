@@ -18,6 +18,8 @@ export const PLAYING_FILL: Rgba = [255 / 255, 235 / 255, 130 / 255, 0.55]
  * piano roll rather than a hint about one note.
  */
 export const REACH_FILL: Rgba = [255 / 255, 235 / 255, 130 / 255, 0.12]
+/** Its edge, where the reach actually ends — the fill alone is too faint to find. */
+export const REACH_STROKE: Rgba = [255 / 255, 235 / 255, 130 / 255, 0.38]
 
 /** "#rrggbb" as the 0xRRGGBB int Pixi tints with. */
 export function hexToInt(hex: string): number {

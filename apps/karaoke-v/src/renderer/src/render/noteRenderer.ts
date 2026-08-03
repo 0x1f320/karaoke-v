@@ -11,7 +11,8 @@ import { ParticleField, type ParticleParams } from "./particles"
 //   stage
 //   ├─ content        (mask = clip; shifted by the scroll delta)
 //   │  ├─ notes       (one Graphics batching every note rect)
-//   │  ├─ playing     (the reach band, or the debug note under the playhead)
+//   │  ├─ reaches     (one band per visible note: where its effect can travel)
+//   │  ├─ playing     (debug: the note under the playhead)
 //   │  └─ effects     (the playhead's glow, and the sparks it throws off)
 //   └─ clip           (the piano-roll viewport rect, in window-local coords)
 
@@ -37,6 +38,13 @@ export interface DrawParams {
   stroke: Rgba
   /** Border thickness in CSS px. */
   border: number
+  /**
+   * One band per visible note, in note-set coords: the vertical span its effect
+   * can travel over. Empty unless the effect follows the pitch.
+   */
+  reaches: readonly Rect[]
+  reachFill: Rgba
+  reachStroke: Rgba
   /** Debug highlight of the note under the playhead, in note-set coords. */
   playing: Rect | null
   playingFill: Rgba
@@ -72,6 +80,7 @@ export class NoteRenderer {
   private app: Application | null = null
   private content: Container | null = null
   private notes: Graphics | null = null
+  private reaches: Graphics | null = null
   private playing: Graphics | null = null
   private clip: Graphics | null = null
   /** Effect layers (particles etc.) mount here — scrolls with the notes. */
@@ -95,6 +104,9 @@ export class NoteRenderer {
   // rebuilt only when it actually moves to another note.
   private playingRect: Rect | null = null
   private playingFill: Rgba | null = null
+  private reachRects: readonly Rect[] = []
+  private reachFill: Rgba | null = null
+  private reachStroke: Rgba | null = null
 
   // The canvas belongs to the renderer, not to React. Tearing a WebGL renderer
   // down loses its context for good — the canvas can never be drawn on again —
@@ -153,11 +165,12 @@ export class NoteRenderer {
 
     const content = new Container()
     const notes = new Graphics()
+    const reaches = new Graphics()
     const playing = new Graphics()
     const effects = new Container()
     const clip = new Graphics()
 
-    content.addChild(notes, playing, effects)
+    content.addChild(notes, reaches, playing, effects)
     // An axis-aligned rect mask lets Pixi clip with scissor instead of stencil.
     content.mask = clip
     app.stage.addChild(content, clip)
@@ -165,6 +178,7 @@ export class NoteRenderer {
     this.app = app
     this.content = content
     this.notes = notes
+    this.reaches = reaches
     this.playing = playing
     this.effectsLayer = effects
     // Glow first so the sparks read as being in front of it.
@@ -245,6 +259,35 @@ export class NoteRenderer {
     return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h
   }
 
+  /** Every band in one path, so the whole set is a single batched draw. */
+  private rebuildReaches(rects: readonly Rect[], fill: Rgba, stroke: Rgba, border: number): void {
+    const g = this.reaches
+    if (!g) {
+      return
+    }
+    g.clear()
+    if (rects.length === 0) {
+      return
+    }
+    for (const r of rects) {
+      g.rect(r.x, r.y, r.w, r.h)
+    }
+    g.fill({ color: rgb(fill), alpha: fill[3] })
+    g.stroke({ width: border, color: rgb(stroke), alpha: stroke[3], alignment: 1 })
+  }
+
+  private sameRects(a: readonly Rect[], b: readonly Rect[]): boolean {
+    if (a.length !== b.length) {
+      return false
+    }
+    for (let i = 0; i < a.length; i++) {
+      if (!this.sameRect(a[i], b[i])) {
+        return false
+      }
+    }
+    return true
+  }
+
   private rebuildPlaying(rect: Rect | null, fill: Rgba): void {
     const g = this.playing
     if (!g) {
@@ -259,7 +302,7 @@ export class NoteRenderer {
 
   draw(p: DrawParams): void {
     const app = this.app
-    if (!app || !this.content || !this.notes || !this.playing || !this.clip) {
+    if (!app || !this.content || !this.notes || !this.reaches || !this.playing || !this.clip) {
       return
     }
 
@@ -277,6 +320,17 @@ export class NoteRenderer {
       this.rebuild(style)
       this.style = style
       this.geometryDirty = false
+    }
+
+    if (
+      !this.sameRects(this.reachRects, p.reaches) ||
+      !this.reachFill?.every((v, i) => v === p.reachFill[i]) ||
+      !this.reachStroke?.every((v, i) => v === p.reachStroke[i])
+    ) {
+      this.rebuildReaches(p.reaches, p.reachFill, p.reachStroke, p.border)
+      this.reachRects = p.reaches
+      this.reachFill = p.reachFill
+      this.reachStroke = p.reachStroke
     }
 
     if (
@@ -357,6 +411,7 @@ export class NoteRenderer {
     this.canvas.remove()
     this.content = null
     this.notes = null
+    this.reaches = null
     this.playing = null
     this.clip = null
     this.effectsLayer = null

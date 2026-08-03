@@ -21,6 +21,7 @@ import {
   PLAYING_FILL,
   particleParams,
   REACH_FILL,
+  REACH_STROKE,
   STROKE,
 } from "./render/palette"
 
@@ -28,6 +29,9 @@ import {
 // the viewport read, so this only bounds how stale the note SET can be (edits,
 // track switches) — not positional smoothness.
 const NOTE_READ_GAP_MS = 30
+/** Shared empty list, so a frame with no bands allocates nothing. */
+const EMPTY_REACHES: Rect[] = []
+
 // Back-off when SynthV / the piano roll isn't found.
 const NOT_FOUND_RETRY_MS = 500
 
@@ -161,6 +165,9 @@ function Overlay() {
           fill: FILL,
           stroke: STROKE,
           border: BORDER_PX,
+          reaches: EMPTY_REACHES,
+          reachFill: REACH_FILL,
+          reachStroke: REACH_STROKE,
           playing: null,
           playingFill: PLAYING_FILL,
           emit: null,
@@ -198,11 +205,11 @@ function Overlay() {
       // note's centre and the effect keeps the strength they dialled in.
       let offsetSemitones = 0
       let boost = 1
-      // The band the emitter can reach in this note. Drawn whenever the effect
-      // follows the pitch, not only in debug: it is what says how near the
-      // reach comes to the edge of the piano roll, past which the effects layer
-      // is masked away and the effect simply stops being visible.
-      let reach: Rect | null = null
+      // A band per visible note showing where its effect can travel. Drawn
+      // whenever the effect follows the pitch, because it is what says how near
+      // a reach comes to the edge of the piano roll — past that edge the
+      // effects layer is masked away and the effect stops being visible at all.
+      let reaches: Rect[] = EMPTY_REACHES
       const view = transport.view
       const seconds = transport.playing ? transport.playhead(nowMs) : null
       if (view && seconds !== null) {
@@ -220,10 +227,6 @@ function Overlay() {
             const sung = samplePitch(note, previous, seconds - note.onS, pitch.range)
             if (pitch.mode !== "intensity") {
               offsetSemitones = sung.offset
-              if (hit) {
-                const { lowest, highest } = pitchExtent(note, previous, pitch.range)
-                reach = pitchBounds(hit, lowest, highest)
-              }
             }
             if (pitch.mode !== "position") {
               boost = intensityScale(sung.speed, pitch.sensitivity)
@@ -231,6 +234,20 @@ function Overlay() {
           }
         }
       }
+      if (view && pitch.enabled && pitch.mode !== "intensity") {
+        const xform = { scaleX: transform.scaleX, offsetX: transform.contentOffsetX }
+        const bands: Rect[] = []
+        for (const note of transport.notesBetween(view.mapping.viewLeft, view.mapping.viewRight)) {
+          const rect = locateNote(note, view, vp, read.notes, xform)
+          if (!rect) {
+            continue
+          }
+          const { lowest, highest } = pitchExtent(note, transport.before(note), pitch.range)
+          bands.push(pitchBounds(rect, lowest, highest))
+        }
+        reaches = bands
+      }
+
       const noteStarted = onset !== null && onset !== soundingOnset
       soundingOnset = onset
 
@@ -253,8 +270,11 @@ function Overlay() {
         fill: FILL,
         stroke: STROKE,
         border: BORDER_PX,
-        playing: reach ?? (debug ? hit : null),
-        playingFill: reach ? REACH_FILL : PLAYING_FILL,
+        reaches,
+        reachFill: REACH_FILL,
+        reachStroke: REACH_STROKE,
+        playing: debug ? hit : null,
+        playingFill: PLAYING_FILL,
         emit: frame.emit,
         particles: boost === 1 ? particles : { ...particles, rate: particles.rate * boost },
         noteStarted,

@@ -128,10 +128,13 @@ export type PitchPreferences = {
    * How far the effect may leave the note, in semitones.
    *
    * This is a guard and not a taste knob, which is what sets where it sits.
-   * Measured against a sung project, real excursions reach about ten semitones
-   * — scoops and portamento carry the voice well outside the note's own lane —
-   * while the failure it exists to catch, an unvoiced frame read as a pitch of
-   * zero, lands around seventy. An octave is comfortably between the two.
+   * Measured against a sung project, the drawn curve dives past an octave at
+   * consonant boundaries — the engine renders those excursions and so they are
+   * part of the line the effect is asked to follow — while the failure this
+   * exists to catch, an unvoiced frame read as a pitch of zero, lands around
+   * seventy semitones. Two octaves sits between the two with room to spare, and
+   * costs nothing where the voice stays put: the reach is the curve's own span,
+   * so this only ever caps it.
    */
   range: number
   /** How hard pitch movement drives intensity. Zero holds it level. */
@@ -214,7 +217,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   pitch: {
     enabled: false,
     mode: "both",
-    range: 12,
+    range: 24,
     sensitivity: 0.12,
   },
   presets: [],
@@ -260,7 +263,7 @@ export const GLOW_LIMITS = {
 } as const
 
 export const PITCH_LIMITS = {
-  range: { min: 0.5, max: 12, step: 0.5 },
+  range: { min: 0.5, max: 24, step: 0.5 },
   sensitivity: { min: 0, max: 0.5, step: 0.01 },
 } as const
 

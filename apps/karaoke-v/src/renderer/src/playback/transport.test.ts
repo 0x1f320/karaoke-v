@@ -260,3 +260,32 @@ describe("Transport.view", () => {
     expect(transport.view).toBeNull()
   })
 })
+
+describe("notesBetween", () => {
+  function scheduled() {
+    const h = harness()
+    // onB is onS * 1000, so these sit at 0-1000, 1000-2000 and 4000-5000 blicks.
+    h.publish([note(0, 1), note(1, 2), note(4, 5)])
+    h.tick()
+    return h.transport
+  }
+
+  it("takes every note overlapping the range, not only those starting in it", () => {
+    expect(scheduled().notesBetween(500, 1500)).toHaveLength(2)
+  })
+
+  it("is inclusive at both edges", () => {
+    expect(scheduled().notesBetween(1000, 1000)).toHaveLength(2)
+  })
+
+  it("is empty for a range with nothing in it", () => {
+    expect(scheduled().notesBetween(2500, 3500)).toEqual([])
+  })
+
+  it("finds the note before one it holds, and nothing before the first", () => {
+    const transport = scheduled()
+    const notes = transport.notesBetween(0, 5000)
+    expect(transport.before(notes[2])?.onS).toBe(1)
+    expect(transport.before(notes[0])).toBeNull()
+  })
+})
