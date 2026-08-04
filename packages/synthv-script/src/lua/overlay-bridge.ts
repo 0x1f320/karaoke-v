@@ -25,10 +25,14 @@ import { row } from "./ui/row"
 const SCRIPT_TITLE = "Overlay Bridge"
 
 const CONFIG = {
-  /** Publishing costs ~4us, so the gap is set by how fresh the playhead has to be. */
-  activeInterval: 16,
-  /** Nothing moves while stopped except the user's edits and their scrolling. */
-  idleInterval: 50,
+  /**
+   * Publishing costs ~4us, so there is nothing to save by slowing down while
+   * the transport is stopped — and stopped is exactly when the user scrolls.
+   * On Windows the view transform published here is the app's only source for
+   * where the piano roll is scrolled to, so a slower idle tick is a scroll the
+   * overlay follows a tick late.
+   */
+  tickInterval: 16,
   /**
    * Fingerprinting walks every note and calls into the host per note, which is
    * the one thing here that scales with project size — so it runs on its own
@@ -102,8 +106,7 @@ class OverlayBridge {
       // how a packing bug went unnoticed until a channel stayed empty.
       this.lastError = tostring(error)
     } finally {
-      const active = this.enabled && this.lastStatus !== "stopped"
-      SV.setTimeout(active ? CONFIG.activeInterval : CONFIG.idleInterval, () => this.loop())
+      SV.setTimeout(CONFIG.tickInterval, () => this.loop())
     }
   }
 
@@ -168,8 +171,7 @@ class OverlayBridge {
   }
 
   private dueForRevisionCheck(): boolean {
-    const interval = this.lastStatus === "stopped" ? CONFIG.idleInterval : CONFIG.activeInterval
-    const elapsed = (this.ticks - this.lastRevisionCheck) * interval
+    const elapsed = (this.ticks - this.lastRevisionCheck) * CONFIG.tickInterval
     if (elapsed < CONFIG.revisionInterval) {
       return false
     }
