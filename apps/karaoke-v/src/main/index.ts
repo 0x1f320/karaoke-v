@@ -1,9 +1,10 @@
 import path from "node:path"
 import { app, type BrowserWindow, ipcMain } from "electron"
 import { APP_NAME } from "../shared/i18n"
-import { native, type Rect } from "../shared/native"
+import { NATIVE_TARGET, native, type Rect } from "../shared/native"
 import { registerAssetIpc, registerAssetScheme } from "./assets"
 import { prepareBridgeDirectory } from "./bridge"
+import { installBridgeScript } from "./bridgeScript"
 import { registerDipIpc, toDipFrame, updateDipTransform } from "./dip"
 import { initI18n } from "./i18n"
 import { createOverlayWindow, positionOverlay } from "./overlay"
@@ -40,11 +41,6 @@ function syncOverlayBounds(win: BrowserWindow, frame: Rect): void {
       positionOverlay(win, frame)
     }
   }, BOUNDS_SYNC_MS)
-}
-
-// macOS matches on the app's localized name, Windows on the executable's.
-function nativeTarget(): string {
-  return process.platform === "win32" ? "synthv-studio" : "synth"
 }
 
 let overlayWin: BrowserWindow | null = null
@@ -128,7 +124,7 @@ function start(): void {
 
 function startTracking(): void {
   native.start({
-    target: nativeTarget(),
+    target: NATIVE_TARGET,
     onFrame: (raw) => {
       // The helper speaks in native units — points on macOS, physical pixels on
       // Windows — while window placement is in DIPs, so everything is converted
@@ -186,6 +182,11 @@ app.whenReady().then(() => {
   registerPermissionsIpc()
   ipcMain.handle("settings:open", () => openSettingsWindow())
   ipcMain.handle("settings:close", () => closeSettingsWindow())
+
+  // Before anything is shown: an app update ships a newer bridge script, and
+  // SynthV only rereads its scripts directory when it starts — so the sooner the
+  // copy lands, the more likely it is the one SynthV comes up with.
+  installBridgeScript()
 
   if (isAccessibilityTrusted()) {
     start()

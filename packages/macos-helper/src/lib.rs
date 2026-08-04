@@ -8,5 +8,6 @@ extern crate napi_derive;
 mod ax;
 mod clock;
 mod pianoroll;
+mod scripts;
 mod stick;
 mod types;

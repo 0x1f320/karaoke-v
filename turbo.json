@@ -14,7 +14,8 @@
     "dev": {
       "dependsOn": ["^build"],
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "passThroughEnv": ["SYNTHV_SCRIPTS_DIR"]
     }
   }
 }

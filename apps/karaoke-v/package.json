@@ -24,6 +24,7 @@
     "react-i18next": "^17.0.11"
   },
   "devDependencies": {
+    "@karaoke-v/synthv-script": "workspace:*",
     "@tailwindcss/vite": "^4.1.0",
     "@types/node": "^20.19.0",
     "@types/react": "^19.0.0",

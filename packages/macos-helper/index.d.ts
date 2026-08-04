@@ -89,6 +89,13 @@ export function getPianoRollAsync(target?: string): Promise<PianoRoll | null>
 export function getViewport(): Viewport | null
 
 /**
+ * Press Scripts > Rescan in the target app, so a script file just written is
+ * loaded by a SynthV that is already running — no restart. False when the app is
+ * not running, Accessibility is not granted, or the menu was not found.
+ */
+export function rescanScripts(target?: string): boolean
+
+/**
  * The monotonic clock reads are stamped against, so their age can be measured
  * without assuming two processes agree about what time it is.
  */

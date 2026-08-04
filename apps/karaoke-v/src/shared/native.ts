@@ -29,6 +29,9 @@ export interface NativeHelper {
   follow?(handle: Buffer): void
   monotonicNow(): number
 
+  /** macOS: press SynthV's Scripts menu so a new bridge script is loaded now. */
+  rescanScripts?(target?: string): boolean
+
   /** macOS: the Accessibility API answers both of these directly. */
   getViewport?(): Viewport | null
   getPianoRollAsync?(target?: string): Promise<PianoRoll | null>
@@ -39,6 +42,9 @@ export interface NativeHelper {
 }
 
 export const isWindows = process.platform === "win32"
+
+/** macOS matches on the app's localized name, Windows on the executable's. */
+export const NATIVE_TARGET = isWindows ? "synthv-studio" : "synth"
 
 export const native: NativeHelper = (isWindows ? winHelper : macHelper) as NativeHelper
 

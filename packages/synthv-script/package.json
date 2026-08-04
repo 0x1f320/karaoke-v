@@ -4,10 +4,11 @@
   "private": true,
   "description": "The karaoke-v bridge script that runs inside Synthesizer V Studio 2: reads the playhead, notes and view transform, and publishes them to the app.",
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "build": "pnpm typecheck && tstl -p tsconfig.json && tstl -p tsconfig.smoke.json",
+    "typecheck": "pnpm generate && tsc --noEmit",
+    "build": "pnpm typecheck && tstl -p tsconfig.json && tstl -p tsconfig.smoke.json && node scripts/bundle.mjs",
     "deploy": "node scripts/deploy.mjs",
-    "dump": "node scripts/dump.mjs"
+    "dump": "node scripts/dump.mjs",
+    "generate": "node scripts/version.mjs"
   },
   "devDependencies": {
     "lua-types": "^2.14.1",
