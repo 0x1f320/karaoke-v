@@ -195,6 +195,25 @@
           "description": "파티클을 칠할 색상입니다.",
           "aria": "파티클 색상"
         }
+      },
+      "pitch": {
+        "title": "피치 따라가기",
+        "description": "노트의 한가운데가 아니라, 실제로 부른 음높이를 따라 이펙트가 움직입니다.",
+        "mode": {
+          "label": "적용 대상",
+          "description": "부른 음높이가 무엇을 움직일지 고릅니다.",
+          "position": "위치",
+          "intensity": "세기",
+          "both": "둘 다"
+        },
+        "range": {
+          "label": "허용 범위",
+          "description": "이펙트가 노트에서 벗어날 수 있는 최대 거리입니다."
+        },
+        "sensitivity": {
+          "label": "민감도",
+          "description": "음높이가 움직일 때 빛과 불꽃이 얼마나 세지는지 정합니다. 0이면 세기가 변하지 않습니다."
+        }
       }
     }
   },
@@ -205,6 +224,7 @@
     "seconds": "{{value}}초",
     "times": "{{value}}배",
     "perSecond": "{{value}}/s",
-    "timesPerSecond": "{{value}}회/초"
+    "timesPerSecond": "{{value}}회/초",
+    "semitones": "{{value}}반음"
   }
 }

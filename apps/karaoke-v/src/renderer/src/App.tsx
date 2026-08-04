@@ -1,23 +1,62 @@
 import { useEffect, useRef } from "react"
+import type { BridgeNote } from "../../shared/bridgeChannels"
 import type { PianoRoll, Rect } from "../../shared/geometry"
 import {
   DEFAULT_PREFERENCES,
   type GlowPreferences,
   type ParticlePreferences,
+  type PitchPreferences,
 } from "../../shared/preferences"
 import { Permissions } from "./components/Permissions"
 import { Settings } from "./components/Settings"
 import { Toolbar } from "./components/Toolbar"
-import { composeFrame, frameTransform } from "./playback/frame"
+import { composeFrame, frameTransform, pitchBounds } from "./playback/frame"
 import { locateNote } from "./playback/locate"
+import { intensityScale, overhangSeconds, pitchExtent, samplePitch } from "./playback/pitch"
 import { Transport } from "./playback/transport"
 import { NoteRenderer } from "./render/noteRenderer"
-import { BORDER_PX, FILL, glowParams, PLAYING_FILL, particleParams, STROKE } from "./render/palette"
+import {
+  BORDER_PX,
+  FILL,
+  glowParams,
+  PLAYING_FILL,
+  particleParams,
+  REACH_FILL,
+  REACH_STROKE,
+  STROKE,
+} from "./render/palette"
 
 // Interval between full note reads. Note positions are corrected per-frame from
 // the viewport read, so this only bounds how stale the note SET can be (edits,
 // track switches) — not positional smoothness.
 const NOTE_READ_GAP_MS = 30
+/** Shared empty list, so a frame with no bands allocates nothing. */
+const EMPTY_REACHES: Rect[] = []
+
+/**
+ * The note whose contour covers `seconds` — the one sounding, or, in the gap
+ * between two, whichever of them still reaches this far.
+ *
+ * A note's contour does not begin at its onset or end at its end: the glide in
+ * and the release out are the parts that travel furthest from it. Stopping the
+ * effect at the note's own edges left those undrawn, and left the band claiming
+ * a reach the effect never went to.
+ */
+function noteInContour(transport: Transport, seconds: number): BridgeNote | null {
+  const sounding = transport.noteAt(seconds)
+  if (sounding) {
+    return sounding
+  }
+  const { before, after } = transport.neighbours(seconds)
+  if (before && seconds - before.offS <= overhangSeconds(before).tail) {
+    return before
+  }
+  if (after && after.onS - seconds <= overhangSeconds(after).lead) {
+    return after
+  }
+  return null
+}
+
 // Back-off when SynthV / the piano roll isn't found.
 const NOT_FOUND_RETRY_MS = 500
 
@@ -57,15 +96,18 @@ function Overlay() {
     let debug = false
     let particles = particleParams(DEFAULT_PREFERENCES.particles)
     let glow = glowParams(DEFAULT_PREFERENCES.glow)
+    let pitch = DEFAULT_PREFERENCES.pitch
     const adopt = (p: {
       debug: boolean
       effects: boolean
       particles: ParticlePreferences
       glow: GlowPreferences
+      pitch: PitchPreferences
     }) => {
       debug = p.debug
       particles = { ...particleParams(p.particles), enabled: p.effects && p.particles.enabled }
       glow = { ...glowParams(p.glow), enabled: p.effects && p.glow.enabled }
+      pitch = p.pitch
     }
     window.preferences.get().then(adopt)
     const unsubscribe = window.preferences.onChange(adopt)
@@ -148,6 +190,9 @@ function Overlay() {
           fill: FILL,
           stroke: STROKE,
           border: BORDER_PX,
+          reaches: EMPTY_REACHES,
+          reachFill: REACH_FILL,
+          reachStroke: REACH_STROKE,
           playing: null,
           playingFill: PLAYING_FILL,
           emit: null,
@@ -180,10 +225,20 @@ function Overlay() {
       let hit: Rect | null = null
       let progress = 0
       let onset: number | null = null
+      // How far the voice is from the note, and what that does to the effect.
+      // Neutral unless the user asked for it, so the emit point stays on the
+      // note's centre and the effect keeps the strength they dialled in.
+      let offsetSemitones = 0
+      let boost = 1
+      // A band per visible note showing where its effect can travel. Drawn
+      // whenever the effect follows the pitch, because it is what says how near
+      // a reach comes to the edge of the piano roll — past that edge the
+      // effects layer is masked away and the effect stops being visible at all.
+      let reaches: Rect[] = EMPTY_REACHES
       const view = transport.view
       const seconds = transport.playing ? transport.playhead(nowMs) : null
       if (view && seconds !== null) {
-        const note = transport.noteAt(seconds)
+        const note = pitch.enabled ? noteInContour(transport, seconds) : transport.noteAt(seconds)
         if (note) {
           onset = note.onB
           hit = locateNote(note, view, vp, read.notes, {
@@ -191,9 +246,41 @@ function Overlay() {
             offsetX: transform.contentOffsetX,
           })
           const span = note.offS - note.onS
-          progress = span > 0 ? Math.min(Math.max((seconds - note.onS) / span, 0), 1) : 0
+          // Not bounded to the note: a contour runs past both its ends, and the
+          // effect is meant to run with it. Off the ends the fraction goes
+          // outside 0..1 and the emission point leaves the rectangle sideways,
+          // which is exactly where the curve has gone.
+          progress = span > 0 ? (seconds - note.onS) / span : 0
+          if (pitch.enabled) {
+            const previous = transport.noteBefore(seconds)
+            const sung = samplePitch(note, previous, seconds - note.onS, pitch.range)
+            if (pitch.mode !== "intensity") {
+              offsetSemitones = sung.offset
+            }
+            if (pitch.mode !== "position") {
+              boost = intensityScale(sung.speed, pitch.sensitivity)
+            }
+          }
         }
       }
+      if (view && pitch.enabled && pitch.mode !== "intensity") {
+        const xform = { scaleX: transform.scaleX, offsetX: transform.contentOffsetX }
+        const bands: Rect[] = []
+        for (const note of transport.notesBetween(view.mapping.viewLeft, view.mapping.viewRight)) {
+          const rect = locateNote(note, view, vp, read.notes, xform)
+          if (!rect) {
+            continue
+          }
+          const { lowest, highest, overhang } = pitchExtent(
+            note,
+            transport.before(note),
+            pitch.range,
+          )
+          bands.push(pitchBounds(rect, lowest, highest, overhang))
+        }
+        reaches = bands
+      }
+
       const noteStarted = onset !== null && onset !== soundingOnset
       soundingOnset = onset
 
@@ -204,7 +291,7 @@ function Overlay() {
       // and that pair is sampled together; window.screenX updates on its own
       // schedule, so during a drag the two disagree and the drawing slides.
       const origin = vp.origin ?? { x: window.screenX, y: window.screenY }
-      const frame = composeFrame(transform, vp, origin, hit, progress)
+      const frame = composeFrame(transform, vp, origin, hit, progress, offsetSemitones)
       renderer.draw({
         width: w,
         height: h,
@@ -216,12 +303,15 @@ function Overlay() {
         fill: FILL,
         stroke: STROKE,
         border: BORDER_PX,
+        reaches,
+        reachFill: REACH_FILL,
+        reachStroke: REACH_STROKE,
         playing: debug ? hit : null,
         playingFill: PLAYING_FILL,
         emit: frame.emit,
-        particles,
+        particles: boost === 1 ? particles : { ...particles, rate: particles.rate * boost },
         noteStarted,
-        glow,
+        glow: boost === 1 ? glow : { ...glow, level: Math.min(glow.level * boost, 1) },
       })
     }
     raf = requestAnimationFrame(draw)

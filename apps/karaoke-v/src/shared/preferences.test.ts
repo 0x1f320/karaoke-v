@@ -188,6 +188,7 @@ describe("sanitizePreferences", () => {
       name: "Neon",
       particles: DEFAULT_EFFECTS.particles,
       glow: { ...DEFAULT_EFFECTS.glow, level: 0.25 },
+      pitch: DEFAULT_EFFECTS.pitch,
     })
   })
 
@@ -202,6 +203,7 @@ describe("sanitizePreferences", () => {
       name: "Petals",
       particles: { ...DEFAULT_EFFECTS.particles, ...image, spin: 360 },
       glow: { ...DEFAULT_EFFECTS.glow, ...image },
+      pitch: DEFAULT_EFFECTS.pitch,
     }
     const stored = JSON.parse(JSON.stringify({ presets: [saved] }))
     expect(sanitizePreferences(stored).presets).toEqual([saved])

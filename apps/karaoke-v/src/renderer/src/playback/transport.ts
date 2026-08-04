@@ -123,6 +123,65 @@ export class Transport {
 
   /** The note under `seconds`, or null in a gap between notes. */
   noteAt(seconds: number): BridgeNote | null {
+    const found = this.indexAt(seconds)
+    if (found < 0) {
+      return null
+    }
+    const note = this.schedule[found]
+    return seconds < note.offS ? note : null
+  }
+
+  /**
+   * The note before the one starting at or before `seconds`. A synthesized
+   * contour glides into a note from whatever was sung last, so it needs the
+   * neighbour even on frames where the gap between them is what is sounding.
+   */
+  noteBefore(seconds: number): BridgeNote | null {
+    const found = this.indexAt(seconds)
+    return found > 0 ? this.schedule[found - 1] : null
+  }
+
+  /**
+   * The last note to have started at or before `seconds`, whether or not it is
+   * still sounding, and the first to start after it. A contour reaches past its
+   * note at both ends, so the frame loop has to be able to ask about a moment
+   * that falls between two of them.
+   */
+  neighbours(seconds: number): { before: BridgeNote | null; after: BridgeNote | null } {
+    const index = this.indexAt(seconds)
+    return {
+      before: index >= 0 ? this.schedule[index] : null,
+      after: index + 1 < this.schedule.length ? this.schedule[index + 1] : null,
+    }
+  }
+
+  /**
+   * Every note overlapping the blick range, which is how the visible ones are
+   * found: the view mapping says what span of the roll is on screen, and the
+   * schedule is the only thing that knows a note's pitch contour.
+   */
+  notesBetween(fromB: number, toB: number): BridgeNote[] {
+    const out: BridgeNote[] = []
+    for (const note of this.schedule) {
+      if (note.offB < fromB) {
+        continue
+      }
+      if (note.onB > toB) {
+        break
+      }
+      out.push(note)
+    }
+    return out
+  }
+
+  /** The note immediately before `note` in the schedule, or null. */
+  before(note: BridgeNote): BridgeNote | null {
+    const index = this.schedule.indexOf(note)
+    return index > 0 ? this.schedule[index - 1] : null
+  }
+
+  /** Index of the last note starting at or before `seconds`, or -1. */
+  private indexAt(seconds: number): number {
     const notes = this.schedule
     let lo = 0
     let hi = notes.length - 1
@@ -136,11 +195,7 @@ export class Transport {
         hi = mid - 1
       }
     }
-    if (found < 0) {
-      return null
-    }
-    const note = notes[found]
-    return seconds < note.offS ? note : null
+    return found
   }
 
   /**

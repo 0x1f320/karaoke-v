@@ -10,7 +10,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 
 const MAGIC = "KVB1"
-const LAYOUT = 2
+const LAYOUT = 3
 const CHANNEL = { STATE: 1, NOTES: 2 }
 const STATUS = ["stopped", "playing", "looping"]
 

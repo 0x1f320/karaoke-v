@@ -195,6 +195,25 @@
           "description": "パーティクルを塗る色です。",
           "aria": "パーティクルの色"
         }
+      },
+      "pitch": {
+        "title": "ピッチに追従",
+        "description": "ノートの中央ではなく、実際に歌われた音高に沿ってエフェクトが動きます。",
+        "mode": {
+          "label": "適用対象",
+          "description": "歌われた音高が何を動かすかを選びます。",
+          "position": "位置",
+          "intensity": "強さ",
+          "both": "両方"
+        },
+        "range": {
+          "label": "可動範囲",
+          "description": "エフェクトがノートから離れられる最大の距離です。"
+        },
+        "sensitivity": {
+          "label": "感度",
+          "description": "音高が動くときに光と粒子がどれだけ強まるかを決めます。0なら強さは変わりません。"
+        }
       }
     }
   },
@@ -205,6 +224,7 @@
     "seconds": "{{value}}秒",
     "times": "{{value}}倍",
     "perSecond": "{{value}}/秒",
-    "timesPerSecond": "{{value}}回/秒"
+    "timesPerSecond": "{{value}}回/秒",
+    "semitones": "{{value}}半音"
   }
 }

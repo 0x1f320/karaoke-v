@@ -29,6 +29,9 @@ import {
   PARTICLE_LIMITS,
   type ParticleDirection,
   type ParticlePreferences,
+  PITCH_LIMITS,
+  PITCH_MODES,
+  type PitchPreferences,
   PRESET_LIMITS,
   type Preferences,
   type PreferencesPatch,
@@ -207,7 +210,7 @@ function EffectsSection({
   update: (patch: PreferencesPatch) => void
 }) {
   const { t } = useTranslation()
-  const { particles, glow, presets, activePreset } = prefs
+  const { particles, glow, pitch, presets, activePreset } = prefs
   // Where the current values came from, and so what saving overwrites and
   // reverting returns to. null is the built-in defaults, which cannot be
   // overwritten — edits made against them can only become a preset of their own.
@@ -223,8 +226,10 @@ function EffectsSection({
   const [stash, setStash] = useState<(EffectSettings & { origin: string | null }) | null>(null)
   // Tracked as what the user has closed, so a group is open unless they said
   // otherwise — including any group added later.
-  const [collapsed, setCollapsed] = useState<Partial<Record<"glow" | "particles", boolean>>>({})
-  const toggle = (group: "glow" | "particles") => (open: boolean) =>
+  const [collapsed, setCollapsed] = useState<
+    Partial<Record<"glow" | "particles" | "pitch", boolean>>
+  >({})
+  const toggle = (group: "glow" | "particles" | "pitch") => (open: boolean) =>
     setCollapsed((s) => ({ ...s, [group]: !open }))
   // The two spread sliders mean different things per mode, so their rows are
   // labelled from it.
@@ -232,6 +237,7 @@ function EffectsSection({
 
   const setParticles = (patch: Partial<ParticlePreferences>) => update({ particles: patch })
   const setGlow = (patch: Partial<GlowPreferences>) => update({ glow: patch })
+  const setPitch = (patch: Partial<PitchPreferences>) => update({ pitch: patch })
 
   // A preset is named only while the values still are that preset; the moment
   // they drift, the picker says so rather than going on claiming a preset that
@@ -241,27 +247,37 @@ function EffectsSection({
   const applyEntry = (id: string) => {
     if (id === CUSTOM_ENTRY) {
       if (stash) {
-        update({ particles: stash.particles, glow: stash.glow, activePreset: stash.origin })
+        update({
+          particles: stash.particles,
+          glow: stash.glow,
+          pitch: stash.pitch,
+          activePreset: stash.origin,
+        })
         setStash(null)
       }
       return
     }
     if (drifted) {
-      setStash({ particles, glow, origin: activePreset })
+      setStash({ particles, glow, pitch, origin: activePreset })
     }
     const picked = presets.find((p) => p.id === id) ?? null
     const next = picked ?? DEFAULT_EFFECTS
-    update({ particles: next.particles, glow: next.glow, activePreset: picked?.id ?? null })
+    update({
+      particles: next.particles,
+      glow: next.glow,
+      pitch: next.pitch,
+      activePreset: picked?.id ?? null,
+    })
   }
 
   /** Back to what the origin holds, staying on it. */
-  const revert = () => update({ particles: basis.particles, glow: basis.glow })
+  const revert = () => update({ particles: basis.particles, glow: basis.glow, pitch: basis.pitch })
 
   /** Put the current values back on the preset they came from. */
   const overwriteOrigin = () => {
     if (origin) {
       update({
-        presets: presets.map((p) => (p.id === origin.id ? { ...p, particles, glow } : p)),
+        presets: presets.map((p) => (p.id === origin.id ? { ...p, particles, glow, pitch } : p)),
       })
     }
   }
@@ -273,8 +289,8 @@ function EffectsSection({
     const id = existing?.id ?? crypto.randomUUID()
     update({
       presets: existing
-        ? presets.map((p) => (p.id === id ? { ...p, particles, glow } : p))
-        : [...presets, { id, name, particles, glow }],
+        ? presets.map((p) => (p.id === id ? { ...p, particles, glow, pitch } : p))
+        : [...presets, { id, name, particles, glow, pitch }],
       // Saved and selected in one move: the values are that preset now, so
       // leaving the picker on the custom entry would be a lie.
       activePreset: id,
@@ -311,6 +327,14 @@ function EffectsSection({
       value={glow[key]}
       readout={readout}
       onValueChange={(value) => setGlow({ [key]: value })}
+    />
+  )
+  const pitchSlider = (key: keyof typeof PITCH_LIMITS, readout: string) => (
+    <Slider
+      {...PITCH_LIMITS[key]}
+      value={pitch[key]}
+      readout={readout}
+      onValueChange={(value) => setPitch({ [key]: value })}
     />
   )
 
@@ -541,6 +565,45 @@ function EffectsSection({
                 />
               </SettingRow>
             )}
+          </EffectAccordion>
+
+          <EffectAccordion
+            title={t("settings.effects.pitch.title")}
+            description={t("settings.effects.pitch.description")}
+            open={!collapsed.pitch}
+            onOpenChange={toggle("pitch")}
+            enabled={pitch.enabled}
+            onEnabledChange={(v) => setPitch({ enabled: v })}
+          >
+            <SettingRow
+              label={t("settings.effects.pitch.mode.label")}
+              description={t("settings.effects.pitch.mode.description")}
+            >
+              <Segmented
+                aria-label={t("settings.effects.pitch.mode.label")}
+                value={pitch.mode}
+                options={PITCH_MODES.map((mode) => ({
+                  value: mode,
+                  label: t(`settings.effects.pitch.mode.${mode}`),
+                }))}
+                onChange={(mode) => setPitch({ mode })}
+              />
+            </SettingRow>
+            <SettingRow
+              label={t("settings.effects.pitch.range.label")}
+              description={t("settings.effects.pitch.range.description")}
+            >
+              {pitchSlider("range", t("units.semitones", { value: pitch.range.toFixed(1) }))}
+            </SettingRow>
+            <SettingRow
+              label={t("settings.effects.pitch.sensitivity.label")}
+              description={t("settings.effects.pitch.sensitivity.description")}
+            >
+              {pitchSlider(
+                "sensitivity",
+                t("units.percent", { value: Math.round((pitch.sensitivity / 0.5) * 100) }),
+              )}
+            </SettingRow>
           </EffectAccordion>
         </div>
       </ScrollArea>

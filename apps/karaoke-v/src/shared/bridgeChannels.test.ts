@@ -40,7 +40,7 @@ class Writer {
     }
     return this
   }
-  header(channel: number, length: number, layout = 2, magic = MAGIC): this {
+  header(channel: number, length: number, layout = 3, magic = MAGIC): this {
     return this.u32(magic).u16(layout).u16(channel).u32(length)
   }
 
@@ -158,8 +158,8 @@ describe("decodeState", () => {
   })
 
   it("refuses a record from a layout it does not know", () => {
-    expect(decodeState(stateRecord({ layout: 1 }))).toBeNull()
-    expect(decodeState(stateRecord({ layout: 3 }))).toBeNull()
+    expect(decodeState(stateRecord({ layout: 2 }))).toBeNull()
+    expect(decodeState(stateRecord({ layout: 4 }))).toBeNull()
   })
 
   it("refuses bytes that are not a record at all", () => {
