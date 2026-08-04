@@ -15,7 +15,12 @@ import {
 } from "./permissions"
 import { registerPreferencesIpc } from "./preferences"
 import { closeSettingsWindow, openSettingsWindow, setSettingsAnchorWindow } from "./settings"
-import { createToolbarWindow, positionToolbar } from "./toolbar"
+import {
+  createToolbarWindow,
+  isToolbarMeasured,
+  positionToolbar,
+  registerToolbarIpc,
+} from "./toolbar"
 import { createTray, destroyTray, hasTray, setTrayStatus } from "./tray"
 
 // The main process wires two windows to the same native stick observer: the
@@ -122,6 +127,22 @@ function start(): void {
   }
 }
 
+// The target's last reported frame, which is where the toolbar docks. Held
+// because the helper only reports a frame when the target moves: the toolbar
+// also has to be placed when its own measured height arrives, which is any time
+// after that. Null whenever nothing is being tracked.
+let dockedFrame: { x: number; y: number; w: number; h: number } | null = null
+
+function syncToolbar(): void {
+  if (!toolbarWin || toolbarWin.isDestroyed() || !dockedFrame || !isToolbarMeasured()) {
+    return
+  }
+  positionToolbar(toolbarWin, dockedFrame)
+  if (!toolbarWin.isVisible()) {
+    toolbarWin.showInactive()
+  }
+}
+
 function startTracking(): void {
   native.start({
     target: NATIVE_TARGET,
@@ -142,12 +163,8 @@ function startTracking(): void {
           overlayWin.showInactive()
         }
       }
-      if (toolbarWin && !toolbarWin.isDestroyed()) {
-        positionToolbar(toolbarWin, f)
-        if (!toolbarWin.isVisible()) {
-          toolbarWin.showInactive()
-        }
-      }
+      dockedFrame = f
+      syncToolbar()
     },
     onStatus: (s) => {
       setTrayStatus(s.state)
@@ -159,6 +176,9 @@ function startTracking(): void {
       if (s.state === "attached") {
         return
       }
+      // Nothing is docked any more, so a late measurement must not bring the
+      // panel back on its own.
+      dockedFrame = null
       for (const w of [overlayWin, toolbarWin]) {
         if (w && !w.isDestroyed() && w.isVisible()) {
           w.hide()
@@ -180,6 +200,7 @@ app.whenReady().then(() => {
   registerAssetIpc()
   registerDipIpc()
   registerPermissionsIpc()
+  registerToolbarIpc(syncToolbar)
   ipcMain.handle("settings:open", () => openSettingsWindow())
   ipcMain.handle("settings:close", () => closeSettingsWindow())
 
