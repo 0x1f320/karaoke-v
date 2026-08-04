@@ -72,6 +72,26 @@ transport clock, note location, the frame math and the DIP transforms. Anything 
 needs Electron, the native add-ons or a real piano roll is out of scope — keep new
 logic testable by extracting it into a pure function rather than by mocking the world.
 
+## The website
+
+`apps/website` is the public site — Next.js (App Router) + Tailwind — and it is kept
+**out of the app's pipeline on purpose**, so a copy change can never redden the Electron
+or Rust checks and a Rust change never rebuilds the site.
+
+- The root `build` / `typecheck` / `test` scripts filter it out; `pnpm website` and
+  `pnpm website:build` are its own entry points. It depends on no workspace package, so
+  it never waits on `^build`.
+- Two workflows, split by path: `ci.yml` has `paths-ignore: apps/website/**`, and
+  `website.yml` triggers only on `apps/website/**`. Adding a path to one means removing
+  it from the other, or a PR runs both.
+- **Deployment is Vercel's, not CI's** — Git integration with Root Directory
+  `apps/website` and `npx turbo-ignore` as the Ignored Build Step. GitHub Actions holds
+  no Vercel token; `website.yml` is the merge gate, Vercel does the shipping.
+- Linting is Biome like everything else, not the ESLint config the Next template ships.
+- There is no design or copy yet, by design — the scaffold is deliberately bare. The app
+  ships ko/en/ja and the site is expected to follow, so keep the route tree absorbable by
+  a later `[locale]` segment.
+
 ## Commit & PR conventions
 
 All **commit messages** and **PR titles** MUST follow
@@ -94,6 +114,7 @@ All **commit messages** and **PR titles** MUST follow
 | `native` | The platform helper add-ons (macOS, Windows): Accessibility/UI Automation probing, piano-roll geometry, window sticking and occlusion, their native builds. |
 | `toolbar` | The floating toolbar and its controls. |
 | `settings` | Settings window, preferences storage, and shared UI primitives. |
+| `website` | The public website in `apps/website`: its pages, content, styling, and its own build and deployment. |
 | `shell` | Electron app shell: process/window lifecycle, dev server and HMR, packaging and distribution. |
 | `project` | Repo-wide concerns: linting/formatting, Turborepo and root scripts, workspace config, CI, docs about the repo itself. |
 
