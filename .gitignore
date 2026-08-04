@@ -6,3 +6,10 @@ out/
 
 # compiled native addon (node-gyp output)
 packages/*-helper/build/
+
+# compiled native addon (napi-rs output). The loader and its types are generated
+# from the Rust sources by `napi build`, so only the hand-written index.* is kept.
+target/
+packages/*-helper/*.node
+packages/*-helper/binding.js
+packages/*-helper/binding.d.ts

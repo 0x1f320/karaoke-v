@@ -8,7 +8,13 @@ if (process.platform !== "darwin") {
   process.exit(0)
 }
 
-// Builds against the Node ABI (compile check + node usage). The Electron runtime
-// needs an ABI-matched rebuild — apps/karaoke-v runs @electron/rebuild before dev/start.
-const result = spawnSync("node-gyp", ["rebuild"], { stdio: "inherit", shell: true })
+// The addon is Node-API, so the binary Node loads is the one Electron loads too —
+// there is no ABI rebuild step. `binding.js`/`binding.d.ts` land next to the .node;
+// the hand-written index.js wraps them so the package stays importable on Windows
+// without touching the binary.
+const result = spawnSync(
+  "napi",
+  ["build", "--platform", "--release", "--js", "binding.js", "--dts", "binding.d.ts"],
+  { stdio: "inherit", shell: true },
+)
 process.exit(result.status ?? 1)

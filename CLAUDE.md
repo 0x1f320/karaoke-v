@@ -2,6 +2,23 @@
 
 Minimal Electron + React app (Turborepo + pnpm workspace). Apps live in `apps/*`.
 
+## Native addons
+
+The two platform helpers are built with different toolchains, and that difference
+shows up in the dev loop:
+
+- `packages/macos-helper` is **Rust + napi-rs**, so a checkout needs a Rust toolchain
+  (`rustup`) as well as Node. `pnpm build` runs `napi build`, which writes the `.node`
+  plus a generated `binding.js`/`binding.d.ts` next to it — all three are build output
+  and none are committed. The public surface stays the hand-written `index.js` /
+  `index.d.ts`, which require the generated loader lazily so the package can still be
+  imported on Windows.
+- `packages/windows-helper` is still **C++ + node-gyp**, and still needs
+  `@electron/rebuild` (`pnpm rebuild:native`) to match Electron's ABI.
+
+Only the Windows helper is rebuilt for Electron. Node-API keeps one napi-rs binary
+loadable by both Node and Electron, and `@electron/rebuild` cannot drive Cargo anyway.
+
 ## Code comments
 
 **Do not write comments by default.** Names, types and small functions are expected to

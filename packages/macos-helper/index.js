@@ -1,20 +1,21 @@
 // Exposes a small typed API over the compiled native addon. The addon runs the
 // AXObserver follow loop in-process and emits the target window's frame (top-left
 // origin, global points — ready for Electron's setBounds); the JS side does the
-// actual positioning so multi-monitor display mapping stays correct. The native
-// binding is loaded lazily so importing this package is safe on any platform.
+// actual positioning so multi-monitor display mapping stays correct.
+//
+// The napi-rs loader is required lazily rather than at module scope: importing
+// this package has to stay safe on Windows, where the .node does not exist.
 
 let native
 
 function loadNative() {
   if (!native) {
     try {
-      native = require("./build/Release/stick.node")
+      native = require("./binding.js")
     } catch (err) {
       throw new Error(
         `@karaoke-v/macos-helper: native addon not built for this runtime. ` +
-          `apps/karaoke-v dev/start runs the Electron rebuild automatically. ` +
-          `Original error: ${err.message}`,
+          `Run pnpm build in the workspace. Original error: ${err.message}`,
       )
     }
   }
@@ -31,12 +32,8 @@ function loadNative() {
  */
 function start(options) {
   const { target, onFrame, onStatus } = options
-  loadNative().start({
-    target,
-    onFrame: (x, y, w, h) => onFrame({ x, y, w, h }),
-    onStatus: (state, mode) => {
-      onStatus(state === "attached" ? { state, mode } : { state })
-    },
+  loadNative().start(target, onFrame, (status) => {
+    onStatus(status.state === "attached" ? status : { state: status.state })
   })
 }
 
@@ -85,28 +82,8 @@ function disableAnimations(view) {
 }
 
 /**
- * Watch the clipboard for payloads from the SynthV bridge script. The script
- * writes a marked payload on transport events and takes it back shortly after,
- * so this catches blips rather than reading a stream — anything unmarked is the
- * user's own clipboard and is ignored.
- * @param {object} options
- * @param {string} options.marker prefix identifying our payloads
- * @param {(text: string, monotonicMs: number) => void} options.onPayload
- *   raw payload text, plus the addon-clock timestamp of when it was detected
- */
-function startBridge(options) {
-  loadNative().startBridge({ marker: options.marker, onPayload: options.onPayload })
-}
-
-function stopBridge() {
-  if (native) {
-    native.stopBridge()
-  }
-}
-
-/**
- * Reading of the same monotonic clock the bridge stamps payloads with, so a
- * payload's age can be measured without assuming anything about process clocks.
+ * Reading of the same monotonic clock the addon stamps its reads with, so a
+ * read's age can be measured without assuming anything about process clocks.
  * @returns {number} milliseconds
  */
 function monotonicNow() {
@@ -120,7 +97,5 @@ module.exports = {
   getPianoRoll,
   getPianoRollAsync,
   getViewport,
-  startBridge,
-  stopBridge,
   monotonicNow,
 }

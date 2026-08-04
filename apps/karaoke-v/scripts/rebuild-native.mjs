@@ -1,18 +1,17 @@
 import { spawnSync } from "node:child_process"
 
-// Only the current platform's helper has anything to rebuild — the other one's
-// binding.gyp resolves to an empty target — and asking @electron/rebuild for a
-// module with no build directory fails outright rather than skipping it.
+// Only the Windows helper needs this. It is a node-gyp addon, so its binary is
+// built against whichever ABI compiled it; @electron/rebuild recompiles it for
+// Electron's. The macOS helper is napi-rs, which @electron/rebuild cannot drive
+// at all (it shells out to node-gyp) — and does not need it, because Node-API
+// keeps one binary loadable by both Node and Electron.
 
-const helper =
-  process.platform === "win32" ? "@karaoke-v/windows-helper" : "@karaoke-v/macos-helper"
-
-if (process.platform !== "win32" && process.platform !== "darwin") {
-  console.log(`rebuild-native: nothing to build on ${process.platform}`)
+if (process.platform !== "win32") {
+  console.log(`rebuild-native: nothing to rebuild on ${process.platform}`)
   process.exit(0)
 }
 
-const result = spawnSync("electron-rebuild", ["-f", "-o", helper], {
+const result = spawnSync("electron-rebuild", ["-f", "-o", "@karaoke-v/windows-helper"], {
   stdio: "inherit",
   shell: true,
 })

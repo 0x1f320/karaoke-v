@@ -61,19 +61,37 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/macos-helper
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         env:
-          # electron-rebuild needs Electron's headers, not the runtime binary.
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 
-      # Compiles the Objective-C++ addon (src/stick.mm) for the Node ABI.
-      - name: Build (node-gyp)
+      - name: Lint & format (Rust)
+        working-directory: packages/macos-helper
+        run: |
+          cargo fmt --check
+          cargo clippy --release -- -D warnings
+
+      # Compiles the Rust addon (napi-rs). No Electron ABI rebuild follows: the
+      # addon is Node-API, so this same binary is the one Electron loads.
+      - name: Build (napi)
         run: pnpm build
 
-      # Recompiles it against the Electron ABI — the path dev/start use at runtime.
-      - name: Rebuild for Electron ABI
-        run: pnpm --filter @karaoke-v/app rebuild:native
+      # Loading it here is what catches an export that was added to the Rust but
+      # not wired into the JS wrapper — a build that quietly did nothing looks
+      # identical to a successful one otherwise.
+      - name: Load the addon
+        run: node .github/scripts/check-macos-addon.mjs
   windows-native:
     name: Windows Native Addon
     # Pinned: node-gyp probes for Visual Studio through PowerShell and does not
@@ -98,7 +116,7 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 
-      # Compiles the C++ addon (shm/uia/stick) with node-gyp, through MSBuild here
+      # Compiles the C++ addon (uia/stick) with node-gyp, through MSBuild here
       # rather than the Makefiles GYP emits on macOS.
       - name: Build (node-gyp)
         run: pnpm build
