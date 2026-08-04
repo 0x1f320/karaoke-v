@@ -1,0 +1,22 @@
+[package]
+name = "karaoke-v-macos-helper"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "3.12.0", default-features = false, features = ["napi8", "async"] }
+napi-derive = "3.6.2"
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSRunningApplication", "NSWorkspace", "NSWindow", "NSView", "NSResponder", "NSApplication"] }
+objc2-application-services = { version = "0.3.2", default-features = false, features = ["std", "libc", "HIServices", "AXError", "AXUIElement", "AXValue", "AXValueConstants", "AXAttributeConstants", "AXNotificationConstants", "AXRoleConstants", "AXConstants"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFBase", "CFArray", "CFString", "CFDictionary", "CFNumber", "CFRunLoop", "CFDate", "CFCGTypes"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGWindow", "CGGeometry", "CGError", "CGBase"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSEnumerator", "NSString", "NSArray", "NSDictionary", "NSValue"] }
+objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "CABase", "objc2-core-foundation"] }
+
+[build-dependencies]
+napi-build = "2.4.0"

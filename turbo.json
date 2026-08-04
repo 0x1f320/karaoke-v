@@ -3,7 +3,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["out/**", "build/**"]
+      "outputs": ["out/**", "build/**", "*.node", "binding.js", "binding.d.ts"]
     },
     "typecheck": {
       "dependsOn": ["^build"]
@@ -12,6 +12,7 @@
       "dependsOn": ["^build"]
     },
     "dev": {
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     }

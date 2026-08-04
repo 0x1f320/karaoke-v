@@ -8,7 +8,13 @@ if (process.platform !== "win32") {
   process.exit(0)
 }
 
-// N-API keeps the ABI stable across Node and Electron, so this one build serves
-// both runtimes and @electron/rebuild has nothing to do for this package.
-const result = spawnSync("node-gyp", ["rebuild"], { stdio: "inherit", shell: true })
+// Node-API keeps the ABI stable across Node and Electron, so this one build serves
+// both runtimes and there is no @electron/rebuild step. `binding.js`/`binding.d.ts`
+// land next to the .node; the hand-written index.js wraps them so the package
+// stays importable on macOS without touching the binary.
+const result = spawnSync(
+  "napi",
+  ["build", "--platform", "--release", "--js", "binding.js", "--dts", "binding.d.ts"],
+  { stdio: "inherit", shell: true },
+)
 process.exit(result.status ?? 1)

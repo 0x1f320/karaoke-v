@@ -12,18 +12,20 @@
 // Everything is in physical pixels, because Win32 and UIA both are. The caller
 // converts to the DIPs Electron wants, since only Electron knows the display
 // scale for a given window.
+//
+// The napi-rs loader is required lazily rather than at module scope: importing
+// this package has to stay safe on macOS, where the .node does not exist.
 
 let native
 
 function loadNative() {
   if (!native) {
     try {
-      native = require("./build/Release/winhelper.node")
+      native = require("./binding.js")
     } catch (err) {
       throw new Error(
         `@karaoke-v/windows-helper: native addon not built for this runtime. ` +
-          `apps/karaoke-v dev/start runs the Electron rebuild automatically. ` +
-          `Original error: ${err.message}`,
+          `Run pnpm build in the workspace. Original error: ${err.message}`,
       )
     }
   }
@@ -77,7 +79,7 @@ function getCanvas(want, target = "synthv-studio") {
     }
   }
 
-  const found = loadNative().findCanvas({ ...want, target })
+  const found = loadNative().findCanvas(want.width, want.height, target)
   if (!found) {
     // A failed search means UI Automation hiccuped, not that the canvas moved:
     // dropping the rect here would blank the overlay for a frame, so the last
@@ -102,12 +104,8 @@ function getCanvasOrigin() {
 
 function start(options) {
   const { target, onFrame, onStatus } = options
-  loadNative().start({
-    target,
-    onFrame: (x, y, w, h) => onFrame({ x, y, w, h }),
-    onStatus: (state) => {
-      onStatus(state === "attached" ? { state, mode: "event" } : { state })
-    },
+  loadNative().start(target, onFrame, ({ state }) => {
+    onStatus(state === "attached" ? { state, mode: "event" } : { state })
   })
 }
 

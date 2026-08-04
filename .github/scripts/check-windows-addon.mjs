@@ -8,9 +8,9 @@ import { createRequire } from "node:module"
 
 const require = createRequire(import.meta.url)
 const helper = require("../../packages/windows-helper/index.js")
-const native = require("../../packages/windows-helper/build/Release/winhelper.node")
+const native = require("../../packages/windows-helper/binding.js")
 
-// Everything main.cc registers.
+// Everything the #[napi] exports register, in the camelCase napi-rs emits.
 const NATIVE = [
   "findCanvas",
   "getCanvasRect",
@@ -42,7 +42,7 @@ const PUBLIC = [
 ]
 
 for (const name of NATIVE) {
-  assert.equal(typeof native[name], "function", `winhelper.node is missing ${name}()`)
+  assert.equal(typeof native[name], "function", `the addon is missing ${name}()`)
 }
 for (const name of PUBLIC) {
   assert.equal(typeof helper[name], "function", `index.js is missing ${name}()`)
@@ -51,6 +51,7 @@ for (const name of PUBLIC) {
 // Safe without SynthV running: nothing to find, so nothing is returned.
 assert.equal(helper.getCanvas({ width: 800, height: 600 }, "no-such-process-here"), null)
 assert.equal(helper.getCanvasOrigin(), undefined)
+assert.equal(helper.getTargetFrame("no-such-process-here"), null)
 assert.ok(helper.monotonicNow() > 0)
 
 console.log(

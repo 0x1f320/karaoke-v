@@ -2,19 +2,23 @@
   "name": "@karaoke-v/macos-helper",
   "version": "0.1.0",
   "private": true,
-  "description": "Native macOS addon for karaoke-v: sticks an Electron window to a target app's window via the Accessibility API (in-process AXObserver).",
+  "description": "Native macOS addon for karaoke-v: sticks an Electron window to a target app's window and reads SynthV's piano-roll geometry via the Accessibility API (in-process AXObserver).",
   "main": "index.js",
   "types": "index.d.ts",
   "os": [
     "darwin"
   ],
+  "napi": {
+    "binaryName": "macos-helper",
+    "targets": [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin"
+    ]
+  },
   "scripts": {
     "build": "node scripts/build.mjs"
   },
-  "dependencies": {
-    "node-addon-api": "^8.3.0"
-  },
   "devDependencies": {
-    "node-gyp": "^11.0.0"
+    "@napi-rs/cli": "^3.8.2"
   }
 }

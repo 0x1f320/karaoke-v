@@ -2,6 +2,24 @@
 
 Minimal Electron + React app (Turborepo + pnpm workspace). Apps live in `apps/*`.
 
+## Native addons
+
+Both platform helpers — `packages/macos-helper` and `packages/windows-helper` — are
+**Rust + napi-rs**, so a checkout needs a Rust toolchain (`rustup`) as well as Node.
+
+- `pnpm build` runs `napi build`, which writes the `.node` plus a generated
+  `binding.js`/`binding.d.ts` next to it. All three are build output and none are
+  committed; `Cargo.lock` is.
+- The public surface stays the hand-written `index.js` / `index.d.ts`. They require
+  the generated loader **lazily**, because `shared/native.ts` imports both packages
+  on both platforms and only one of them has a binary.
+- **Nothing is rebuilt for Electron.** Node-API keeps one binary loadable by both
+  Node and Electron, and `@electron/rebuild` cannot drive Cargo anyway — there is no
+  `rebuild:native` step, and `dev` depends on `^build` instead.
+- The Windows crate is `#[cfg(windows)]` throughout, so it builds empty elsewhere.
+  From a macOS checkout, `cargo check --target x86_64-pc-windows-msvc` inside
+  `packages/windows-helper` is what actually compiles that code.
+
 ## Code comments
 
 **Do not write comments by default.** Names, types and small functions are expected to
