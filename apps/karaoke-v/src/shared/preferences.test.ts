@@ -9,6 +9,7 @@ import {
   PRESET_LIMITS,
   sameEffects,
   sanitizePreferences,
+  TRAIL_LIMITS,
 } from "./preferences"
 
 function preset(id: string, name = id): EffectPreset {
@@ -136,6 +137,22 @@ describe("sanitizePreferences", () => {
     })
   })
 
+  it("clamps the trail into its limits", () => {
+    expect(sanitizePreferences({ trail: { life: 99, width: 0, sparkle: 30 } }).trail).toEqual({
+      life: TRAIL_LIMITS.life.max,
+      width: TRAIL_LIMITS.width.min,
+      sparkle: 30,
+    })
+  })
+
+  it("keeps the open groups as a list of names", () => {
+    expect(sanitizePreferences({ openGroups: ["glow", 7, null, "trail"] }).openGroups).toEqual([
+      "glow",
+      "trail",
+    ])
+    expect(sanitizePreferences({ openGroups: "glow" }).openGroups).toBeUndefined()
+  })
+
   it("keeps only #rrggbb colors", () => {
     expect(sanitizePreferences({ glow: { color: "#AbC123" } }).glow?.color).toBe("#AbC123")
     for (const color of ["#fff", "ffffff", "#gggggg", "#1234567", 0xffffff]) {
@@ -188,6 +205,7 @@ describe("sanitizePreferences", () => {
       name: "Neon",
       particles: DEFAULT_EFFECTS.particles,
       glow: { ...DEFAULT_EFFECTS.glow, level: 0.25 },
+      trail: DEFAULT_EFFECTS.trail,
       pitch: DEFAULT_EFFECTS.pitch,
     })
   })
@@ -203,6 +221,7 @@ describe("sanitizePreferences", () => {
       name: "Petals",
       particles: { ...DEFAULT_EFFECTS.particles, ...image, spin: 360 },
       glow: { ...DEFAULT_EFFECTS.glow, ...image },
+      trail: DEFAULT_EFFECTS.trail,
       pitch: DEFAULT_EFFECTS.pitch,
     }
     const stored = JSON.parse(JSON.stringify({ presets: [saved] }))

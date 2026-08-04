@@ -196,6 +196,31 @@
           "aria": "Particle color"
         }
       },
+      "trail": {
+        "title": "Trail",
+        "description": "The glowing line the effect leaves behind it, fading away as it goes.",
+        "life": {
+          "label": "Duration",
+          "description": "How long the line takes to fade out completely."
+        },
+        "width": {
+          "label": "Thickness",
+          "description": "The thickness of the line's bright core."
+        },
+        "bloom": {
+          "label": "Bloom",
+          "description": "How far the halo spreads past the core, as a multiple of the thickness."
+        },
+        "sparkle": {
+          "label": "Sparkles",
+          "description": "How many glowing specks are left along the line. 0 leaves the line alone."
+        },
+        "color": {
+          "label": "Color",
+          "description": "The color the line and its specks are painted in.",
+          "aria": "Trail color"
+        }
+      },
       "pitch": {
         "title": "Follow the pitch",
         "description": "Effects ride the pitch that is actually sung instead of sitting at the note's centre.",

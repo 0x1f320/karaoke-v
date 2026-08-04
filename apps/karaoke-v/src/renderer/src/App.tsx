@@ -6,12 +6,20 @@ import {
   type GlowPreferences,
   type ParticlePreferences,
   type PitchPreferences,
+  type TrailPreferences,
 } from "../../shared/preferences"
 import { Permissions } from "./components/Permissions"
 import { Settings } from "./components/Settings"
 import { Toolbar } from "./components/Toolbar"
-import { composeFrame, frameTransform, pitchBounds } from "./playback/frame"
-import { locateNote } from "./playback/locate"
+import { composeFrame, frameTransform, padRect, pitchBounds } from "./playback/frame"
+import {
+  anchoredRect,
+  anchorFromMatch,
+  followRect,
+  locateNote,
+  type ReadAnchor,
+  rebaseAnchor,
+} from "./playback/locate"
 import { intensityScale, overhangSeconds, pitchExtent, samplePitch } from "./playback/pitch"
 import { Transport } from "./playback/transport"
 import { NoteRenderer } from "./render/noteRenderer"
@@ -22,8 +30,10 @@ import {
   PLAYING_FILL,
   particleParams,
   REACH_FILL,
+  REACH_PAD_PX,
   REACH_STROKE,
   STROKE,
+  trailParams,
 } from "./render/palette"
 
 // Interval between full note reads. Note positions are corrected per-frame from
@@ -32,6 +42,14 @@ import {
 const NOTE_READ_GAP_MS = 30
 /** Shared empty list, so a frame with no bands allocates nothing. */
 const EMPTY_REACHES: Rect[] = []
+/**
+ * How far the roll may move in one frame and a note still be matched to a rect,
+ * px. Around 1400px/s at 60Hz — a fling, not a drag. The mapping the match is
+ * predicted from is tens of milliseconds old, so past this the prediction is
+ * already further out than the gap between two notes. It only gates taking a
+ * NEW match; a note that has one keeps it however hard the roll is moving.
+ */
+const MAX_MATCH_SLIP_PX = 24
 
 /**
  * The note whose contour covers `seconds` — the one sounding, or, in the gap
@@ -96,17 +114,20 @@ function Overlay() {
     let debug = false
     let particles = particleParams(DEFAULT_PREFERENCES.particles)
     let glow = glowParams(DEFAULT_PREFERENCES.glow)
+    let trail = trailParams(DEFAULT_PREFERENCES.trail)
     let pitch = DEFAULT_PREFERENCES.pitch
     const adopt = (p: {
       debug: boolean
       effects: boolean
       particles: ParticlePreferences
       glow: GlowPreferences
+      trail: TrailPreferences
       pitch: PitchPreferences
     }) => {
       debug = p.debug
       particles = { ...particleParams(p.particles), enabled: p.effects && p.particles.enabled }
       glow = { ...glowParams(p.glow), enabled: p.effects && p.glow.enabled }
+      trail = { ...trailParams(p.trail), enabled: p.effects && p.trail.enabled }
       pitch = p.pitch
     }
     window.preferences.get().then(adopt)
@@ -146,10 +167,20 @@ function Overlay() {
     let uploaded: PianoRoll | null = null
     // The read whose coordinate frame the live particles are currently in.
     let based: PianoRoll | null = null
+    // The rect the sounding note was matched to, and the read it came out of.
+    // Held for as long as that note sounds — see the match below.
+    let match: { onset: number; read: PianoRoll; rect: Rect } | null = null
+    // What one matched rect said about where every note in that read sits, and
+    // the read it says it about. Kept across reads, so a note that starts while
+    // the roll is moving — when no match may be taken — is still placed exactly.
+    let anchored: { anchor: ReadAnchor; read: PianoRoll } | null = null
     // Onset of the note last seen sounding, so a change can strike the glow.
     // Tracked from the schedule, not the rect: a note still starts even on a
     // frame where it could not be matched to one.
     let soundingOnset: number | null = null
+    // Where the roll sat on the previous frame, so this one can tell how fast it
+    // is moving. Null whenever the last frame had nothing to compare against.
+    let wasAt: { contentX: number; refY: number } | null = null
     const draw = () => {
       raf = requestAnimationFrame(draw)
       // Before anything asks what is playing. The read is a pread into a reused
@@ -175,6 +206,7 @@ function Overlay() {
       // Unlike a 2D context, the scene persists until it is re-rendered, so this
       // still has to render an empty frame to clear what was drawn last.
       if (!vp || !read || vp.refY === undefined) {
+        wasAt = null
         if (uploaded) {
           renderer.clear()
           uploaded = null
@@ -199,6 +231,7 @@ function Overlay() {
           particles,
           noteStarted: false,
           glow,
+          trail,
         })
         return
       }
@@ -230,21 +263,57 @@ function Overlay() {
       // note's centre and the effect keeps the strength they dialled in.
       let offsetSemitones = 0
       let boost = 1
-      // A band per visible note showing where its effect can travel. Drawn
-      // whenever the effect follows the pitch, because it is what says how near
-      // a reach comes to the edge of the piano roll — past that edge the
-      // effects layer is masked away and the effect stops being visible at all.
+      // A band per visible note showing where its effect can travel: how near a
+      // reach comes to the edge of the piano roll, past which the effects layer
+      // is masked away. That is a question about the drawing and not part of the
+      // look, so it is a debug visualization like the note boxes.
       let reaches: Rect[] = EMPTY_REACHES
+      // How far the roll moved since the previous frame. Taking a match means
+      // predicting a note's position from the bridge's view mapping, which is a
+      // round trip old — measured, 18ms while playing, which at a real scroll
+      // speed is one to two notes of error, so a fling may not START one. It
+      // does not have to: a match already taken is followed from read to read,
+      // and the anchor it left behind places every note that has none. Neither
+      // asks the mapping where anything is, so both survive any scrolling.
+      const moved = wasAt
+        ? Math.abs(vp.contentX - wasAt.contentX) + Math.abs(vp.refY - wasAt.refY)
+        : 0
+      wasAt = { contentX: vp.contentX, refY: vp.refY }
+      const settled = moved <= MAX_MATCH_SLIP_PX
+
+      if (match && match.read !== read) {
+        const followed = followRect(match.rect, match.read, read, read.notes)
+        match = followed ? { onset: match.onset, read, rect: followed } : null
+      }
+      if (anchored && anchored.read !== read) {
+        anchored = { anchor: rebaseAnchor(anchored.anchor, anchored.read, read), read }
+      }
+
       const view = transport.view
       const seconds = transport.playing ? transport.playhead(nowMs) : null
       if (view && seconds !== null) {
         const note = pitch.enabled ? noteInContour(transport, seconds) : transport.noteAt(seconds)
         if (note) {
           onset = note.onB
-          hit = locateNote(note, view, vp, read.notes, {
-            scaleX: transform.scaleX,
-            offsetX: transform.contentOffsetX,
-          })
+          if (match?.onset !== onset) {
+            match = null
+            const found = settled
+              ? locateNote(note, view, vp, read.notes, {
+                  scaleX: transform.scaleX,
+                  offsetX: transform.contentOffsetX,
+                })
+              : null
+            if (found) {
+              match = { onset, read, rect: found }
+            }
+          }
+          // A match is also a statement about every other note in this read, so
+          // it is kept as one. Notes that could not be matched — off the walked
+          // set, or started while the roll was moving — are placed from it.
+          if (match) {
+            anchored = { anchor: anchorFromMatch(note, match.rect, view, read), read }
+          }
+          hit = match?.rect ?? (anchored ? anchoredRect(note, anchored.anchor) : null)
           const span = note.offS - note.onS
           // Not bounded to the note: a contour runs past both its ends, and the
           // effect is meant to run with it. Off the ends the fraction goes
@@ -263,7 +332,7 @@ function Overlay() {
           }
         }
       }
-      if (view && pitch.enabled && pitch.mode !== "intensity") {
+      if (debug && view && pitch.enabled && pitch.mode !== "intensity") {
         const xform = { scaleX: transform.scaleX, offsetX: transform.contentOffsetX }
         const bands: Rect[] = []
         for (const note of transport.notesBetween(view.mapping.viewLeft, view.mapping.viewRight)) {
@@ -276,7 +345,7 @@ function Overlay() {
             transport.before(note),
             pitch.range,
           )
-          bands.push(pitchBounds(rect, lowest, highest, overhang))
+          bands.push(padRect(pitchBounds(rect, lowest, highest, overhang), REACH_PAD_PX))
         }
         reaches = bands
       }
@@ -312,6 +381,7 @@ function Overlay() {
         particles: boost === 1 ? particles : { ...particles, rate: particles.rate * boost },
         noteStarted,
         glow: boost === 1 ? glow : { ...glow, level: Math.min(glow.level * boost, 1) },
+        trail,
       })
     }
     raf = requestAnimationFrame(draw)

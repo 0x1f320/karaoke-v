@@ -1,5 +1,9 @@
 import { useEffect, useRef } from "react"
-import type { GlowPreferences, ParticlePreferences } from "../../../shared/preferences"
+import type {
+  GlowPreferences,
+  ParticlePreferences,
+  TrailPreferences,
+} from "../../../shared/preferences"
 import { NoteRenderer } from "../render/noteRenderer"
 import {
   BORDER_PX,
@@ -9,6 +13,7 @@ import {
   REACH_FILL,
   REACH_STROKE,
   STROKE,
+  trailParams,
 } from "../render/palette"
 
 // Live preview of the effect settings. It drives the overlay's own NoteRenderer
@@ -35,9 +40,11 @@ const PLAYHEAD_WIDTH = 1.5
 export function EffectPreview({
   particles,
   glow,
+  trail,
 }: {
   particles: ParticlePreferences
   glow: GlowPreferences
+  trail: TrailPreferences
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   // A DOM line rather than a Pixi one: the overlay never draws a playhead —
@@ -46,8 +53,8 @@ export function EffectPreview({
   const headRef = useRef<HTMLDivElement>(null)
   // Read inside the loop rather than captured, so moving a slider takes effect
   // without tearing down the scene.
-  const prefsRef = useRef({ particles, glow })
-  prefsRef.current = { particles, glow }
+  const prefsRef = useRef({ particles, glow, trail })
+  prefsRef.current = { particles, glow, trail }
 
   useEffect(() => {
     const host = hostRef.current
@@ -133,6 +140,7 @@ export function EffectPreview({
         particles: particleParams(prefsRef.current.particles),
         noteStarted: sounding && strike !== lastStrike,
         glow: glowParams(prefsRef.current.glow),
+        trail: trailParams(prefsRef.current.trail),
       })
       if (sounding) {
         lastStrike = strike

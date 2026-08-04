@@ -69,6 +69,11 @@ export function pitchBounds(
   return { x: hit.x - before, y: top, w: hit.w + before + after, h: bottom - top }
 }
 
+/** The same rect with `pad` px of slack on every side. */
+export function padRect(rect: Rect, pad: number): Rect {
+  return { x: rect.x - pad, y: rect.y - pad, w: rect.w + pad * 2, h: rect.h + pad * 2 }
+}
+
 export function composeFrame(
   transform: FrameTransform,
   vp: Viewport,

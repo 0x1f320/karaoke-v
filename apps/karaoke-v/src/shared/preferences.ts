@@ -110,6 +110,24 @@ export type GlowPreferences = EffectImage & {
 }
 
 /**
+ * The line the effect leaves behind it. With pitch following on it draws the
+ * sung curve; without it, the straight line through the notes' centres.
+ */
+export type TrailPreferences = {
+  enabled: boolean
+  /** How long a stretch of the line takes to fade out, seconds. */
+  life: number
+  /** Thickness of the bright core, px. */
+  width: number
+  /** How far the halo spreads past the core, as a multiple of the width. */
+  bloom: number
+  /** Sparkles left along the line per second. Zero draws the line alone. */
+  sparkle: number
+  /** "#rrggbb". */
+  color: string
+}
+
+/**
  * What the sung pitch is allowed to drive.
  *
  * - `position` — the effect rides the pitch line instead of the note's centre.
@@ -145,6 +163,7 @@ export type PitchPreferences = {
 export type EffectSettings = {
   particles: ParticlePreferences
   glow: GlowPreferences
+  trail: TrailPreferences
   pitch: PitchPreferences
 }
 
@@ -162,13 +181,20 @@ export type Preferences = {
   debug: boolean
   /**
    * Master switch for the note effects, owned by the toolbar. Off silences
-   * glow and particles whatever their own `enabled` says — that pair stays as
-   * the user left it, so flipping this back on restores the same look.
+   * every group whatever its own `enabled` says — those stay as the user left
+   * them, so flipping this back on restores the same look.
    */
   effects: boolean
   particles: ParticlePreferences
   glow: GlowPreferences
+  trail: TrailPreferences
   pitch: PitchPreferences
+  /**
+   * Which effect groups the settings window has open, by group name. Kept as
+   * the open ones rather than the closed ones, so a group added later starts
+   * folded away like every other one the user has not opened.
+   */
+  openGroups: string[]
   /** User-saved looks, in the order they appear in the picker. */
   presets: EffectPreset[]
   /**
@@ -214,12 +240,21 @@ export const DEFAULT_PREFERENCES: Preferences = {
     asset: null,
     blend: "add",
   },
+  trail: {
+    enabled: true,
+    life: 1.6,
+    width: 3,
+    bloom: 3,
+    sparkle: 24,
+    color: "#ffd27a",
+  },
   pitch: {
     enabled: false,
     mode: "both",
     range: 24,
     sensitivity: 0.12,
   },
+  openGroups: [],
   presets: [],
   activePreset: null,
 }
@@ -228,8 +263,12 @@ export const DEFAULT_PREFERENCES: Preferences = {
 export const DEFAULT_EFFECTS: EffectSettings = {
   particles: DEFAULT_PREFERENCES.particles,
   glow: DEFAULT_PREFERENCES.glow,
+  trail: DEFAULT_PREFERENCES.trail,
   pitch: DEFAULT_PREFERENCES.pitch,
 }
+
+/** Ceiling on the stored open groups, so a corrupt file cannot grow unbounded. */
+const OPEN_GROUP_LIMITS = { count: 32, nameLength: 40 } as const
 
 /** Ceilings on the preset list, so a corrupt file cannot grow unbounded. */
 export const PRESET_LIMITS = { count: 100, nameLength: 60 } as const
@@ -238,7 +277,12 @@ export const PRESET_LIMITS = { count: 100, nameLength: 60 } as const
 export function sameEffects(a: EffectSettings, b: EffectSettings): boolean {
   const same = <T extends object>(x: T, y: T) =>
     (Object.keys(x) as (keyof T)[]).every((key) => x[key] === y[key])
-  return same(a.particles, b.particles) && same(a.glow, b.glow) && same(a.pitch, b.pitch)
+  return (
+    same(a.particles, b.particles) &&
+    same(a.glow, b.glow) &&
+    same(a.trail, b.trail) &&
+    same(a.pitch, b.pitch)
+  )
 }
 
 /** Ranges the settings UI offers, and the bounds sanitizing clamps to. */
@@ -262,6 +306,13 @@ export const GLOW_LIMITS = {
   jitterRate: { min: 2, max: 30, step: 1 },
 } as const
 
+export const TRAIL_LIMITS = {
+  life: { min: 0.2, max: 6, step: 0.1 },
+  width: { min: 1, max: 16, step: 0.5 },
+  bloom: { min: 1, max: 8, step: 0.5 },
+  sparkle: { min: 0, max: 120, step: 2 },
+} as const
+
 export const PITCH_LIMITS = {
   range: { min: 0.5, max: 24, step: 0.5 },
   sensitivity: { min: 0, max: 0.5, step: 0.01 },
@@ -274,7 +325,10 @@ export type PreferencesPatch = {
   effects?: boolean
   particles?: Partial<ParticlePreferences>
   glow?: Partial<GlowPreferences>
+  trail?: Partial<TrailPreferences>
   pitch?: Partial<PitchPreferences>
+  /** The whole list, always — a partial one would read as "close the rest". */
+  openGroups?: string[]
   /** The whole list, always: adding, renaming and deleting all rewrite it. */
   presets?: EffectPreset[]
   /** null is a value here, not an absence — it names the built-in defaults. */
@@ -293,7 +347,9 @@ export function mergePreferences(base: Preferences, patch: PreferencesPatch): Pr
     effects: patch.effects ?? base.effects,
     particles: { ...base.particles, ...patch.particles },
     glow: { ...base.glow, ...patch.glow },
+    trail: { ...base.trail, ...patch.trail },
     pitch: { ...base.pitch, ...patch.pitch },
+    openGroups: patch.openGroups ?? base.openGroups,
     presets: patch.presets ?? base.presets,
     // Not ??: null is the defaults, and only an absent key means "leave it".
     activePreset: patch.activePreset !== undefined ? patch.activePreset : base.activePreset,
@@ -405,7 +461,7 @@ function sanitizePresets(input: unknown): EffectPreset[] | undefined {
     if (typeof entry !== "object" || entry === null) {
       continue
     }
-    const { id, name, particles, glow, pitch } = entry as Record<string, unknown>
+    const { id, name, particles, glow, trail, pitch } = entry as Record<string, unknown>
     if (typeof id !== "string" || !id || typeof name !== "string" || !name.trim()) {
       continue
     }
@@ -414,6 +470,7 @@ function sanitizePresets(input: unknown): EffectPreset[] | undefined {
       name: name.trim().slice(0, PRESET_LIMITS.nameLength),
       particles: { ...DEFAULT_EFFECTS.particles, ...sanitizeParticles(particles) },
       glow: { ...DEFAULT_EFFECTS.glow, ...sanitizeGlow(glow) },
+      trail: { ...DEFAULT_EFFECTS.trail, ...sanitizeGroup(trail, TRAIL_LIMITS) },
       pitch: { ...DEFAULT_EFFECTS.pitch, ...sanitizePitch(pitch) },
     })
   }
@@ -427,8 +484,18 @@ export function sanitizePreferences(input: unknown): PreferencesPatch {
   if (typeof input !== "object" || input === null) {
     return out
   }
-  const { language, debug, effects, particles, glow, pitch, presets, activePreset } =
-    input as Record<string, unknown>
+  const {
+    language,
+    debug,
+    effects,
+    particles,
+    glow,
+    trail,
+    pitch,
+    openGroups,
+    presets,
+    activePreset,
+  } = input as Record<string, unknown>
   if (isLanguagePreference(language)) {
     out.language = language
   }
@@ -441,6 +508,12 @@ export function sanitizePreferences(input: unknown): PreferencesPatch {
   if (typeof activePreset === "string" || activePreset === null) {
     out.activePreset = activePreset
   }
+  if (Array.isArray(openGroups)) {
+    out.openGroups = openGroups
+      .filter((name): name is string => typeof name === "string")
+      .slice(0, OPEN_GROUP_LIMITS.count)
+      .map((name) => name.slice(0, OPEN_GROUP_LIMITS.nameLength))
+  }
   const cleanPresets = sanitizePresets(presets)
   if (cleanPresets) {
     out.presets = cleanPresets
@@ -452,6 +525,10 @@ export function sanitizePreferences(input: unknown): PreferencesPatch {
   const cleanGlow = sanitizeGlow(glow)
   if (cleanGlow) {
     out.glow = cleanGlow
+  }
+  const cleanTrail = sanitizeGroup(trail, TRAIL_LIMITS)
+  if (cleanTrail) {
+    out.trail = cleanTrail
   }
   const cleanPitch = sanitizePitch(pitch)
   if (cleanPitch) {
