@@ -125,6 +125,7 @@ export function EffectPreview({
         playing: null,
         playingFill: FILL,
         emit: emit ? { x: headX, y: emit.y, spread: phrase.notes[emit.index].h } : null,
+        trailEmit: emit ? { x: headX, y: emit.trailY, spread: phrase.notes[emit.index].h } : null,
         particles:
           boost === 1 ? particleLook : { ...particleLook, rate: particleLook.rate * boost },
         noteStarted: emit !== null && strike !== lastStrike,
@@ -145,9 +146,10 @@ export function EffectPreview({
       const riding = pitch.enabled && pitch.mode !== "intensity"
       const contour = contourRef.current
       if (contour) {
-        const wanted = riding ? `${key}:${pitch.range}` : ""
+        const drawn = riding || trail.enabled
+        const wanted = drawn ? `${key}:${pitch.range}` : ""
         if (wanted !== contourKey) {
-          contour.setAttribute("d", riding ? pathOf(previewContour(phrase, pitch.range)) : "")
+          contour.setAttribute("d", drawn ? pathOf(previewContour(phrase, pitch.range)) : "")
           contourKey = wanted
         }
       }

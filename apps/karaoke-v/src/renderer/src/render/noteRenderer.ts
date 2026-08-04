@@ -51,6 +51,11 @@ export interface DrawParams {
   playingFill: Rgba
   /** Where the playhead crosses the sounding note; null when nothing sounds. */
   emit: { x: number; y: number; spread: number } | null
+  /**
+   * Where the trail is written. The same point as `emit` only when the effects
+   * follow the pitch; otherwise the sung curve, which the trail draws either way.
+   */
+  trailEmit: { x: number; y: number; spread: number } | null
   particles: ParticleParams
   /** True on the frame a new note starts sounding — strikes the glow. */
   noteStarted: boolean
@@ -395,7 +400,7 @@ export class NoteRenderer {
     }
     glow.update(dt, glowAt, p.glow)
 
-    trail.update(dt, p.trail.enabled ? p.emit : null, p.trail)
+    trail.update(dt, p.trail.enabled ? p.trailEmit : null, p.trail)
 
     if (p.emit && p.particles.enabled) {
       this.emitDebt += dt * p.particles.rate

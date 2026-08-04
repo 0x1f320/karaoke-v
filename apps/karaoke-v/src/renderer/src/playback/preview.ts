@@ -42,6 +42,8 @@ export interface PreviewEmit {
   index: number
   /** Where the effect sits, in preview px. */
   y: number
+  /** Where the trail is written — on the sung curve however the effects are set. */
+  trailY: number
   /** What pitch movement does to the effect's strength. */
   boost: number
 }
@@ -102,10 +104,7 @@ export function previewEmit(
     return null
   }
   const note = phrase.notes[index]
-  const emit: PreviewEmit = { index, y: note.y + note.h / 2, boost: 1 }
-  if (!pitch.enabled) {
-    return emit
-  }
+  const centre = note.y + note.h / 2
   const voice = phrase.voices[index]
   const sung = samplePitch(
     voice,
@@ -113,10 +112,14 @@ export function previewEmit(
     x * phrase.secondsPerPx - voice.onS,
     pitch.range,
   )
+  // The rect is one semitone tall, so an offset in semitones scales by its
+  // height — the same mapping the overlay places the effect with.
+  const emit: PreviewEmit = { index, y: centre, trailY: centre - sung.offset * note.h, boost: 1 }
+  if (!pitch.enabled) {
+    return emit
+  }
   if (pitch.mode !== "intensity") {
-    // The rect is one semitone tall, so an offset in semitones scales by its
-    // height — the same mapping the overlay places the effect with.
-    emit.y -= sung.offset * note.h
+    emit.y = emit.trailY
   }
   if (pitch.mode !== "position") {
     emit.boost = intensityScale(sung.speed, pitch.sensitivity)
@@ -130,13 +133,13 @@ export function previewEmit(
  * playhead gets there.
  */
 export function previewContour(phrase: PreviewPhrase, range: number): { x: number; y: number }[] {
-  const rider: PitchPreferences = { enabled: true, mode: "position", range, sensitivity: 0 }
+  const rider: PitchPreferences = { enabled: false, mode: "position", range, sensitivity: 0 }
   const end = phraseEnd(phrase)
   const points: { x: number; y: number }[] = []
   const push = (x: number) => {
     const emit = previewEmit(phrase, x, rider)
     if (emit) {
-      points.push({ x, y: emit.y })
+      points.push({ x, y: emit.trailY })
     }
   }
   for (let x = phraseStart(phrase); x < end; x += CONTOUR_STEP_PX) {

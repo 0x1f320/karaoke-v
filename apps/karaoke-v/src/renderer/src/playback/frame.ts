@@ -16,6 +16,12 @@ export interface FrameTransform {
   dy: number
 }
 
+export interface EmitPoint {
+  x: number
+  y: number
+  spread: number
+}
+
 export interface FrameLayout {
   /** Window-local shift applied to the read's rects. */
   offsetX: number
@@ -23,7 +29,9 @@ export interface FrameLayout {
   scaleX: number
   /** Window-local note canvas — nothing may draw over the lanes beside it. */
   clip: Rect
-  emit: { x: number; y: number; spread: number } | null
+  emit: EmitPoint | null
+  /** Where the trail is written — on the sung curve however the effects are set. */
+  trailEmit: EmitPoint | null
 }
 
 function horizontalScale(currentW: number, readW: number): number {
@@ -89,6 +97,8 @@ export function composeFrame(
    * needs no mapping of its own.
    */
   offsetSemitones = 0,
+  /** The same, for the trail, which draws the curve whether or not the effects follow it. */
+  trailSemitones = offsetSemitones,
 ): FrameLayout {
   return {
     offsetX: transform.contentOffsetX - origin.x,
@@ -100,14 +110,17 @@ export function composeFrame(
       w: vp.canvas.w,
       h: vp.canvas.h,
     },
-    // Sparks come off where the playhead is inside the note, not off the note as
-    // a whole — that is what makes the effect read as following the sound.
-    emit: hit
-      ? {
-          x: hit.x + hit.w * progress,
-          y: hit.y + hit.h / 2 - offsetSemitones * hit.h,
-          spread: hit.h,
-        }
-      : null,
+    emit: hit ? emitAt(hit, progress, offsetSemitones) : null,
+    trailEmit: hit ? emitAt(hit, progress, trailSemitones) : null,
+  }
+}
+
+// Sparks come off where the playhead is inside the note, not off the note as a
+// whole — that is what makes the effect read as following the sound.
+function emitAt(hit: Rect, progress: number, semitones: number): EmitPoint {
+  return {
+    x: hit.x + hit.w * progress,
+    y: hit.y + hit.h / 2 - semitones * hit.h,
+    spread: hit.h,
   }
 }

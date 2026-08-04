@@ -228,6 +228,7 @@ function Overlay() {
           playing: null,
           playingFill: PLAYING_FILL,
           emit: null,
+          trailEmit: null,
           particles,
           noteStarted: false,
           glow,
@@ -258,10 +259,16 @@ function Overlay() {
       let hit: Rect | null = null
       let progress = 0
       let onset: number | null = null
+      // Which note the glow is struck for. Not the same as `onset`: that names
+      // the note being placed, which off the ends of a contour is one the
+      // effects are not sounding yet.
+      let struck: number | null = null
       // How far the voice is from the note, and what that does to the effect.
       // Neutral unless the user asked for it, so the emit point stays on the
       // note's centre and the effect keeps the strength they dialled in.
       let offsetSemitones = 0
+      // The trail draws the sung curve whether or not the effects follow it.
+      let trailSemitones = 0
       let boost = 1
       // A band per visible note showing where its effect can travel: how near a
       // reach comes to the edge of the piano roll, past which the effects layer
@@ -292,7 +299,8 @@ function Overlay() {
       const view = transport.view
       const seconds = transport.playing ? transport.playhead(nowMs) : null
       if (view && seconds !== null) {
-        const note = pitch.enabled ? noteInContour(transport, seconds) : transport.noteAt(seconds)
+        const riding = pitch.enabled || trail.enabled
+        const note = riding ? noteInContour(transport, seconds) : transport.noteAt(seconds)
         if (note) {
           onset = note.onB
           if (match?.onset !== onset) {
@@ -320,14 +328,23 @@ function Overlay() {
           // outside 0..1 and the emission point leaves the rectangle sideways,
           // which is exactly where the curve has gone.
           progress = span > 0 ? (seconds - note.onS) / span : 0
-          if (pitch.enabled) {
+          // Sparks and glow sound over the note itself, and run out into the
+          // glide and the release only when they follow the pitch. The trail
+          // goes there either way, so the window it is read over is wider.
+          if (pitch.enabled || (progress >= 0 && progress < 1)) {
+            struck = note.onB
+          }
+          if (riding) {
             const previous = transport.noteBefore(seconds)
             const sung = samplePitch(note, previous, seconds - note.onS, pitch.range)
-            if (pitch.mode !== "intensity") {
-              offsetSemitones = sung.offset
-            }
-            if (pitch.mode !== "position") {
-              boost = intensityScale(sung.speed, pitch.sensitivity)
+            trailSemitones = sung.offset
+            if (pitch.enabled) {
+              if (pitch.mode !== "intensity") {
+                offsetSemitones = sung.offset
+              }
+              if (pitch.mode !== "position") {
+                boost = intensityScale(sung.speed, pitch.sensitivity)
+              }
             }
           }
         }
@@ -350,8 +367,8 @@ function Overlay() {
         reaches = bands
       }
 
-      const noteStarted = onset !== null && onset !== soundingOnset
-      soundingOnset = onset
+      const noteStarted = struck !== null && struck !== soundingOnset
+      soundingOnset = struck
 
       // The overlay window covers the whole SynthV window; map global screen
       // coords to window-local ones and clip to the note canvas so nothing draws
@@ -360,7 +377,15 @@ function Overlay() {
       // and that pair is sampled together; window.screenX updates on its own
       // schedule, so during a drag the two disagree and the drawing slides.
       const origin = vp.origin ?? { x: window.screenX, y: window.screenY }
-      const frame = composeFrame(transform, vp, origin, hit, progress, offsetSemitones)
+      const frame = composeFrame(
+        transform,
+        vp,
+        origin,
+        hit,
+        progress,
+        offsetSemitones,
+        trailSemitones,
+      )
       renderer.draw({
         width: w,
         height: h,
@@ -377,7 +402,8 @@ function Overlay() {
         reachStroke: REACH_STROKE,
         playing: debug ? hit : null,
         playingFill: PLAYING_FILL,
-        emit: frame.emit,
+        emit: struck === null ? null : frame.emit,
+        trailEmit: frame.trailEmit,
         particles: boost === 1 ? particles : { ...particles, rate: particles.rate * boost },
         noteStarted,
         glow: boost === 1 ? glow : { ...glow, level: Math.min(glow.level * boost, 1) },

@@ -55,8 +55,26 @@ describe("previewEmit", () => {
     const phrase = previewPhrase(WIDTH, HEIGHT)
     for (const [i, note] of phrase.notes.entries()) {
       const emit = previewEmit(phrase, note.x + note.w / 2, OFF)
-      expect(emit).toEqual({ index: i, y: note.y + note.h / 2, boost: 1 })
+      expect(emit?.index).toBe(i)
+      expect(emit?.y).toBe(note.y + note.h / 2)
+      expect(emit?.boost).toBe(1)
     }
+  })
+
+  it("keeps the trail on the sung curve with the pitch switched off", () => {
+    const phrase = previewPhrase(WIDTH, HEIGHT)
+    const second = phrase.notes[1]
+    for (const x of [second.x, second.x + second.w / 2, second.x + second.w - 1]) {
+      expect(previewEmit(phrase, x, OFF)?.trailY).toBeCloseTo(
+        previewEmit(phrase, x, RIDING)?.y ?? Number.NaN,
+        5,
+      )
+    }
+    // The glide in reaches the lane below, which the note's centre never does.
+    expect(previewEmit(phrase, second.x, OFF)?.trailY).toBeCloseTo(
+      phrase.notes[0].y + second.h / 2,
+      0,
+    )
   })
 
   it("glides up from the note before, a lane below", () => {
@@ -75,6 +93,7 @@ describe("previewEmit", () => {
     const emit = previewEmit(phrase, second.x + 2, SWELLING)
     expect(emit?.y).toBe(second.y + second.h / 2)
     expect(emit?.boost).toBeGreaterThan(1)
+    expect(emit?.trailY).not.toBe(emit?.y)
   })
 })
 

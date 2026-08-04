@@ -1,7 +1,7 @@
 import { type Container, Graphics, Sprite, type Texture } from "pixi.js"
 
-// The line the effect leaves behind it — the path the emission point has taken,
-// which with pitch following is the sung curve itself.
+// The line the voice leaves behind it — the sung curve, which the caller feeds
+// in whether or not the other effects follow the pitch.
 //
 // Like the sparks, everything here lives in the note set's coordinate space, so
 // rebase() moves it when a new AX read replaces the frame it was written in.
