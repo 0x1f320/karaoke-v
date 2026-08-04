@@ -19,6 +19,7 @@
     "@types/node": "^20.19.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "agentation": "^3.0.2",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.6.0"
   }

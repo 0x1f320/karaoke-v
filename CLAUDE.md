@@ -88,6 +88,10 @@ or Rust checks and a Rust change never rebuilds the site.
   `apps/website` and `npx turbo-ignore` as the Ignored Build Step. GitHub Actions holds
   no Vercel token; `website.yml` is the merge gate, Vercel does the shipping.
 - Linting is Biome like everything else, not the ESLint config the Next template ships.
+- **Agentation** is the dev-only feedback toolbar: `pnpm website`, click an element, leave a
+  comment, and the agent reads it through the `agentation` MCP server in `.mcp.json`. It is
+  mounted behind a `NODE_ENV` check *and* aliased to a stub in `next.config.ts` — the check
+  alone does not stop Turbopack shipping its ~400 kB, so do not drop the alias.
 - There is no design or copy yet, by design — the scaffold is deliberately bare. The app
   ships ko/en/ja and the site is expected to follow, so keep the route tree absorbable by
   a later `[locale]` segment.
