@@ -30,7 +30,7 @@
 .dot-plane {
   transform: rotateX(77deg);
   transform-origin: 50% 100%;
-  background-image: radial-gradient(circle at center, var(--color-dot) 2px, transparent 2.4px);
+  background-image: radial-gradient(circle at center, var(--color-dot) 3px, transparent 3.6px);
   background-size: 60px 60px;
   mask-image: linear-gradient(to top, #000 0%, #000 8%, rgb(0 0 0 / 0.45) 55%, transparent 96%);
 }
