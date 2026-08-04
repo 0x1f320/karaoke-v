@@ -12,7 +12,8 @@ import type { BridgeNote, BridgeStatus, BridgeViewMapping } from "../../../share
 // Timing is read from the channel alone. Where a note sits on screen is not —
 // that comes from the AX pipeline, which is already exact and self-correcting
 // under scroll. All this contributes to geometry is the view mapping and the
-// scroll position it was read at, so a note can be found among the AX rects.
+// scroll position it was read at: enough to find a note among the AX rects, and
+// enough to work out where it would be when it is in none of them.
 
 export interface TransportView {
   mapping: BridgeViewMapping

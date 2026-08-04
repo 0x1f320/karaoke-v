@@ -36,6 +36,8 @@ import {
   type Preferences,
   type PreferencesPatch,
   sameEffects,
+  TRAIL_LIMITS,
+  type TrailPreferences,
 } from "../../../shared/preferences"
 import { EffectPreview } from "./EffectPreview"
 import { Button } from "./ui/Button"
@@ -65,6 +67,9 @@ type SectionId = (typeof SECTIONS)[number]["id"]
 const DIRECTIONS: readonly ParticleDirection[] = ["directional", "radial"]
 
 const SHAPES: readonly GlowShape[] = ["bloom", "cross", "x", "star"]
+
+/** Names of the foldable groups, as `openGroups` stores them. */
+type EffectGroup = "glow" | "particles" | "trail" | "pitch"
 
 // Picker entries that are not presets. Neither can collide with a preset id:
 // those are UUIDs.
@@ -210,7 +215,7 @@ function EffectsSection({
   update: (patch: PreferencesPatch) => void
 }) {
   const { t } = useTranslation()
-  const { particles, glow, pitch, presets, activePreset } = prefs
+  const { particles, glow, trail, pitch, openGroups, presets, activePreset } = prefs
   // Where the current values came from, and so what saving overwrites and
   // reverting returns to. null is the built-in defaults, which cannot be
   // overwritten — edits made against them can only become a preset of their own.
@@ -224,19 +229,19 @@ function EffectsSection({
   // the custom entry stays on the list until they are picked back up. Without
   // this, trying another preset to compare would quietly discard the tuning.
   const [stash, setStash] = useState<(EffectSettings & { origin: string | null }) | null>(null)
-  // Tracked as what the user has closed, so a group is open unless they said
-  // otherwise — including any group added later.
-  const [collapsed, setCollapsed] = useState<
-    Partial<Record<"glow" | "particles" | "pitch", boolean>>
-  >({})
-  const toggle = (group: "glow" | "particles" | "pitch") => (open: boolean) =>
-    setCollapsed((s) => ({ ...s, [group]: !open }))
+  // Which groups are unfolded is a preference like any other: it is stored, so
+  // the panel comes back the way it was left.
+  const toggle = (group: EffectGroup) => (open: boolean) => {
+    const rest = openGroups.filter((g) => g !== group)
+    update({ openGroups: open ? [...rest, group] : rest })
+  }
   // The two spread sliders mean different things per mode, so their rows are
   // labelled from it.
   const radial = particles.direction === "radial"
 
   const setParticles = (patch: Partial<ParticlePreferences>) => update({ particles: patch })
   const setGlow = (patch: Partial<GlowPreferences>) => update({ glow: patch })
+  const setTrail = (patch: Partial<TrailPreferences>) => update({ trail: patch })
   const setPitch = (patch: Partial<PitchPreferences>) => update({ pitch: patch })
 
   // A preset is named only while the values still are that preset; the moment
@@ -250,6 +255,7 @@ function EffectsSection({
         update({
           particles: stash.particles,
           glow: stash.glow,
+          trail: stash.trail,
           pitch: stash.pitch,
           activePreset: stash.origin,
         })
@@ -258,26 +264,35 @@ function EffectsSection({
       return
     }
     if (drifted) {
-      setStash({ particles, glow, pitch, origin: activePreset })
+      setStash({ particles, glow, trail, pitch, origin: activePreset })
     }
     const picked = presets.find((p) => p.id === id) ?? null
     const next = picked ?? DEFAULT_EFFECTS
     update({
       particles: next.particles,
       glow: next.glow,
+      trail: next.trail,
       pitch: next.pitch,
       activePreset: picked?.id ?? null,
     })
   }
 
   /** Back to what the origin holds, staying on it. */
-  const revert = () => update({ particles: basis.particles, glow: basis.glow, pitch: basis.pitch })
+  const revert = () =>
+    update({
+      particles: basis.particles,
+      glow: basis.glow,
+      trail: basis.trail,
+      pitch: basis.pitch,
+    })
 
   /** Put the current values back on the preset they came from. */
   const overwriteOrigin = () => {
     if (origin) {
       update({
-        presets: presets.map((p) => (p.id === origin.id ? { ...p, particles, glow, pitch } : p)),
+        presets: presets.map((p) =>
+          p.id === origin.id ? { ...p, particles, glow, trail, pitch } : p,
+        ),
       })
     }
   }
@@ -289,8 +304,8 @@ function EffectsSection({
     const id = existing?.id ?? crypto.randomUUID()
     update({
       presets: existing
-        ? presets.map((p) => (p.id === id ? { ...p, particles, glow, pitch } : p))
-        : [...presets, { id, name, particles, glow, pitch }],
+        ? presets.map((p) => (p.id === id ? { ...p, particles, glow, trail, pitch } : p))
+        : [...presets, { id, name, particles, glow, trail, pitch }],
       // Saved and selected in one move: the values are that preset now, so
       // leaving the picker on the custom entry would be a lie.
       activePreset: id,
@@ -307,6 +322,7 @@ function EffectsSection({
         presets: presets.filter((p) => p.id !== origin.id),
         particles: DEFAULT_EFFECTS.particles,
         glow: DEFAULT_EFFECTS.glow,
+        trail: DEFAULT_EFFECTS.trail,
         activePreset: null,
       })
     }
@@ -329,6 +345,14 @@ function EffectsSection({
       onValueChange={(value) => setGlow({ [key]: value })}
     />
   )
+  const trailSlider = (key: keyof typeof TRAIL_LIMITS, readout: string) => (
+    <Slider
+      {...TRAIL_LIMITS[key]}
+      value={trail[key]}
+      readout={readout}
+      onValueChange={(value) => setTrail({ [key]: value })}
+    />
+  )
   const pitchSlider = (key: keyof typeof PITCH_LIMITS, readout: string) => (
     <Slider
       {...PITCH_LIMITS[key]}
@@ -344,7 +368,7 @@ function EffectsSection({
           because it is not one more setting: it sets all of them at once, and
           what it changes is the thing directly above it. */}
       <div className="flex-none px-6 pb-4">
-        <EffectPreview particles={particles} glow={glow} />
+        <EffectPreview particles={particles} glow={glow} trail={trail} />
         <div className="mt-2 flex items-center gap-1.5">
           <Select
             className="min-w-0 flex-1"
@@ -388,7 +412,7 @@ function EffectsSection({
           <EffectAccordion
             title={t("settings.effects.glow.title")}
             description={t("settings.effects.glow.description")}
-            open={!collapsed.glow}
+            open={openGroups.includes("glow")}
             onOpenChange={toggle("glow")}
             enabled={glow.enabled}
             onEnabledChange={(v) => setGlow({ enabled: v })}
@@ -462,7 +486,7 @@ function EffectsSection({
           <EffectAccordion
             title={t("settings.effects.particles.title")}
             description={t("settings.effects.particles.description")}
-            open={!collapsed.particles}
+            open={openGroups.includes("particles")}
             onOpenChange={toggle("particles")}
             enabled={particles.enabled}
             onEnabledChange={(v) => setParticles({ enabled: v })}
@@ -568,9 +592,53 @@ function EffectsSection({
           </EffectAccordion>
 
           <EffectAccordion
+            title={t("settings.effects.trail.title")}
+            description={t("settings.effects.trail.description")}
+            open={openGroups.includes("trail")}
+            onOpenChange={toggle("trail")}
+            enabled={trail.enabled}
+            onEnabledChange={(v) => setTrail({ enabled: v })}
+          >
+            <SettingRow
+              label={t("settings.effects.trail.life.label")}
+              description={t("settings.effects.trail.life.description")}
+            >
+              {trailSlider("life", t("units.seconds", { value: trail.life.toFixed(1) }))}
+            </SettingRow>
+            <SettingRow
+              label={t("settings.effects.trail.width.label")}
+              description={t("settings.effects.trail.width.description")}
+            >
+              {trailSlider("width", t("units.pixels", { value: trail.width.toFixed(1) }))}
+            </SettingRow>
+            <SettingRow
+              label={t("settings.effects.trail.bloom.label")}
+              description={t("settings.effects.trail.bloom.description")}
+            >
+              {trailSlider("bloom", t("units.times", { value: trail.bloom.toFixed(1) }))}
+            </SettingRow>
+            <SettingRow
+              label={t("settings.effects.trail.sparkle.label")}
+              description={t("settings.effects.trail.sparkle.description")}
+            >
+              {trailSlider("sparkle", t("units.perSecond", { value: Math.round(trail.sparkle) }))}
+            </SettingRow>
+            <SettingRow
+              label={t("settings.effects.trail.color.label")}
+              description={t("settings.effects.trail.color.description")}
+            >
+              <ColorInput
+                aria-label={t("settings.effects.trail.color.aria")}
+                value={trail.color}
+                onChange={(color) => setTrail({ color })}
+              />
+            </SettingRow>
+          </EffectAccordion>
+
+          <EffectAccordion
             title={t("settings.effects.pitch.title")}
             description={t("settings.effects.pitch.description")}
-            open={!collapsed.pitch}
+            open={openGroups.includes("pitch")}
             onOpenChange={toggle("pitch")}
             enabled={pitch.enabled}
             onEnabledChange={(v) => setPitch({ enabled: v })}

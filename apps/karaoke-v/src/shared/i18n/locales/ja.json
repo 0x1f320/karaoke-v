@@ -196,6 +196,31 @@
           "aria": "パーティクルの色"
         }
       },
+      "trail": {
+        "title": "軌跡",
+        "description": "エフェクトが通った跡に残り、少しずつ消えていく光の線です。",
+        "life": {
+          "label": "持続時間",
+          "description": "線が完全に消えるまでの時間です。"
+        },
+        "width": {
+          "label": "太さ",
+          "description": "線の中心にある明るい芯の太さです。"
+        },
+        "bloom": {
+          "label": "にじみ",
+          "description": "芯の外側に広がる光の輪の太さの倍率です。"
+        },
+        "sparkle": {
+          "label": "きらめき",
+          "description": "線に沿って残る光の粒の数です。0 なら線だけが残ります。"
+        },
+        "color": {
+          "label": "色",
+          "description": "線と粒を塗る色です。",
+          "aria": "軌跡の色"
+        }
+      },
       "pitch": {
         "title": "ピッチに追従",
         "description": "ノートの中央ではなく、実際に歌われた音高に沿ってエフェクトが動きます。",

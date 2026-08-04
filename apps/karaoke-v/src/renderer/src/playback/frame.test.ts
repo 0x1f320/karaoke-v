@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { PianoRoll, Viewport } from "../../../shared/geometry"
-import { composeFrame, frameTransform, pitchBounds } from "./frame"
+import { composeFrame, frameTransform, padRect, pitchBounds } from "./frame"
 
 const READ: PianoRoll = {
   canvas: { x: 500, y: 200, w: 800, h: 400 },
@@ -150,5 +150,16 @@ describe("pitchBounds", () => {
     expect(box.x).toBe(550)
     expect(box.w).toBe(200)
     expect(box.x + box.w / 2).toBe(hit.x + hit.w / 2)
+  })
+})
+
+describe("padRect", () => {
+  it("grows a rect on every side, keeping it centred", () => {
+    expect(padRect({ x: 600, y: 300, w: 100, h: 20 }, 24)).toEqual({
+      x: 576,
+      y: 276,
+      w: 148,
+      h: 68,
+    })
   })
 })

@@ -196,6 +196,31 @@
           "aria": "파티클 색상"
         }
       },
+      "trail": {
+        "title": "궤적",
+        "description": "이펙트가 지나간 자리에 남아 서서히 사라지는 빛나는 선입니다.",
+        "life": {
+          "label": "지속 시간",
+          "description": "선이 다 사라질 때까지 걸리는 시간입니다."
+        },
+        "width": {
+          "label": "굵기",
+          "description": "선 한가운데 밝은 심의 굵기입니다."
+        },
+        "bloom": {
+          "label": "번짐",
+          "description": "심 바깥으로 퍼지는 빛무리의 굵기 배율입니다."
+        },
+        "sparkle": {
+          "label": "반짝임",
+          "description": "선을 따라 남는 반짝이는 알갱이의 개수입니다. 0이면 선만 남습니다."
+        },
+        "color": {
+          "label": "색상",
+          "description": "선과 알갱이를 칠할 색상입니다.",
+          "aria": "궤적 색상"
+        }
+      },
       "pitch": {
         "title": "피치 따라가기",
         "description": "노트의 한가운데가 아니라, 실제로 부른 음높이를 따라 이펙트가 움직입니다.",

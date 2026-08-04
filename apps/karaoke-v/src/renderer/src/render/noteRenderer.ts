@@ -2,6 +2,7 @@ import type { Rect } from "@karaoke-v/macos-helper"
 import { Application, Container, Graphics, type Texture } from "pixi.js"
 import { GlowFlash, type GlowParams } from "./glow"
 import { ParticleField, type ParticleParams } from "./particles"
+import { PitchTrail, type TrailParams } from "./trail"
 
 // PixiJS scene for the overlay. Notes live in `content`, whose position carries
 // the scroll delta — so a scroll frame moves one transform rather than touching
@@ -54,6 +55,7 @@ export interface DrawParams {
   /** True on the frame a new note starts sounding — strikes the glow. */
   noteStarted: boolean
   glow: GlowParams
+  trail: TrailParams
 }
 
 interface Style {
@@ -87,6 +89,7 @@ export class NoteRenderer {
   private effectsLayer: Container | null = null
   private particles: ParticleField | null = null
   private glow: GlowFlash | null = null
+  private trail: PitchTrail | null = null
   private disposed = false
 
   // Emission is a rate, not a per-frame count, so it stays the same whether the
@@ -134,7 +137,11 @@ export class NoteRenderer {
    * lets the last sparks and the glow release instead of cutting them off.
    */
   get effectsActive(): boolean {
-    return (this.particles?.active ?? false) || (this.glow?.active ?? false)
+    return (
+      (this.particles?.active ?? false) ||
+      (this.glow?.active ?? false) ||
+      (this.trail?.active ?? false)
+    )
   }
 
   /** Container for future effect layers. Null until init resolves. */
@@ -181,9 +188,12 @@ export class NoteRenderer {
     this.reaches = reaches
     this.playing = playing
     this.effectsLayer = effects
-    // Glow first so the sparks read as being in front of it.
+    // Back to front: the trail is what the light has already passed over, so the
+    // glow and then the sparks read as being in front of it.
+    const spark = this.makeSparkTexture(app)
+    this.trail = new PitchTrail(effects, spark)
     this.glow = new GlowFlash(effects)
-    this.particles = new ParticleField(effects, this.makeSparkTexture(app))
+    this.particles = new ParticleField(effects, spark)
     this.clip = clip
     this.geometryDirty = true
     this.clipRect = { x: 0, y: 0, w: 0, h: 0 }
@@ -215,6 +225,7 @@ export class NoteRenderer {
   ): void {
     this.particles?.rebase(from, to)
     this.glow?.rebase(from, to)
+    this.trail?.rebase(from, to)
   }
 
   /** Replace the note set. Geometry is rebuilt on the next draw, not here. */
@@ -364,7 +375,8 @@ export class NoteRenderer {
   private stepEffects(p: DrawParams): void {
     const field = this.particles
     const glow = this.glow
-    if (!field || !glow) {
+    const trail = this.trail
+    if (!field || !glow || !trail) {
       return
     }
 
@@ -382,6 +394,8 @@ export class NoteRenderer {
       glow.flash()
     }
     glow.update(dt, glowAt, p.glow)
+
+    trail.update(dt, p.trail.enabled ? p.emit : null, p.trail)
 
     if (p.emit && p.particles.enabled) {
       this.emitDebt += dt * p.particles.rate
@@ -404,6 +418,8 @@ export class NoteRenderer {
     this.particles = null
     this.glow?.dispose()
     this.glow = null
+    this.trail?.dispose()
+    this.trail = null
     this.app?.destroy({ removeView: true }, { children: true })
     this.app = null
     // Also covers disposal before init resolved, when there is no app to take
