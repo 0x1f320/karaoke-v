@@ -13,3 +13,6 @@ target/
 packages/*-helper/*.node
 packages/*-helper/binding.js
 packages/*-helper/binding.d.ts
+
+# the bridge script, copied out of packages/synthv-script by the app build
+apps/karaoke-v/resources/synthv/

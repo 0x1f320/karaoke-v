@@ -1,8 +1,8 @@
-import path from "node:path"
 import { app, Menu, type NativeImage, Notification, nativeImage, nativeTheme, Tray } from "electron"
 import { APP_NAME } from "../shared/i18n"
 import { onLanguageChanged, t } from "./i18n"
 import { getPreferences, onPreferencesChanged, updatePreferences } from "./preferences"
+import { resourcePath } from "./resources"
 import { openSettingsWindow } from "./settings"
 
 // The menu bar item (macOS) / tray icon (Windows). The dock icon is hidden and
@@ -25,15 +25,6 @@ let graceTimer: NodeJS.Timeout | null = null
 let notified = false
 let unsubscribePreferences: (() => void) | null = null
 let unsubscribeLanguage: (() => void) | null = null
-
-// Assets ship outside the bundle, so the packaged path is Electron's resources
-// directory rather than anything relative to the compiled main process.
-function resourcePath(...parts: string[]): string {
-  const root = app.isPackaged
-    ? process.resourcesPath
-    : path.join(__dirname, "..", "..", "resources")
-  return path.join(root, ...parts)
-}
 
 function trayIcon(): NativeImage {
   if (process.platform === "darwin") {

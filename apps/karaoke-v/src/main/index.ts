@@ -4,6 +4,7 @@ import { APP_NAME } from "../shared/i18n"
 import { native, type Rect } from "../shared/native"
 import { registerAssetIpc, registerAssetScheme } from "./assets"
 import { prepareBridgeDirectory } from "./bridge"
+import { installBridgeScript } from "./bridgeScript"
 import { registerDipIpc, toDipFrame, updateDipTransform } from "./dip"
 import { initI18n } from "./i18n"
 import { createOverlayWindow, positionOverlay } from "./overlay"
@@ -186,6 +187,11 @@ app.whenReady().then(() => {
   registerPermissionsIpc()
   ipcMain.handle("settings:open", () => openSettingsWindow())
   ipcMain.handle("settings:close", () => closeSettingsWindow())
+
+  // Before anything is shown: an app update ships a newer bridge script, and
+  // SynthV only rereads its scripts directory when it starts — so the sooner the
+  // copy lands, the more likely it is the one SynthV comes up with.
+  installBridgeScript()
 
   if (isAccessibilityTrusted()) {
     start()

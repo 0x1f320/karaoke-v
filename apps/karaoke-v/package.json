@@ -7,8 +7,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
-    "dev": "electron-vite dev --watch",
-    "build": "electron-vite build",
+    "dev": "node scripts/bundle-bridge-script.mjs && electron-vite dev --watch",
+    "build": "node scripts/bundle-bridge-script.mjs && electron-vite build",
     "start": "electron ."
   },
   "dependencies": {
@@ -24,6 +24,7 @@
     "react-i18next": "^17.0.11"
   },
   "devDependencies": {
+    "@karaoke-v/synthv-script": "workspace:*",
     "@tailwindcss/vite": "^4.1.0",
     "@types/node": "^20.19.0",
     "@types/react": "^19.0.0",

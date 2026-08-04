@@ -1,0 +1,76 @@
+import { createHash } from "node:crypto"
+import fs from "node:fs"
+import { homedir } from "node:os"
+import path from "node:path"
+import { app } from "electron"
+import { BRIDGE_SCRIPT_FILE, scriptsDirectoryCandidates } from "../shared/synthvScript"
+import { resourcePath } from "./resources"
+
+// The app ships the bridge script it was built against and keeps SynthV's copy
+// equal to it. Not a version number: a script installed by hand, or left behind
+// by an older build, carries nothing to compare — the bytes do.
+//
+// Rewriting only on a difference matters. SynthV reads its scripts directory
+// when it starts, so a copy that changes nothing costs the user nothing, while
+// one that does is what a restart will pick up.
+
+function digest(file: string): string | null {
+  try {
+    return createHash("sha256").update(fs.readFileSync(file)).digest("hex")
+  } catch {
+    return null
+  }
+}
+
+function bundledScript(): string {
+  return resourcePath("synthv", BRIDGE_SCRIPT_FILE)
+}
+
+function scriptsDirectory(): string | null {
+  // The same escape hatch the repo's deploy script has, for an install that
+  // lives somewhere neither default covers.
+  const override = process.env.SYNTHV_SCRIPTS_DIR
+  if (override) {
+    return override
+  }
+  const candidates = scriptsDirectoryCandidates(
+    {
+      platform: process.platform,
+      home: homedir(),
+      documents: process.platform === "win32" ? app.getPath("documents") : undefined,
+      appData: process.env.APPDATA,
+    },
+    path.sep,
+  )
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null
+}
+
+/**
+ * Nothing here is fatal: SynthV may not be installed yet, and the overlay is
+ * still allowed to run without a bridge — it simply finds no channels.
+ */
+export function installBridgeScript(): void {
+  const bundled = bundledScript()
+  const source = digest(bundled)
+  if (!source) {
+    console.error("the bridge script is missing from this build:", bundled)
+    return
+  }
+
+  const directory = scriptsDirectory()
+  if (!directory) {
+    console.warn("no Synthesizer V scripts directory found; the bridge script was not installed")
+    return
+  }
+
+  const target = path.join(directory, BRIDGE_SCRIPT_FILE)
+  if (digest(target) === source) {
+    return
+  }
+  try {
+    fs.copyFileSync(bundled, target)
+    console.log("installed the SynthV bridge script:", target)
+  } catch (error) {
+    console.error("failed to install the SynthV bridge script:", error)
+  }
+}
