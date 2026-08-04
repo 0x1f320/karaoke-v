@@ -6,7 +6,6 @@ import { native } from "../shared/native"
 // The follow loop lives in main/index.ts (shared with the overlay window) —
 // this module owns the toolbar window itself and the docking geometry.
 
-const BACKGROUND = "#2D2B2E"
 const SIZE = { width: 72, height: 600 }
 
 // Gap between the target window's edge and our panel, in points.
@@ -69,7 +68,10 @@ export function createToolbarWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: SIZE.width,
     height: SIZE.height,
-    backgroundColor: BACKGROUND,
+    // The panel's corners are rounded by the renderer, so the window itself has
+    // to be transparent for anything outside that radius to show through.
+    transparent: true,
+    backgroundColor: "#00000000",
     show: false,
     resizable: false,
     minimizable: false,
@@ -79,7 +81,8 @@ export function createToolbarWindow(): BrowserWindow {
     // Fully frameless: no system title bar and no window controls (macOS traffic
     // lights included). The panel is a narrow strip stuck to the target window.
     frame: false,
-    // Square corners — macOS rounds frameless windows by default.
+    // macOS' own frameless rounding uses a radius we don't control and would
+    // clip on top of the renderer's; the renderer owns the shape.
     roundedCorners: false,
     // Float above normal windows so a focused window (and its shadow) can't
     // cover the panel; showInactive keeps it from stealing focus.
