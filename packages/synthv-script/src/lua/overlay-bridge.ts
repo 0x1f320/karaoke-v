@@ -21,6 +21,7 @@ import { getClientInfoFactory } from "./client-info"
 import { button } from "./ui/button"
 import { label } from "./ui/label"
 import { row } from "./ui/row"
+import { SCRIPT_VERSION } from "./version"
 
 const SCRIPT_TITLE = "Overlay Bridge"
 
@@ -70,6 +71,7 @@ class OverlayBridge {
     return {
       title: SCRIPT_TITLE,
       rows: [
+        label(`Version: ${SCRIPT_VERSION}`),
         label(`Bridge: ${this.enabled ? "on" : "off"}`),
         label(`Channels: ${this.publisher.describe()}`),
         label(`Transport: ${this.lastStatus}`),
