@@ -65,6 +65,7 @@ describe("composeFrame", () => {
       scaleX: 1,
       clip: { x: 20, y: 20, w: 800, h: 400 },
       emit: null,
+      trailEmit: null,
     })
   })
 
@@ -105,6 +106,19 @@ describe("composeFrame", () => {
     expect(composeFrame(TRANSFORM, VP, origin, hit, 0.5, 0).emit).toEqual(
       composeFrame(TRANSFORM, VP, origin, hit, 0.5).emit,
     )
+  })
+
+  it("keeps the trail on the sung curve while the effects hold the centre", () => {
+    const hit = { x: 600, y: 300, w: 100, h: 20 }
+    const frame = composeFrame(TRANSFORM, VP, origin, hit, 0.5, 0, 1)
+    expect(frame.emit?.y).toBe(310)
+    expect(frame.trailEmit).toEqual({ x: 650, y: 290, spread: 20 })
+  })
+
+  it("writes the trail where the effect is when nothing says otherwise", () => {
+    const hit = { x: 600, y: 300, w: 100, h: 20 }
+    const frame = composeFrame(TRANSFORM, VP, origin, hit, 0.5, 1)
+    expect(frame.trailEmit).toEqual(frame.emit)
   })
 })
 

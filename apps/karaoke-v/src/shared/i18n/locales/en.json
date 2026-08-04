@@ -198,7 +198,7 @@
       },
       "trail": {
         "title": "Trail",
-        "description": "The glowing line the effect leaves behind it, fading away as it goes.",
+        "description": "The glowing line the voice leaves behind it, tracing the pitch actually sung and fading away as it goes.",
         "life": {
           "label": "Duration",
           "description": "How long the line takes to fade out completely."
@@ -223,7 +223,7 @@
       },
       "pitch": {
         "title": "Follow the pitch",
-        "description": "Effects ride the pitch that is actually sung instead of sitting at the note's centre.",
+        "description": "The glow and the sparks ride the pitch that is actually sung instead of sitting at the note's centre. The trail follows the pitch whatever this is set to.",
         "mode": {
           "label": "Drives",
           "description": "What the sung pitch is allowed to move.",

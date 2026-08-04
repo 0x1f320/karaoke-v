@@ -110,8 +110,9 @@ export type GlowPreferences = EffectImage & {
 }
 
 /**
- * The line the effect leaves behind it. With pitch following on it draws the
- * sung curve; without it, the straight line through the notes' centres.
+ * The line the voice leaves behind it: the sung curve, whether or not the other
+ * effects follow the pitch — drawing the notes' centres instead would make the
+ * line say something the voice never did.
  */
 export type TrailPreferences = {
   enabled: boolean
