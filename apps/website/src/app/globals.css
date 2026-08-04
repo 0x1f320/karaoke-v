@@ -7,9 +7,32 @@
   --color-rule: #1a1a1a;
   --color-rule-strong: #454545;
   --color-accent: #50b4ff;
+  --color-dot: #4d4d4d;
 
   --spacing-gutter: 1.5rem;
   --container-frame: 80rem;
+}
+
+.hero-backdrop {
+  background:
+    radial-gradient(
+      70% 55% at 50% 100%,
+      color-mix(in oklab, var(--color-accent) 8%, transparent),
+      transparent 70%
+    );
+}
+
+.dot-plane-viewport {
+  perspective: 1500px;
+  perspective-origin: 50% 100%;
+}
+
+.dot-plane {
+  transform: rotateX(77deg);
+  transform-origin: 50% 100%;
+  background-image: radial-gradient(circle at center, var(--color-dot) 2px, transparent 2.4px);
+  background-size: 60px 60px;
+  mask-image: linear-gradient(to top, #000 0%, #000 8%, rgb(0 0 0 / 0.45) 55%, transparent 96%);
 }
 
 html {
