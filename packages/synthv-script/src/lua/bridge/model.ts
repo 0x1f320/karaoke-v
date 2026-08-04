@@ -87,17 +87,27 @@ const BEND_PAD = 8
  * An empty result means pitch computation has not finished for this group, which
  * is a state real projects sit in — the app falls back rather than showing
  * nothing.
+ *
+ * The window reaches BEND_PAD beyond the group at both ends. Without that the
+ * outermost notes have nothing real to pad with and hold their edge sample
+ * instead, which is precisely where the curve does its most visible thing —
+ * the release after the last note can fly several semitones clear of it.
  */
 function computedPitch(
   ref: NoteGroupReference,
   startB: number,
   endB: number,
 ): { curve: number[]; frames: number } | undefined {
-  const frames = math.ceil((endB - startB) / BEND_INTERVAL) + 1
+  const frames = math.ceil((endB - startB) / BEND_INTERVAL) + 1 + 2 * BEND_PAD
   if (frames <= 0) {
     return undefined
   }
-  const curve = SV.getComputedPitchForGroup(ref, startB, BEND_INTERVAL, frames)
+  const curve = SV.getComputedPitchForGroup(
+    ref,
+    startB - BEND_PAD * BEND_INTERVAL,
+    BEND_INTERVAL,
+    frames,
+  )
   // Length, not `#curve`: one nil sample would truncate the length operator and
   // silently shorten every note's bend after it.
   if (curve[0] === undefined) {
@@ -117,8 +127,11 @@ function bendForNote(
   startB: number,
   note: NoteRecord,
 ): number[] | undefined {
-  const from = math.floor((note.onB - startB) / BEND_INTERVAL + 0.5) - BEND_PAD
-  const to = math.floor((note.offB - startB) / BEND_INTERVAL + 0.5) + BEND_PAD
+  // Indices are into a curve that begins BEND_PAD before the group, so the
+  // note's own onset sits BEND_PAD further along than its offset from startB.
+  const onset = math.floor((note.onB - startB) / BEND_INTERVAL + 0.5) + BEND_PAD
+  const from = onset - BEND_PAD
+  const to = math.floor((note.offB - startB) / BEND_INTERVAL + 0.5) + BEND_PAD + BEND_PAD
   if (to < from) {
     return undefined
   }
@@ -127,8 +140,8 @@ function bendForNote(
   let last = 0
   let voiced = false
   for (let i = from; i <= to; i++) {
-    // Held at the edges rather than dropped, so the padding is always exactly
-    // BEND_PAD wide even for the first and last notes of the group.
+    // Still held at the edges, which now only bites where the engine itself
+    // ran out — the window already reaches past the group on both sides.
     const sample = curve[math.max(0, math.min(frames - 1, i))]
     // Unvoiced frames hold the previous offset rather than snapping to zero, so
     // a consonant in the middle of a note does not jerk the effect back.
