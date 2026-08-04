@@ -34,8 +34,17 @@ struct Uia {
     com_ready: bool,
 }
 
-thread_local! {
-    static UIA: RefCell<Uia> = RefCell::new(Uia::default());
+/// The cached automation objects are deliberately leaked. Releasing a COM
+/// interface while the host is tearing the process down faults — measured on
+/// Windows 11 as an 0xC0000005 at exit, and only once `find_canvas` had cached an
+/// element — and the C++ addon this replaces never released them at shutdown
+/// either. Leaking costs nothing at exit and still lets a *replaced* element drop
+/// normally, which is the release that actually matters.
+fn uia() -> &'static RefCell<Uia> {
+    thread_local! {
+        static UIA: &'static RefCell<Uia> = Box::leak(Box::new(RefCell::new(Uia::default())));
+    }
+    UIA.with(|uia| *uia)
 }
 
 impl Uia {
@@ -73,7 +82,7 @@ fn needle_of(target: Option<String>) -> String {
 
 /// Every direct UIA child of the SynthV window, with the window it was found in.
 fn children_of(needle: &str) -> Option<(HWND, Vec<IUIAutomationElement>)> {
-    let automation = UIA.with_borrow_mut(Uia::automation)?;
+    let automation = uia().borrow_mut().automation()?;
     let hwnd = win::find_window_for_process(needle)?;
     let root = unsafe { automation.ElementFromHandle(hwnd) }.ok()?;
     let condition = unsafe { automation.CreateTrueCondition() }.ok()?;
@@ -113,10 +122,11 @@ pub fn find_canvas(width: f64, height: f64, target: Option<String>) -> Option<Js
     }
 
     let (_, rect, element) = best?;
-    UIA.with_borrow_mut(|uia| {
-        uia.canvas = Some(element);
-        uia.window = Some(hwnd);
-    });
+    {
+        let mut state = uia().borrow_mut();
+        state.canvas = Some(element);
+        state.window = Some(hwnd);
+    }
     Some(JsCanvas {
         x: rect.x,
         y: rect.y,
@@ -136,32 +146,30 @@ pub fn find_canvas(width: f64, height: f64, target: Option<String>) -> Option<Js
 /// while the window moved.
 #[napi]
 pub fn get_target_origin() -> Option<JsRect> {
-    UIA.with_borrow_mut(|uia| {
-        let window = uia.window?;
-        if !unsafe { IsWindow(Some(window)) }.as_bool() {
-            uia.window = None;
-            return None;
-        }
-        win::frame_of(window).map(JsRect::from)
-    })
+    let mut state = uia().borrow_mut();
+    let window = state.window?;
+    if !unsafe { IsWindow(Some(window)) }.as_bool() {
+        state.window = None;
+        return None;
+    }
+    win::frame_of(window).map(JsRect::from)
 }
 
 #[napi]
 pub fn get_canvas_rect() -> Option<JsRect> {
-    UIA.with_borrow_mut(|uia| {
-        let canvas = uia.canvas.as_ref()?;
-        // The cached element going stale (layout rebuild, project switch) or
-        // collapsing to nothing both mean the caller must run findCanvas again
-        // rather than keep a dead rectangle.
-        let rect = match unsafe { canvas.CurrentBoundingRectangle() } {
-            Ok(rect) if rect.right > rect.left && rect.bottom > rect.top => rect,
-            _ => {
-                uia.canvas = None;
-                return None;
-            }
-        };
-        Some(JsRect::from(rect))
-    })
+    let mut state = uia().borrow_mut();
+    let canvas = state.canvas.as_ref()?;
+    // The cached element going stale (layout rebuild, project switch) or
+    // collapsing to nothing both mean the caller must run findCanvas again rather
+    // than keep a dead rectangle.
+    let rect = match unsafe { canvas.CurrentBoundingRectangle() } {
+        Ok(rect) if rect.right > rect.left && rect.bottom > rect.top => rect,
+        _ => {
+            state.canvas = None;
+            return None;
+        }
+    };
+    Some(JsRect::from(rect))
 }
 
 /// Debug aid: every UI Automation child of the SynthV window with its rect.
