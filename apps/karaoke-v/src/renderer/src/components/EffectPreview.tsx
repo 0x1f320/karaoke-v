@@ -2,8 +2,10 @@ import { useEffect, useRef } from "react"
 import type {
   GlowPreferences,
   ParticlePreferences,
+  PitchPreferences,
   TrailPreferences,
 } from "../../../shared/preferences"
+import { CYCLE_SEC, previewContour, previewEmit, previewPhrase } from "../playback/preview"
 import { NoteRenderer } from "../render/noteRenderer"
 import {
   BORDER_PX,
@@ -20,14 +22,6 @@ import {
 // with a synthetic phrase and a playhead sweeping across it, so what shows here
 // is produced by the same code that draws on SynthV — not an approximation of it.
 
-/** Notes in the phrase — a rising staircase, every step the same length. */
-const NOTE_COUNT = 3
-/** Seconds for the playhead to cross the preview edge to edge. */
-const CYCLE_SEC = 2.9
-const NOTE_HEIGHT = 24
-const NOTE_INSET_X = 28
-/** Pitch step between consecutive notes. */
-const NOTE_STEP_Y = 20
 /**
  * The playhead line — white, so it reads against any effect colour. It runs the
  * full width, so the inset before the first note and after the last one is what
@@ -36,25 +30,37 @@ const NOTE_STEP_Y = 20
 const PLAYHEAD_CSS = "rgba(255, 255, 255, 0.85)"
 /** CSS px; off the Tailwind scale, so it is set inline. */
 const PLAYHEAD_WIDTH = 1.5
+const CONTOUR_CSS = "rgba(255, 255, 255, 0.3)"
+const CONTOUR_WIDTH = 1
+const RIDER_CSS = "rgba(255, 255, 255, 0.9)"
+const RIDER_RADIUS = 2.5
+
+function pathOf(points: readonly { x: number; y: number }[]): string {
+  return points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ")
+}
 
 export function EffectPreview({
   particles,
   glow,
   trail,
+  pitch,
 }: {
   particles: ParticlePreferences
   glow: GlowPreferences
   trail: TrailPreferences
+  pitch: PitchPreferences
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
-  // A DOM line rather than a Pixi one: the overlay never draws a playhead —
-  // SynthV has its own — so this stays a preview affordance and out of the
-  // shared renderer.
+  // DOM lines rather than Pixi ones: the overlay never draws a playhead or a
+  // pitch line — SynthV has its own of both — so these stay preview affordances
+  // and out of the shared renderer.
   const headRef = useRef<HTMLDivElement>(null)
+  const contourRef = useRef<SVGPathElement>(null)
+  const riderRef = useRef<SVGCircleElement>(null)
   // Read inside the loop rather than captured, so moving a slider takes effect
   // without tearing down the scene.
-  const prefsRef = useRef({ particles, glow, trail })
-  prefsRef.current = { particles, glow, trail }
+  const prefsRef = useRef({ particles, glow, trail, pitch })
+  prefsRef.current = { particles, glow, trail, pitch }
 
   useEffect(() => {
     const host = hostRef.current
@@ -65,6 +71,7 @@ export function EffectPreview({
     const start = performance.now()
     let lastStrike = ""
     let noteKey = ""
+    let contourKey = ""
     let raf = 0
 
     const draw = () => {
@@ -75,31 +82,17 @@ export function EffectPreview({
         return
       }
 
+      const { particles, glow, trail, pitch } = prefsRef.current
       const elapsed = (performance.now() - start) / 1000
       const cycle = Math.floor(elapsed / CYCLE_SEC)
       const phase = elapsed % CYCLE_SEC
-
-      // Every step gets the same slot, so the three notes come out equal in
-      // length however wide the preview is; the staircase is purely vertical.
-      const slot = Math.max(w - NOTE_INSET_X * 2, NOTE_COUNT) / NOTE_COUNT
-      const topY = Math.round((h - NOTE_HEIGHT - NOTE_STEP_Y * (NOTE_COUNT - 1)) / 2)
-      // Edges are rounded once and shared, so consecutive steps butt up against
-      // each other with no seam and still come out the same length.
-      const edges = Array.from({ length: NOTE_COUNT + 1 }, (_, i) =>
-        Math.round(NOTE_INSET_X + slot * i),
-      )
-      const notes = Array.from({ length: NOTE_COUNT }, (_, i) => ({
-        x: edges[i],
-        y: topY + NOTE_STEP_Y * (NOTE_COUNT - 1 - i),
-        w: edges[i + 1] - edges[i],
-        h: NOTE_HEIGHT,
-      }))
+      const phrase = previewPhrase(w, h)
 
       // Only on a resize — setNotes marks the geometry dirty, and rebuilding it
       // every frame would be pure waste.
       const key = `${w}:${h}`
       if (key !== noteKey) {
-        renderer.setNotes(notes)
+        renderer.setNotes(phrase.notes)
         noteKey = key
       }
 
@@ -107,10 +100,11 @@ export function EffectPreview({
       // notes; the steps being contiguous, that stretch plays legato and each
       // note still strikes its own onset as the head crosses into it.
       const headX = (phase / CYCLE_SEC) * w
-      const index = Math.min(Math.max(Math.floor((headX - NOTE_INSET_X) / slot), 0), NOTE_COUNT - 1)
-      const note = notes[index]
-      const sounding = headX >= edges[0] && headX < edges[NOTE_COUNT]
-      const strike = `${cycle}:${index}`
+      const emit = previewEmit(phrase, headX, pitch)
+      const strike = `${cycle}:${emit?.index ?? -1}`
+      const boost = emit?.boost ?? 1
+      const particleLook = particleParams(particles)
+      const glowLook = glowParams(glow)
 
       renderer.draw({
         width: w,
@@ -130,19 +124,14 @@ export function EffectPreview({
         reachStroke: REACH_STROKE,
         playing: null,
         playingFill: FILL,
-        emit: sounding
-          ? {
-              x: headX,
-              y: note.y + note.h / 2,
-              spread: note.h,
-            }
-          : null,
-        particles: particleParams(prefsRef.current.particles),
-        noteStarted: sounding && strike !== lastStrike,
-        glow: glowParams(prefsRef.current.glow),
-        trail: trailParams(prefsRef.current.trail),
+        emit: emit ? { x: headX, y: emit.y, spread: phrase.notes[emit.index].h } : null,
+        particles:
+          boost === 1 ? particleLook : { ...particleLook, rate: particleLook.rate * boost },
+        noteStarted: emit !== null && strike !== lastStrike,
+        glow: boost === 1 ? glowLook : { ...glowLook, level: Math.min(glowLook.level * boost, 1) },
+        trail: trailParams(trail),
       })
-      if (sounding) {
+      if (emit) {
         lastStrike = strike
       }
 
@@ -151,6 +140,24 @@ export function EffectPreview({
         // Centred on the emission point rather than starting at it, so the
         // line straddles where the particles actually come from.
         head.style.transform = `translateX(${headX - PLAYHEAD_WIDTH / 2}px)`
+      }
+
+      const riding = pitch.enabled && pitch.mode !== "intensity"
+      const contour = contourRef.current
+      if (contour) {
+        const wanted = riding ? `${key}:${pitch.range}` : ""
+        if (wanted !== contourKey) {
+          contour.setAttribute("d", riding ? pathOf(previewContour(phrase, pitch.range)) : "")
+          contourKey = wanted
+        }
+      }
+      const rider = riderRef.current
+      if (rider) {
+        rider.style.display = riding && emit ? "" : "none"
+        if (riding && emit) {
+          rider.setAttribute("cx", headX.toFixed(1))
+          rider.setAttribute("cy", emit.y.toFixed(1))
+        }
       }
     }
     raf = requestAnimationFrame(draw)
@@ -164,6 +171,10 @@ export function EffectPreview({
   return (
     <div className="relative overflow-hidden rounded-md border border-border bg-titlebar">
       <div ref={hostRef} className="block h-32 w-full" />
+      <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
+        <path ref={contourRef} fill="none" stroke={CONTOUR_CSS} strokeWidth={CONTOUR_WIDTH} />
+        <circle ref={riderRef} r={RIDER_RADIUS} fill={RIDER_CSS} style={{ display: "none" }} />
+      </svg>
       <div
         ref={headRef}
         className="pointer-events-none absolute inset-y-0 left-0"

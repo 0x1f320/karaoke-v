@@ -368,7 +368,7 @@ function EffectsSection({
           because it is not one more setting: it sets all of them at once, and
           what it changes is the thing directly above it. */}
       <div className="flex-none px-6 pb-4">
-        <EffectPreview particles={particles} glow={glow} trail={trail} />
+        <EffectPreview particles={particles} glow={glow} trail={trail} pitch={pitch} />
         <div className="mt-2 flex items-center gap-1.5">
           <Select
             className="min-w-0 flex-1"
