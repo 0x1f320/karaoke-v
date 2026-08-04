@@ -35,7 +35,7 @@ export default function HomePage() {
 
       <FrameRule />
 
-      <section className="py-24 sm:py-40">
+      <section className="flex min-h-[70dvh] flex-col justify-center py-16">
         <p className="font-mono text-xs tracking-widest text-muted uppercase">Coming soon</p>
         <h1 className="mt-8 max-w-3xl text-5xl leading-[1.05] font-medium tracking-tight text-balance sm:text-7xl">
           The piano roll, lit up.
