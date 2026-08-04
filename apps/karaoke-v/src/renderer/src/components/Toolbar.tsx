@@ -52,7 +52,7 @@ export function Toolbar() {
         >
           <Sparkles size={20} strokeWidth={1.5} />
         </IconButton>
-        <div className="my-1 h-px w-3/4 bg-white/25" />
+        <div className="my-1 h-px w-1/2 bg-white/25" />
         <IconButton
           className="w-3/4"
           title={t("toolbar.settings")}
