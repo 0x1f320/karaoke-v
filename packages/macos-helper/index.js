@@ -82,6 +82,17 @@ function disableAnimations(view) {
 }
 
 /**
+ * Press Scripts > Rescan in the target app, so a script file that has just been
+ * written is loaded by a SynthV that is already running. False when the app is
+ * not running or the menu could not be found.
+ * @param {string} [target="synthesizer"]
+ * @returns {boolean}
+ */
+function rescanScripts(target = "synthesizer") {
+  return loadNative().rescanScripts(target)
+}
+
+/**
  * Reading of the same monotonic clock the addon stamps its reads with, so a
  * read's age can be measured without assuming anything about process clocks.
  * @returns {number} milliseconds
@@ -97,5 +108,6 @@ module.exports = {
   getPianoRoll,
   getPianoRollAsync,
   getViewport,
+  rescanScripts,
   monotonicNow,
 }

@@ -4,6 +4,7 @@ import {
   type DipTransform,
   IDENTITY_DIP,
   isWindows,
+  NATIVE_TARGET,
   native,
   type PianoRoll,
   type Rect,
@@ -28,8 +29,6 @@ ipcRenderer.on("native:dip", (_event, transform: DipTransform) => {
 ipcRenderer.invoke("native:dip").then((transform: DipTransform) => {
   dip = transform
 })
-
-const NATIVE_TARGET = isWindows ? "synthv-studio" : "synth"
 
 // The renderer reads geometry directly (requires sandbox: false): the viewport at
 // rAF time for zero-lag positioning, and the notes in a background pump for

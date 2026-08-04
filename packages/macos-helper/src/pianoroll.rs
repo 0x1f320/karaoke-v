@@ -452,7 +452,7 @@ fn find_synth_pid(needle: &str) -> Option<i32> {
     None
 }
 
-fn target_pid(target: Option<String>) -> Option<i32> {
+pub fn target_pid(target: Option<String>) -> Option<i32> {
     let needle = target
         .unwrap_or_else(|| DEFAULT_TARGET.to_owned())
         .to_lowercase();

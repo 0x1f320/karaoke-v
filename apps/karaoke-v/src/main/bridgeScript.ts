@@ -3,6 +3,7 @@ import fs from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
 import { app } from "electron"
+import { NATIVE_TARGET, native } from "../shared/native"
 import { BRIDGE_SCRIPT_FILE, scriptsDirectoryCandidates } from "../shared/synthvScript"
 import { resourcePath } from "./resources"
 
@@ -72,5 +73,15 @@ export function installBridgeScript(): void {
     console.log("installed the SynthV bridge script:", target)
   } catch (error) {
     console.error("failed to install the SynthV bridge script:", error)
+    return
+  }
+
+  // Only after a write, and only because SynthV is allowed to be running: it
+  // reads the directory when it starts, so without this the copy that just
+  // landed would sit there until the user restarted it. A rescan re-executes
+  // the file and drops the previous copy's timers, so the old bridge stops
+  // rather than publishing alongside the new one.
+  if (native.rescanScripts?.(NATIVE_TARGET)) {
+    console.log("asked SynthV to rescan its scripts")
   }
 }

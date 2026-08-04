@@ -1,7 +1,7 @@
 import path from "node:path"
 import { app, type BrowserWindow, ipcMain } from "electron"
 import { APP_NAME } from "../shared/i18n"
-import { native, type Rect } from "../shared/native"
+import { NATIVE_TARGET, native, type Rect } from "../shared/native"
 import { registerAssetIpc, registerAssetScheme } from "./assets"
 import { prepareBridgeDirectory } from "./bridge"
 import { installBridgeScript } from "./bridgeScript"
@@ -41,11 +41,6 @@ function syncOverlayBounds(win: BrowserWindow, frame: Rect): void {
       positionOverlay(win, frame)
     }
   }, BOUNDS_SYNC_MS)
-}
-
-// macOS matches on the app's localized name, Windows on the executable's.
-function nativeTarget(): string {
-  return process.platform === "win32" ? "synthv-studio" : "synth"
 }
 
 let overlayWin: BrowserWindow | null = null
@@ -129,7 +124,7 @@ function start(): void {
 
 function startTracking(): void {
   native.start({
-    target: nativeTarget(),
+    target: NATIVE_TARGET,
     onFrame: (raw) => {
       // The helper speaks in native units — points on macOS, physical pixels on
       // Windows — while window placement is in DIPs, so everything is converted
