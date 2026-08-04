@@ -119,6 +119,10 @@ contextBridge.exposeInMainWorld("panel", {
   resize: (height: number): Promise<void> => ipcRenderer.invoke("toolbar:resize", height),
 })
 
+contextBridge.exposeInMainWorld("app", {
+  quit: (): Promise<void> => ipcRenderer.invoke("app:quit"),
+})
+
 // The permissions gate. Main owns the status because only it can ask macOS, and
 // it is the one that starts the app once the grant lands.
 contextBridge.exposeInMainWorld("permissions", {

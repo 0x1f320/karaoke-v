@@ -22,6 +22,7 @@
     }
   },
   "toolbar": {
+    "quit": "Quit {{app}}",
     "effects": "Note effects",
     "settings": "Settings"
   },

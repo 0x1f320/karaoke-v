@@ -22,6 +22,7 @@
     }
   },
   "toolbar": {
+    "quit": "{{app}} 종료",
     "effects": "노트 이펙트",
     "settings": "설정"
   },

@@ -203,6 +203,7 @@ app.whenReady().then(() => {
   registerToolbarIpc(syncToolbar)
   ipcMain.handle("settings:open", () => openSettingsWindow())
   ipcMain.handle("settings:close", () => closeSettingsWindow())
+  ipcMain.handle("app:quit", () => app.quit())
 
   // Before anything is shown: an app update ships a newer bridge script, and
   // SynthV only rereads its scripts directory when it starts — so the sooner the

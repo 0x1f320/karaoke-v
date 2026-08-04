@@ -22,6 +22,7 @@
     }
   },
   "toolbar": {
+    "quit": "{{app}} を終了",
     "effects": "ノートエフェクト",
     "settings": "設定"
   },

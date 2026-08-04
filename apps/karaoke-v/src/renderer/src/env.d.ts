@@ -34,6 +34,10 @@ declare global {
        */
       resize(height: number): Promise<void>
     }
+    app: {
+      /** Quit the whole app — the toolbar, the overlay and the tray go with it. */
+      quit(): Promise<void>
+    }
     permissions: {
       /** Current grant status. */
       get(): Promise<PermissionsStatus>

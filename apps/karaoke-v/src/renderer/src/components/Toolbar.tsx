@@ -1,4 +1,4 @@
-import { Settings, Sparkles } from "lucide-react"
+import { Settings, Sparkles, X } from "lucide-react"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { IconButton } from "./ui/IconButton"
@@ -52,6 +52,7 @@ export function Toolbar() {
         >
           <Sparkles size={20} strokeWidth={1.5} />
         </IconButton>
+        <div className="my-1 h-px w-1/2 bg-white/25" />
         <IconButton
           className="w-3/4"
           title={t("toolbar.settings")}
@@ -59,6 +60,15 @@ export function Toolbar() {
           onClick={() => window.settings.open()}
         >
           <Settings size={20} strokeWidth={1.5} />
+        </IconButton>
+        <IconButton
+          className="w-3/4"
+          tone="danger"
+          title={t("toolbar.quit")}
+          aria-label={t("toolbar.quit")}
+          onClick={() => window.app.quit()}
+        >
+          <X size={20} strokeWidth={1.5} />
         </IconButton>
       </main>
     </div>
