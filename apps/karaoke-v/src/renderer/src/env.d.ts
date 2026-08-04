@@ -27,6 +27,13 @@ declare global {
       /** Whether the settings window hides the system caption and expects its own. */
       customTitleBar: boolean
     }
+    panel: {
+      /**
+       * Fit the toolbar window to this content height. The window stays hidden
+       * until the first call, so the placeholder size is never shown.
+       */
+      resize(height: number): Promise<void>
+    }
     permissions: {
       /** Current grant status. */
       get(): Promise<PermissionsStatus>

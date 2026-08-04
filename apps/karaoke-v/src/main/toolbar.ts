@@ -1,12 +1,15 @@
 import path from "node:path"
-import { BrowserWindow, screen } from "electron"
+import { BrowserWindow, ipcMain, screen } from "electron"
 import { native } from "../shared/native"
 
 // The sticky toolbar: a narrow frameless strip docked beside the SynthV window.
 // The follow loop lives in main/index.ts (shared with the overlay window) —
 // this module owns the toolbar window itself and the docking geometry.
 
-const SIZE = { width: 72, height: 600 }
+// The height is a placeholder until the renderer has measured its own content:
+// the window is kept hidden until then, so this size is never seen.
+const SIZE = { width: 72, height: 200 }
+const HEIGHT_LIMITS = { min: 48, max: 720 }
 
 // Gap between the target window's edge and our panel, in points.
 const GAP = 8
@@ -53,15 +56,53 @@ function computeDock(
 
 let side: Side = "right"
 
+// The panel is only as tall as what the renderer draws, which it measures and
+// reports once it has laid out. Until that lands the window stays hidden — a
+// strip sized to a guess would be visibly wrong for a frame or two.
+let height = SIZE.height
+let measured = false
+
+export function isToolbarMeasured(): boolean {
+  return measured
+}
+
 // Dock the toolbar next to the target's frame. animate:false — an animated
 // move would lag behind the target.
 export function positionToolbar(
   win: BrowserWindow,
   target: { x: number; y: number; w: number; h: number },
 ): void {
-  const dock = computeDock(target, SIZE, side)
+  const size = { width: SIZE.width, height }
+  const dock = computeDock(target, size, side)
   side = dock.side
-  win.setBounds({ x: dock.x, y: dock.y, width: SIZE.width, height: SIZE.height }, false)
+  win.setBounds({ x: dock.x, y: dock.y, ...size }, false)
+}
+
+let toolbarWin: BrowserWindow | null = null
+
+/**
+ * Take the renderer's content height. `measured` runs after each one: the target
+ * window only reports a frame when it moves, so the first measurement usually
+ * lands after the frame that would have shown the panel — nothing else would
+ * come along to open the gate.
+ */
+export function registerToolbarIpc(measuredCallback: () => void): void {
+  ipcMain.handle("toolbar:resize", (_event, content: number) => {
+    if (!Number.isFinite(content)) {
+      return
+    }
+    const next = Math.round(Math.min(Math.max(content, HEIGHT_LIMITS.min), HEIGHT_LIMITS.max))
+    measured = true
+    if (next !== height) {
+      height = next
+      const win = toolbarWin
+      if (win && !win.isDestroyed()) {
+        const { x, y } = win.getBounds()
+        win.setBounds({ x, y, width: SIZE.width, height }, false)
+      }
+    }
+    measuredCallback()
+  })
 }
 
 export function createToolbarWindow(): BrowserWindow {
@@ -112,6 +153,13 @@ export function createToolbarWindow(): BrowserWindow {
   } else {
     win.loadFile(path.join(__dirname, "..", "renderer", "index.html"), { hash: "toolbar" })
   }
+
+  toolbarWin = win
+  win.on("closed", () => {
+    if (toolbarWin === win) {
+      toolbarWin = null
+    }
+  })
 
   return win
 }

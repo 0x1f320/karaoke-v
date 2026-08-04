@@ -112,6 +112,13 @@ contextBridge.exposeInMainWorld("settings", {
   customTitleBar: isWindows,
 })
 
+// The toolbar window is sized to what the toolbar renderer actually draws, so
+// the renderer is the one that measures it. Named "panel" rather than "toolbar":
+// that collides with the built-in Window.toolbar (BarProp).
+contextBridge.exposeInMainWorld("panel", {
+  resize: (height: number): Promise<void> => ipcRenderer.invoke("toolbar:resize", height),
+})
+
 // The permissions gate. Main owns the status because only it can ask macOS, and
 // it is the one that starts the app once the grant lands.
 contextBridge.exposeInMainWorld("permissions", {
