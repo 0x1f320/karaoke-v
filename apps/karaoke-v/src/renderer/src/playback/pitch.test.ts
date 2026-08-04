@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { BridgeNote } from "../../../shared/bridgeChannels"
 import { DEFAULT_PREFERENCES } from "../../../shared/preferences"
-import { intensityScale, pitchExtent, samplePitch } from "./pitch"
+import { intensityScale, overhangSeconds, pitchExtent, samplePitch } from "./pitch"
 
 function note(over: Partial<BridgeNote> = {}): BridgeNote {
   return { onB: 0, offB: 100, onS: 0, offS: 1, pitch: 60, lyric: "a", bend: EMPTY, ...over }
@@ -236,5 +236,46 @@ describe("a contour with the padding the bridge sends", () => {
 
   it("claims no overhang for a contour too short to carry the padding", () => {
     expect(pitchExtent(note({ bend: bend(0, 50) }), null, RANGE).overhang).toBe(0)
+  })
+})
+
+describe("overhangSeconds", () => {
+  it("is how far the padding reaches, in the note's own time", () => {
+    // Nine samples over a one-second note: eight steps, so each pad sample is
+    // an eighth of a second and the eight of them are a whole second.
+    const n = note({ bend: padded([0, 0, 0, 0, 0, 0, 0, 0, 0]), onS: 0, offS: 1 })
+    expect(overhangSeconds(n)).toBeCloseTo(1)
+  })
+
+  it("scales with the note rather than being a fixed span", () => {
+    const inner = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    const short = note({ bend: padded(inner), onS: 0, offS: 0.5 })
+    const long = note({ bend: padded(inner), onS: 0, offS: 2 })
+    expect(overhangSeconds(long)).toBeCloseTo(4 * overhangSeconds(short))
+  })
+
+  it("is nothing for a synthesized shape, which knows only its note", () => {
+    expect(overhangSeconds(note())).toBe(0)
+  })
+})
+
+describe("reading a contour past its note", () => {
+  const n = note({ bend: padded([0, 0, 0, 0, 0, 0, 0, 0, 0], -400, 900), onS: 0, offS: 1 })
+
+  it("reaches the release after the note has ended", () => {
+    expect(samplePitch(n, null, 1.5, RANGE).offset).toBeCloseTo(9)
+  })
+
+  it("reaches the glide before the note has begun", () => {
+    expect(samplePitch(n, null, -0.5, RANGE).offset).toBeCloseTo(-4)
+  })
+
+  it("still reads the note's own pitch at its own edges", () => {
+    expect(samplePitch(n, null, 0, RANGE).offset).toBeCloseTo(0)
+    expect(samplePitch(n, null, 1, RANGE).offset).toBeCloseTo(0)
+  })
+
+  it("holds rather than running off the end of the padding", () => {
+    expect(samplePitch(n, null, 50, RANGE).offset).toBeCloseTo(9)
   })
 })

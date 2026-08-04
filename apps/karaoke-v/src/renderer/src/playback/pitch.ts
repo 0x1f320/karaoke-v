@@ -120,6 +120,16 @@ function offsetAt(note: BridgeNote, previous: BridgeNote | null, elapsed: number
 }
 
 /**
+ * How far past its own note the contour reaches, in seconds, at each end.
+ *
+ * Zero for a synthesized shape, which knows nothing outside the note — so an
+ * effect fed by one simply ends with its note, as it always did.
+ */
+export function overhangSeconds(note: BridgeNote): number {
+  return note.bend.length > 0 ? bendOverhang(note.bend) * (note.offS - note.onS) : 0
+}
+
+/**
  * Where the effect should sit `elapsed` seconds into `note`, and how hard the
  * voice is moving there.
  *

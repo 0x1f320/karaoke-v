@@ -142,6 +142,20 @@ export class Transport {
   }
 
   /**
+   * The last note to have started at or before `seconds`, whether or not it is
+   * still sounding, and the first to start after it. A contour reaches past its
+   * note at both ends, so the frame loop has to be able to ask about a moment
+   * that falls between two of them.
+   */
+  neighbours(seconds: number): { before: BridgeNote | null; after: BridgeNote | null } {
+    const index = this.indexAt(seconds)
+    return {
+      before: index >= 0 ? this.schedule[index] : null,
+      after: index + 1 < this.schedule.length ? this.schedule[index + 1] : null,
+    }
+  }
+
+  /**
    * Every note overlapping the blick range, which is how the visible ones are
    * found: the view mapping says what span of the roll is on screen, and the
    * schedule is the only thing that knows a note's pitch contour.

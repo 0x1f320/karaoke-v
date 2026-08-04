@@ -289,3 +289,29 @@ describe("notesBetween", () => {
     expect(transport.before(notes[0])).toBeNull()
   })
 })
+
+describe("neighbours", () => {
+  function scheduled() {
+    const h = harness()
+    h.publish([note(0, 1), note(2, 3)])
+    h.tick()
+    return h.transport
+  }
+
+  it("names the note just ended and the one still to come, in a gap", () => {
+    const pair = scheduled().neighbours(1.5)
+    expect(pair.before?.offS).toBe(1)
+    expect(pair.after?.onS).toBe(2)
+  })
+
+  it("names the sounding note as the one before, not the next", () => {
+    const pair = scheduled().neighbours(0.5)
+    expect(pair.before?.onS).toBe(0)
+    expect(pair.after?.onS).toBe(2)
+  })
+
+  it("has nothing before the first note, and nothing after the last", () => {
+    expect(scheduled().neighbours(-1).before).toBeNull()
+    expect(scheduled().neighbours(99).after).toBeNull()
+  })
+})

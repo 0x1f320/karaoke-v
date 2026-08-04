@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react"
+import type { BridgeNote } from "../../shared/bridgeChannels"
 import type { PianoRoll, Rect } from "../../shared/geometry"
 import {
   DEFAULT_PREFERENCES,
@@ -11,7 +12,7 @@ import { Settings } from "./components/Settings"
 import { Toolbar } from "./components/Toolbar"
 import { composeFrame, frameTransform, pitchBounds } from "./playback/frame"
 import { locateNote } from "./playback/locate"
-import { intensityScale, pitchExtent, samplePitch } from "./playback/pitch"
+import { intensityScale, overhangSeconds, pitchExtent, samplePitch } from "./playback/pitch"
 import { Transport } from "./playback/transport"
 import { NoteRenderer } from "./render/noteRenderer"
 import {
@@ -31,6 +32,30 @@ import {
 const NOTE_READ_GAP_MS = 30
 /** Shared empty list, so a frame with no bands allocates nothing. */
 const EMPTY_REACHES: Rect[] = []
+
+/**
+ * The note whose contour covers `seconds` — the one sounding, or, in the gap
+ * between two, whichever of them still reaches this far.
+ *
+ * A note's contour does not begin at its onset or end at its end: the glide in
+ * and the release out are the parts that travel furthest from it. Stopping the
+ * effect at the note's own edges left those undrawn, and left the band claiming
+ * a reach the effect never went to.
+ */
+function noteInContour(transport: Transport, seconds: number): BridgeNote | null {
+  const sounding = transport.noteAt(seconds)
+  if (sounding) {
+    return sounding
+  }
+  const { before, after } = transport.neighbours(seconds)
+  if (before && seconds - before.offS <= overhangSeconds(before)) {
+    return before
+  }
+  if (after && after.onS - seconds <= overhangSeconds(after)) {
+    return after
+  }
+  return null
+}
 
 // Back-off when SynthV / the piano roll isn't found.
 const NOT_FOUND_RETRY_MS = 500
@@ -213,7 +238,7 @@ function Overlay() {
       const view = transport.view
       const seconds = transport.playing ? transport.playhead(nowMs) : null
       if (view && seconds !== null) {
-        const note = transport.noteAt(seconds)
+        const note = pitch.enabled ? noteInContour(transport, seconds) : transport.noteAt(seconds)
         if (note) {
           onset = note.onB
           hit = locateNote(note, view, vp, read.notes, {
@@ -221,7 +246,11 @@ function Overlay() {
             offsetX: transform.contentOffsetX,
           })
           const span = note.offS - note.onS
-          progress = span > 0 ? Math.min(Math.max((seconds - note.onS) / span, 0), 1) : 0
+          // Not bounded to the note: a contour runs past both its ends, and the
+          // effect is meant to run with it. Off the ends the fraction goes
+          // outside 0..1 and the emission point leaves the rectangle sideways,
+          // which is exactly where the curve has gone.
+          progress = span > 0 ? (seconds - note.onS) / span : 0
           if (pitch.enabled) {
             const previous = transport.noteBefore(seconds)
             const sung = samplePitch(note, previous, seconds - note.onS, pitch.range)
