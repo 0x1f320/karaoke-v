@@ -41,6 +41,14 @@ const VIBRATO_SEMITONES = 0.18
  */
 const BEND_PAD = 8
 
+/**
+ * The bridge's mark for a padding sample the voice never reached, mirroring
+ * `NO_CURVE` in the script. There is no curve at such a sample, so the effect
+ * does not go there — without this the blank ahead of a note reads as "on the
+ * note's pitch" and the effect fires in silence in front of it.
+ */
+const NO_CURVE = -32768
+
 /** Step the speed is differenced over — one frame at 60Hz. */
 const SPEED_DT = 1 / 60
 
@@ -61,15 +69,36 @@ function innerCount(length: number): number {
   return length - 2 * BEND_PAD
 }
 
+/** First and last sample that carries a curve at all. */
+function drawnSpan(bend: ArrayLike<number>): { first: number; last: number } {
+  let first = 0
+  while (first < bend.length && bend[first] === NO_CURVE) {
+    first++
+  }
+  let last = bend.length - 1
+  while (last > first && bend[last] === NO_CURVE) {
+    last--
+  }
+  return { first, last }
+}
+
 /**
- * Where in a contour the note's own onset and end sit, as a fraction of the
- * note's width. The bands drawn for a note have to reach the same distance
- * sideways that the contour does, and that distance is only knowable from how
- * many samples fall outside the note.
+ * How far the contour runs past its note at each end, as a fraction of the
+ * note's width. Asymmetric on purpose: a phrase usually has a release drawn
+ * after its last note and nothing at all before its first, so the two ends are
+ * genuinely different distances.
  */
-export function bendOverhang(bend: ArrayLike<number>): number {
+export function bendOverhang(bend: ArrayLike<number>): { lead: number; tail: number } {
   const inner = innerCount(bend.length)
-  return inner > 1 ? BEND_PAD / (inner - 1) : 0
+  if (inner <= 1) {
+    return { lead: 0, tail: 0 }
+  }
+  const { first, last } = drawnSpan(bend)
+  const step = 1 / (inner - 1)
+  return {
+    lead: Math.max(0, BEND_PAD - first) * step,
+    tail: Math.max(0, last - (bend.length - 1 - BEND_PAD)) * step,
+  }
 }
 
 /**
@@ -89,7 +118,10 @@ function bendAt(bend: ArrayLike<number>, elapsed: number, span: number): number 
     inner > 1 && span > 0
       ? BEND_PAD + (elapsed / span) * (inner - 1)
       : clamp(span > 0 ? elapsed / span : 0, 0, 1) * (bend.length - 1)
-  const bounded = clamp(at, 0, bend.length - 1)
+  // Held inside the drawn span rather than the whole array: past its edges the
+  // samples are blanks, and reading one would place the effect at MIDI 0.
+  const { first, last } = drawnSpan(bend)
+  const bounded = clamp(at, first, last)
   const low = Math.floor(bounded)
   const high = Math.min(low + 1, bend.length - 1)
   const t = bounded - low
@@ -125,8 +157,13 @@ function offsetAt(note: BridgeNote, previous: BridgeNote | null, elapsed: number
  * Zero for a synthesized shape, which knows nothing outside the note — so an
  * effect fed by one simply ends with its note, as it always did.
  */
-export function overhangSeconds(note: BridgeNote): number {
-  return note.bend.length > 0 ? bendOverhang(note.bend) * (note.offS - note.onS) : 0
+export function overhangSeconds(note: BridgeNote): { lead: number; tail: number } {
+  if (note.bend.length === 0) {
+    return { lead: 0, tail: 0 }
+  }
+  const span = note.offS - note.onS
+  const { lead, tail } = bendOverhang(note.bend)
+  return { lead: lead * span, tail: tail * span }
 }
 
 /**
@@ -170,10 +207,10 @@ export function pitchExtent(
   note: BridgeNote,
   previous: BridgeNote | null,
   range: number,
-): { lowest: number; highest: number; overhang: number } {
+): { lowest: number; highest: number; overhang: { lead: number; tail: number } } {
   let lowest = 0
   let highest = 0
-  let overhang = 0
+  let overhang = { lead: 0, tail: 0 }
   const reach = (value: number) => {
     lowest = Math.min(lowest, value)
     highest = Math.max(highest, value)
@@ -182,7 +219,9 @@ export function pitchExtent(
   if (note.bend.length > 0) {
     overhang = bendOverhang(note.bend)
     for (let i = 0; i < note.bend.length; i++) {
-      reach(note.bend[i] / 100)
+      if (note.bend[i] !== NO_CURVE) {
+        reach(note.bend[i] / 100)
+      }
     }
   } else {
     // Read off the synthesis rather than sampled from it: the glide starts at

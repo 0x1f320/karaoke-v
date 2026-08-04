@@ -138,9 +138,15 @@ describe("pitchBounds", () => {
     expect(box.w).toBe(hit.w)
   })
 
+  it("spills only where the curve went, which need not be both sides", () => {
+    const box = pitchBounds(hit, 0, 0, { lead: 0, tail: 0.5 })
+    expect(box.x).toBe(hit.x)
+    expect(box.w).toBe(150)
+  })
+
   it("spills sideways by the overhang, evenly on both sides", () => {
     // Half a note's width of curve on each side: twice as wide, centred still.
-    const box = pitchBounds(hit, 0, 0, 0.5)
+    const box = pitchBounds(hit, 0, 0, { lead: 0.5, tail: 0.5 })
     expect(box.x).toBe(550)
     expect(box.w).toBe(200)
     expect(box.x + box.w / 2).toBe(hit.x + hit.w / 2)

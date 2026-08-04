@@ -22,6 +22,9 @@ function padded(inner: number[], lead = inner[0], tail = inner[inner.length - 1]
   return Int16Array.from([...Array(8).fill(lead), ...inner, ...Array(8).fill(tail)])
 }
 
+/** What the bridge sends where the voice never reached the padding. */
+const BLANK = -32768
+
 const RANGE = 12
 
 describe("samplePitch with a contour from the bridge", () => {
@@ -169,7 +172,7 @@ describe("pitchExtent", () => {
     expect(pitchExtent(note({ bend: bend(-250, 0, 380) }), null, RANGE)).toEqual({
       lowest: -2.5,
       highest: 3.8,
-      overhang: 0,
+      overhang: { lead: 0, tail: 0 },
     })
   })
 
@@ -177,7 +180,7 @@ describe("pitchExtent", () => {
     expect(pitchExtent(note({ bend: bend(100, 200) }), null, RANGE)).toEqual({
       lowest: 0,
       highest: 2,
-      overhang: 0,
+      overhang: { lead: 0, tail: 0 },
     })
   })
 
@@ -185,7 +188,7 @@ describe("pitchExtent", () => {
     expect(pitchExtent(note({ bend: bend(-6900, 6900) }), null, 3)).toEqual({
       lowest: -3,
       highest: 3,
-      overhang: 0,
+      overhang: { lead: 0, tail: 0 },
     })
   })
 
@@ -201,7 +204,7 @@ describe("pitchExtent", () => {
     expect(pitchExtent(note({ offS: 0.2 }), null, RANGE)).toEqual({
       lowest: 0,
       highest: 0,
-      overhang: 0,
+      overhang: { lead: 0, tail: 0 },
     })
   })
 })
@@ -231,11 +234,14 @@ describe("a contour with the padding the bridge sends", () => {
   })
 
   it("measures the overhang as a fraction of the note's width", () => {
-    expect(pitchExtent(note({ bend: padded(inner) }), null, RANGE).overhang).toBeCloseTo(1)
+    expect(pitchExtent(note({ bend: padded(inner) }), null, RANGE).overhang.lead).toBeCloseTo(1)
   })
 
   it("claims no overhang for a contour too short to carry the padding", () => {
-    expect(pitchExtent(note({ bend: bend(0, 50) }), null, RANGE).overhang).toBe(0)
+    expect(pitchExtent(note({ bend: bend(0, 50) }), null, RANGE).overhang).toEqual({
+      lead: 0,
+      tail: 0,
+    })
   })
 })
 
@@ -244,18 +250,18 @@ describe("overhangSeconds", () => {
     // Nine samples over a one-second note: eight steps, so each pad sample is
     // an eighth of a second and the eight of them are a whole second.
     const n = note({ bend: padded([0, 0, 0, 0, 0, 0, 0, 0, 0]), onS: 0, offS: 1 })
-    expect(overhangSeconds(n)).toBeCloseTo(1)
+    expect(overhangSeconds(n).lead).toBeCloseTo(1)
   })
 
   it("scales with the note rather than being a fixed span", () => {
     const inner = [0, 0, 0, 0, 0, 0, 0, 0, 0]
     const short = note({ bend: padded(inner), onS: 0, offS: 0.5 })
     const long = note({ bend: padded(inner), onS: 0, offS: 2 })
-    expect(overhangSeconds(long)).toBeCloseTo(4 * overhangSeconds(short))
+    expect(overhangSeconds(long).tail).toBeCloseTo(4 * overhangSeconds(short).tail)
   })
 
   it("is nothing for a synthesized shape, which knows only its note", () => {
-    expect(overhangSeconds(note())).toBe(0)
+    expect(overhangSeconds(note())).toEqual({ lead: 0, tail: 0 })
   })
 })
 
@@ -277,5 +283,36 @@ describe("reading a contour past its note", () => {
 
   it("holds rather than running off the end of the padding", () => {
     expect(samplePitch(n, null, 50, RANGE).offset).toBeCloseTo(9)
+  })
+})
+
+describe("padding the voice never reached", () => {
+  const inner = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+  /** Blank lead, real tail — a note that opens a phrase and closes into a release. */
+  function opening(): BridgeNote {
+    const bend = Array.from(padded(inner, 0, 900))
+    for (let i = 0; i < 8; i++) {
+      bend[i] = BLANK
+    }
+    return note({ bend: Int16Array.from(bend), onS: 0, offS: 1 })
+  }
+
+  it("claims no lead where nothing was drawn, but keeps the tail", () => {
+    const { lead, tail } = overhangSeconds(opening())
+    expect(lead).toBe(0)
+    expect(tail).toBeCloseTo(1)
+  })
+
+  it("never reads a blank as a pitch", () => {
+    // MIDI 0 would be -60 semitones from this note; the drawn span holds instead.
+    expect(samplePitch(opening(), null, -0.5, RANGE).offset).toBeCloseTo(0)
+  })
+
+  it("leaves blanks out of the extent, so the band does not stretch to them", () => {
+    const extent = pitchExtent(opening(), null, RANGE)
+    expect(extent.lowest).toBe(0)
+    expect(extent.highest).toBeCloseTo(9)
+    expect(extent.overhang.lead).toBe(0)
   })
 })

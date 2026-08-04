@@ -44,21 +44,29 @@ export function frameTransform(
   }
 }
 
+const NO_OVERHANG = { lead: 0, tail: 0 }
+
 /**
  * The note's rectangle grown to everything its pitch curve covers — the union,
  * so the note's own lane stays visible inside the band it is stretched into.
  *
- * Sideways as well as up and down. The curve runs into a note before it starts
- * and out of it after it ends, and `overhang` is how far, as a fraction of the
- * note's width; a band that stopped at the note's edges would cut off the
- * steepest part of the very line it is drawn to show.
+ * Sideways as well as up and down, and by different amounts at each end. The
+ * curve runs into a note before it starts and out of it after it ends, but only
+ * as far as the voice actually went — a phrase has a release drawn after its
+ * last note and nothing at all before its first.
  */
-export function pitchBounds(hit: Rect, lowest: number, highest: number, overhang = 0): Rect {
+export function pitchBounds(
+  hit: Rect,
+  lowest: number,
+  highest: number,
+  overhang: { lead: number; tail: number } = NO_OVERHANG,
+): Rect {
   const centre = hit.y + hit.h / 2
   const top = Math.min(hit.y, centre - highest * hit.h)
   const bottom = Math.max(hit.y + hit.h, centre - lowest * hit.h)
-  const spill = hit.w * overhang
-  return { x: hit.x - spill, y: top, w: hit.w + 2 * spill, h: bottom - top }
+  const before = hit.w * overhang.lead
+  const after = hit.w * overhang.tail
+  return { x: hit.x - before, y: top, w: hit.w + before + after, h: bottom - top }
 }
 
 export function composeFrame(

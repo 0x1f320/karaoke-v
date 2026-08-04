@@ -64,6 +64,18 @@ const VOICED_FLOOR = 1
 const BEND_LIMIT = 32767
 
 /**
+ * Padding sample the engine had no voice for. The app draws nothing there.
+ *
+ * Unvoiced samples inside a note hold the previous offset, so a consonant does
+ * not jerk the effect back — but padding before the voice starts has no previous
+ * offset to hold, and held zero reads as "on the note's own pitch". That put the
+ * effect in empty space ahead of a note, at exactly the height of a curve that
+ * had not begun. int16's floor is outside any pitch this carries, so it can say
+ * "nothing here" without spending a field on it.
+ */
+const NO_CURVE = -32768
+
+/**
  * Samples carried on each side of the note, beyond its own span.
  *
  * The curve does not start at the onset and stop at the end: the engine glides
@@ -139,6 +151,8 @@ function bendForNote(
   const bend: number[] = []
   let last = 0
   let voiced = false
+  let firstVoiced = -1
+  let lastVoiced = -1
   for (let i = from; i <= to; i++) {
     // Still held at the edges, which now only bites where the engine itself
     // ran out — the window already reaches past the group on both sides.
@@ -149,10 +163,29 @@ function bendForNote(
       const cents = math.floor((sample - note.pitch) * 100 + 0.5)
       last = math.max(-BEND_LIMIT, math.min(BEND_LIMIT, cents))
       voiced = true
+      if (firstVoiced < 0) {
+        firstVoiced = bend.length
+      }
+      lastVoiced = bend.length
     }
     bend[bend.length] = last
   }
-  return voiced ? bend : undefined
+  if (!voiced) {
+    return undefined
+  }
+
+  // Only the padding may be blanked. The note's own samples keep holding, since
+  // the note is sounding across them whatever the engine made of its consonants.
+  for (let i = 0; i < BEND_PAD; i++) {
+    if (i < firstVoiced) {
+      bend[i] = NO_CURVE
+    }
+    const tail = bend.length - 1 - i
+    if (tail > lastVoiced) {
+      bend[tail] = NO_CURVE
+    }
+  }
+  return bend
 }
 
 export function collectNotes(): NoteRecord[] {

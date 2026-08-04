@@ -48,10 +48,10 @@ function noteInContour(transport: Transport, seconds: number): BridgeNote | null
     return sounding
   }
   const { before, after } = transport.neighbours(seconds)
-  if (before && seconds - before.offS <= overhangSeconds(before)) {
+  if (before && seconds - before.offS <= overhangSeconds(before).tail) {
     return before
   }
-  if (after && after.onS - seconds <= overhangSeconds(after)) {
+  if (after && after.onS - seconds <= overhangSeconds(after).lead) {
     return after
   }
   return null
