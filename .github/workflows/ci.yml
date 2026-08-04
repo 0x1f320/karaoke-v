@@ -94,10 +94,7 @@ jobs:
         run: node .github/scripts/check-macos-addon.mjs
   windows-native:
     name: Windows Native Addon
-    # Pinned: node-gyp probes for Visual Studio through PowerShell and does not
-    # recognise the VS 18 that windows-latest now ships, so it reports finding no
-    # toolchain at all.
-    runs-on: windows-2022
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -111,19 +108,34 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/windows-helper
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 
-      # Compiles the C++ addon (uia/stick) with node-gyp, through MSBuild here
-      # rather than the Makefiles GYP emits on macOS.
-      - name: Build (node-gyp)
+      - name: Lint & format (Rust)
+        working-directory: packages/windows-helper
+        run: |
+          cargo fmt --check
+          cargo clippy --release -- -D warnings
+
+      # Compiles the Rust addon (napi-rs). No Electron ABI rebuild follows: the
+      # addon is Node-API, so this same binary is the one Electron loads.
+      - name: Build (napi)
         run: pnpm build
 
-      # The addon is N-API, so the binary Node loads is the one Electron loads too.
-      # Loading it here is what catches an export that was added to the C++ but not
-      # wired into the module — a rebuild that quietly did nothing looks identical
-      # to a successful one otherwise.
+      # Loading it here is what catches an export that was added to the Rust but
+      # not wired into the JS wrapper — a build that quietly did nothing looks
+      # identical to a successful one otherwise.
       - name: Load the addon
         run: node .github/scripts/check-windows-addon.mjs
