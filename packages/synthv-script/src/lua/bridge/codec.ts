@@ -18,7 +18,8 @@
 
 const MAGIC = "KVB1"
 
-export const LAYOUT = 2
+/** 3: bends carry BEND_PAD samples on each side of their note. */
+export const LAYOUT = 3
 
 export const CHANNEL_STATE = 1
 export const CHANNEL_NOTES = 2
