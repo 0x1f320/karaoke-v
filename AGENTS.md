@@ -76,6 +76,7 @@ All **commit messages** and **PR titles** MUST follow
 | `native` | The macOS helper add-on: Accessibility probing, piano-roll geometry, window sticking and occlusion, its native build. |
 | `toolbar` | The floating toolbar and its controls. |
 | `settings` | Settings window, preferences storage, and shared UI primitives. |
+| `website` | The public website in `apps/website`: its pages, content, styling, and its own build and deployment. |
 | `shell` | Electron app shell: process/window lifecycle, dev server and HMR, packaging and distribution. |
 | `project` | Repo-wide concerns: linting/formatting, Turborepo and root scripts, workspace config, CI, docs about the repo itself. |
 

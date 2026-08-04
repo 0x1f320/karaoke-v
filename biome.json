@@ -6,6 +6,7 @@
     "includes": [
       "apps/**/src/**",
       "apps/**/scripts/**",
+      "apps/*/*.{js,mjs,ts}",
       "apps/**/*.json",
       "packages/**/*.{js,mjs,ts,json}",
       "packages/**/scripts/**",

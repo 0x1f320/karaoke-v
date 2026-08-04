@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: #000000;
+  --color-fg: #ededed;
+  --color-muted: #8a8a8a;
+  --color-rule: #1a1a1a;
+  --color-rule-strong: #454545;
+  --color-accent: #50b4ff;
+  --color-dot: #4d4d4d;
+
+  --spacing-gutter: 1.5rem;
+  --container-frame: 80rem;
+}
+
+.hero-backdrop {
+  background:
+    radial-gradient(
+      70% 55% at 50% 100%,
+      color-mix(in oklab, var(--color-accent) 8%, transparent),
+      transparent 70%
+    );
+}
+
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-fg);
+}

@@ -1,0 +1,49 @@
+name: Website
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - "apps/website/**"
+      - ".github/workflows/website.yml"
+      - "pnpm-lock.yaml"
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - "apps/website/**"
+      - ".github/workflows/website.yml"
+      - "pnpm-lock.yaml"
+
+concurrency:
+  group: website-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  website:
+    name: Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          # The site needs neither Electron nor the native addons; this job installs
+          # no Rust toolchain either.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+      - name: Lint & format (Biome)
+        run: pnpm check
+
+      - name: Typecheck & build
+        run: pnpm website:build

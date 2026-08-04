@@ -4,6 +4,10 @@ out/
 .turbo/
 *.log
 
+# Next.js build output and its generated ambient types
+.next/
+next-env.d.ts
+
 # compiled native addon (node-gyp output)
 packages/*-helper/build/
 
@@ -19,3 +23,4 @@ apps/karaoke-v/resources/synthv/
 
 # the bridge script's build identity, stamped by its own build
 packages/synthv-script/src/lua/version.ts
+*.tsbuildinfo
