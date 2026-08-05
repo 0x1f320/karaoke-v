@@ -186,7 +186,13 @@ function Overlay() {
       // Before anything asks what is playing. The read is a pread into a reused
       // buffer, so it costs less than the question it answers.
       const nowMs = window.bridge.monotonicNow()
-      transport.poll(nowMs)
+      const poll = transport.poll(nowMs)
+      if (poll.scheduleChanged) {
+        renderer.clearEffects()
+        match = null
+        anchored = null
+        soundingOnset = null
+      }
       const dpr = window.devicePixelRatio || 1
       const w = window.innerWidth
       const h = window.innerHeight

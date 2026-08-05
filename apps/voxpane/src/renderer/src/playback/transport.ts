@@ -25,6 +25,10 @@ export interface TransportView {
   canvasX: number
 }
 
+export interface PollResult {
+  scheduleChanged: boolean
+}
+
 /**
  * How long the state channel may stand still before the script counts as gone.
  * It publishes every 16ms playing and every 50ms stopped, so this is generous
@@ -44,13 +48,14 @@ export class Transport {
   private lastSeq = -1
   private lastSeqClockMs = 0
   private notesSeq = -1
+  private scheduleRev: string | null = null
 
   /** Reads the channels. Call once a frame, before anything else here. */
-  poll(nowMs: number): void {
+  poll(nowMs: number): PollResult {
     const state = window.bridge.readState()
     if (state === null) {
       this.forget()
-      return
+      return { scheduleChanged: false }
     }
 
     if (state.seq === this.lastSeq) {
@@ -60,17 +65,20 @@ export class Transport {
       if (nowMs - this.lastSeqClockMs > SILENCE_MS) {
         this.forget()
       }
-      return
+      return { scheduleChanged: false }
     }
     this.lastSeq = state.seq
     this.lastSeqClockMs = nowMs
 
+    let scheduleChanged = false
     if (state.notesSeq !== this.notesSeq) {
       const schedule = window.bridge.readSchedule()
       // A torn or half-written schedule leaves notesSeq alone, so the next frame
       // tries again rather than holding a schedule that never arrived.
       if (schedule !== null) {
+        scheduleChanged = schedule.rev !== this.scheduleRev
         this.schedule = schedule.notes
+        this.scheduleRev = schedule.rev
         this.notesSeq = state.notesSeq
       }
     }
@@ -92,6 +100,8 @@ export class Transport {
           canvasX: vp.canvas.x,
         }
       : null
+
+    return { scheduleChanged }
   }
 
   /** Seconds of playhead, or null before the first read. */

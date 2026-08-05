@@ -74,7 +74,7 @@ function harness(options: { viewport?: Viewport | null } = {}) {
         rev: "r",
         ...fields,
       }
-      transport.poll(nowMs)
+      return transport.poll(nowMs)
     },
 
     /** Poll again without the script having ticked. */
@@ -82,8 +82,8 @@ function harness(options: { viewport?: Viewport | null } = {}) {
       transport.poll(nowMs)
     },
 
-    publish(notes: BridgeNote[]) {
-      schedule = { rev: "r", notes }
+    publish(notes: BridgeNote[], rev = "r") {
+      schedule = { rev, notes }
     },
 
     /** A schedule that cannot be decoded — a record caught mid-replacement. */
@@ -239,6 +239,16 @@ describe("Transport.noteAt", () => {
     publish(schedule)
     tick({ notesSeq: 1 })
     expect(transport.noteAt(0.5)).toBe(schedule[0])
+  })
+
+  it("reports when the schedule revision changes", () => {
+    const { tick, publish } = harness()
+    publish(schedule, "r1")
+    expect(tick({ notesSeq: 1 }).scheduleChanged).toBe(true)
+    publish([note(2, 3)], "r1")
+    expect(tick({ notesSeq: 2 }).scheduleChanged).toBe(false)
+    publish([note(4, 5)], "r2")
+    expect(tick({ notesSeq: 3 }).scheduleChanged).toBe(true)
   })
 })
 

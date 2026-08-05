@@ -257,7 +257,14 @@ export class GlowFlash {
     this.lastY += to.refY - from.refY
   }
 
+  clear(): void {
+    this.burst = 0
+    this.sustain = 0
+    this.sprite.visible = false
+  }
+
   dispose(): void {
+    this.clear()
     this.sprite.destroy()
   }
 }
