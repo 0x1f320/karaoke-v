@@ -9,19 +9,14 @@
     "test": "vitest run",
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build",
+    "package": "electron-builder --publish never",
     "start": "electron ."
   },
+  "//dependencies": "Only what the packaged app resolves at runtime. electron-builder copies these into the installer verbatim; the renderer is bundled whole, so a renderer-only package belongs in devDependencies or it ships twice.",
   "dependencies": {
     "@karaoke-v/macos-helper": "workspace:*",
     "@karaoke-v/windows-helper": "workspace:*",
-    "i18next": "^26.3.6",
-    "lucide-react": "^1.28.0",
-    "pixi.js": "^8.19.0",
-    "radix-ui": "^1.6.7",
-    "react": "^19.0.0",
-    "react-colorful": "^5.8.0",
-    "react-dom": "^19.0.0",
-    "react-i18next": "^17.0.11"
+    "i18next": "^26.3.6"
   },
   "devDependencies": {
     "@karaoke-v/synthv-script": "workspace:*",
@@ -31,7 +26,15 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
     "electron": "^41.0.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^3.1.0",
+    "lucide-react": "^1.28.0",
+    "pixi.js": "^8.19.0",
+    "radix-ui": "^1.6.7",
+    "react": "^19.0.0",
+    "react-colorful": "^5.8.0",
+    "react-dom": "^19.0.0",
+    "react-i18next": "^17.0.11",
     "tailwindcss": "^4.1.0",
     "vite": "^6.0.0",
     "vitest": "^4.1.10"

@@ -8,13 +8,38 @@ if (process.platform !== "darwin") {
   process.exit(0)
 }
 
-// The addon is Node-API, so the binary Node loads is the one Electron loads too —
-// there is no ABI rebuild step. `binding.js`/`binding.d.ts` land next to the .node;
-// the hand-written index.js wraps them so the package stays importable on Windows
-// without touching the binary.
-const result = spawnSync(
-  "napi",
-  ["build", "--platform", "--release", "--js", "binding.js", "--dts", "binding.d.ts"],
-  { stdio: "inherit", shell: true },
-)
-process.exit(result.status ?? 1)
+// Both macOS architectures, always: the app ships as a universal bundle, and the
+// generated loader picks the .node by process.arch at runtime, so a missing slice
+// only shows up as a broken app on the other kind of Mac.
+const TARGETS = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+
+function run(command, args) {
+  return spawnSync(command, args, { stdio: "inherit", shell: true }).status ?? 1
+}
+
+for (const target of TARGETS) {
+  // A fresh checkout has only the host's std, and cargo's failure for a missing
+  // one reads like a compile error rather than a setup step.
+  if (run("rustup", ["target", "add", target]) !== 0) {
+    process.exit(1)
+  }
+
+  // The addon is Node-API, so the binary Node loads is the one Electron loads too —
+  // there is no ABI rebuild step. `binding.js`/`binding.d.ts` land next to the .node;
+  // the hand-written index.js wraps them so the package stays importable on Windows
+  // without touching the binary.
+  const status = run("napi", [
+    "build",
+    "--platform",
+    "--release",
+    "--target",
+    target,
+    "--js",
+    "binding.js",
+    "--dts",
+    "binding.d.ts",
+  ])
+  if (status !== 0) {
+    process.exit(status)
+  }
+}
