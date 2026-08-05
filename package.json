@@ -10,6 +10,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "dev": "turbo run dev --filter @karaoke-v/app",
+    "package": "turbo run package --filter @karaoke-v/app",
     "lint": "biome lint .",
     "check": "biome check .",
     "format": "biome format --write .",

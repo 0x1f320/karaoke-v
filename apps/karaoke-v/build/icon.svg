@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#413e42"/>
+      <stop offset="1" stop-color="#1c1a1c"/>
+    </linearGradient>
+    <linearGradient id="glyph" gradientUnits="userSpaceOnUse" x1="2" y1="1" x2="21" y2="22">
+      <stop offset="0" stop-color="#8fe3ff"/>
+      <stop offset="0.45" stop-color="#50b4ff"/>
+      <stop offset="1" stop-color="#7b6bff"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#bg)"/>
+  <g transform="translate(512,512) scale(21.6667) translate(-12,-12)" fill="none" stroke="url(#glyph)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m11 7.601-5.994 8.19a1 1 0 0 0 .1 1.298l.817.818a1 1 0 0 0 1.314.087L15.09 12"/>
+    <path d="M16.5 21.174C15.5 20.5 14.372 20 13 20c-2.058 0-3.928 2.356-6 2-2.072-.356-2.775-3.369-1.5-4.5"/>
+    <circle cx="16" cy="7" r="5"/>
+    <path d="M4 0.75C4 2.55 5.45 4 7.25 4 5.45 4 4 5.45 4 7.25 4 5.45 2.55 4 0.75 4 2.55 4 4 2.55 4 0.75Z" fill="url(#glyph)" stroke="url(#glyph)" stroke-width="0.55"/>
+  </g>
+</svg>

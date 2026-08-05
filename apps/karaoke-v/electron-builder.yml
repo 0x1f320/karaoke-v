@@ -1,0 +1,76 @@
+appId: io.github.0x1f320.karaoke-v
+productName: KaraokeV
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - "!src"
+  - "!resources"
+  - "!dist"
+  - "!electron.vite.config.ts"
+  - "!vitest.config.ts"
+  - "!tsconfig*.json"
+  - "!out/**/*.map"
+  - "!**/.turbo"
+  # The helpers are workspace links, so their whole checkout — Rust sources, the
+  # cargo target directory, the napi build script — would otherwise be copied in
+  # behind the .node that is the only part the app loads.
+  - "!node_modules/@karaoke-v/*-helper/{src,scripts,target,build.rs,Cargo.toml,Cargo.lock}"
+
+# resources.ts resolves assets against process.resourcesPath when packaged, so
+# they sit beside the asar rather than inside it.
+extraResources:
+  - from: resources
+    to: .
+
+asarUnpack:
+  - "**/*.node"
+
+# The addons are Node-API: the binary napi built for Node is the one Electron
+# loads. There is no node-gyp here for a rebuild to drive, and letting one run
+# would only fail against the Rust crates.
+npmRebuild: false
+
+publish:
+  provider: github
+  # Quoted, or YAML reads the owner as the hex number 0x1f320 and the updater
+  # goes looking for github.com/127776/karaoke-v.
+  owner: "0x1f320"
+  repo: karaoke-v
+
+mac:
+  category: public.app-category.music
+  # Ad-hoc, until there is a Developer ID. Without any signature the bundle keeps
+  # the Electron binary's linker signature — Info.plist unbound, resources
+  # unsealed — and macOS has no identity to hang a TCC grant on, so Accessibility
+  # can be switched on in System Settings and the app is still refused.
+  identity: "-"
+  target:
+    # Squirrel.Mac — and so electron-updater — installs from the zip; the dmg is
+    # only what a person downloads. One universal build covers both Macs, so a
+    # release has a single artifact per format and no arch for a user to pick.
+    - target: dmg
+      arch: universal
+    - target: zip
+      arch: universal
+  # Both slices are already in the tree — the loader picks one by process.arch —
+  # so the merge must leave the two thin .node files alone instead of trying to
+  # lipo them into one.
+  x64ArchFiles: "**/*.node"
+  extendInfo:
+    LSUIElement: true
+  artifactName: ${productName}-${version}.${ext}
+
+dmg:
+  artifactName: ${productName}-${version}.${ext}
+
+win:
+  target:
+    - nsis
+  executableName: KaraokeV
+
+nsis:
+  artifactName: ${productName}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  createDesktopShortcut: always

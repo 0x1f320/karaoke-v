@@ -9,7 +9,9 @@ Both platform helpers — `packages/macos-helper` and `packages/windows-helper` 
 
 - `pnpm build` runs `napi build`, which writes the `.node` plus a generated
   `binding.js`/`binding.d.ts` next to it. All three are build output and none are
-  committed; `Cargo.lock` is.
+  committed; `Cargo.lock` is. On macOS it builds **both** `aarch64` and `x86_64`
+  slices, because the app ships as a universal bundle and the loader picks one by
+  `process.arch` at runtime.
 - The public surface stays the hand-written `index.js` / `index.d.ts`. They require
   the generated loader **lazily**, because `shared/native.ts` imports both packages
   on both platforms and only one of them has a binary.
@@ -19,6 +21,22 @@ Both platform helpers — `packages/macos-helper` and `packages/windows-helper` 
 - The Windows crate is `#[cfg(windows)]` throughout, so it builds empty elsewhere.
   From a macOS checkout, `cargo check --target x86_64-pc-windows-msvc` inside
   `packages/windows-helper` is what actually compiles that code.
+
+## Packaging
+
+`pnpm package` builds the installers with electron-builder over the `electron-vite`
+output: a **universal** dmg + zip on macOS, an NSIS installer on Windows, plus the
+`latest*.yml` and blockmaps the auto-updater will consume. Config lives in
+`apps/karaoke-v/electron-builder.yml`, the icon in `apps/karaoke-v/build/`
+(`icon.svg` is the source, `icon.png` is what electron-builder converts). Signing and
+notarization are not set up yet, so a local build is unsigned.
+
+- The app's **`dependencies` are only what the packaged app resolves at runtime** —
+  electron-builder copies them into the installer verbatim. The renderer is bundled
+  whole by Vite, so react, pixi and friends belong in `devDependencies`; putting one
+  back into `dependencies` ships it a second time.
+- Assets are reached through `resourcePath()`, which is `process.resourcesPath` once
+  packaged, so anything new under `resources/` needs no config change.
 
 ## Code comments
 

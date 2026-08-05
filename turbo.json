@@ -5,6 +5,11 @@
       "dependsOn": ["^build"],
       "outputs": ["out/**", "build/**", "*.node", "binding.js", "binding.d.ts"]
     },
+    "package": {
+      "dependsOn": ["build"],
+      "outputs": ["dist/**"],
+      "cache": false
+    },
     "typecheck": {
       "dependsOn": ["^build"]
     },
