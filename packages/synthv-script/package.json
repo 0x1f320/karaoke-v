@@ -1,8 +1,8 @@
 {
-  "name": "@karaoke-v/synthv-script",
+  "name": "@voxpane/synthv-script",
   "version": "0.1.0",
   "private": true,
-  "description": "The karaoke-v bridge script that runs inside Synthesizer V Studio 2: reads the playhead, notes and view transform, and publishes them to the app.",
+  "description": "The voxpane bridge script that runs inside Synthesizer V Studio 2: reads the playhead, notes and view transform, and publishes them to the app.",
   "scripts": {
     "typecheck": "pnpm generate && tsc --noEmit",
     "build": "pnpm typecheck && tstl -p tsconfig.json && tstl -p tsconfig.smoke.json && node scripts/bundle.mjs",

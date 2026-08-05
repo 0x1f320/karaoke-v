@@ -1,5 +1,5 @@
 // Exposes a small typed API over the compiled native addon, shaped to match
-// @karaoke-v/macos-helper so the app can treat the two platforms alike.
+// @voxpane/macos-helper so the app can treat the two platforms alike.
 //
 // The two helpers reach the same answers from opposite directions. On macOS the
 // Accessibility API is the truth about geometry and the bridge script supplies
@@ -24,7 +24,7 @@ function loadNative() {
       native = require("./binding.js")
     } catch (err) {
       throw new Error(
-        `@karaoke-v/windows-helper: native addon not built for this runtime. ` +
+        `@voxpane/windows-helper: native addon not built for this runtime. ` +
           `Run pnpm build in the workspace. Original error: ${err.message}`,
       )
     }

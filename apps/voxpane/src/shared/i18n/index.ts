@@ -9,7 +9,7 @@ import ko from "./locales/ko.json"
 // different processes, so there is nothing to share but the strings.
 
 /** The product name, as it appears to the user. */
-export const APP_NAME = "KaraokeV"
+export const APP_NAME = "Voxpane"
 
 /** The host application, under the full name it carries in its own UI. */
 export const SYNTHV_NAME = "Synthesizer V Studio 2"

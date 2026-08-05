@@ -16,7 +16,7 @@
  * `getBigInt64`, which allocates a BigInt per field.
  */
 
-const MAGIC = "KVB1"
+const MAGIC = "VPB1"
 
 /** 3: bends carry BEND_PAD samples on each side of their note. */
 export const LAYOUT = 3

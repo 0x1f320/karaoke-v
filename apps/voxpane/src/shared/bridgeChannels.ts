@@ -14,7 +14,7 @@
 // crash: the writer is a different process that can restart under us at any
 // time.
 
-const MAGIC = 0x3142564b // "KVB1", little-endian
+const MAGIC = 0x31425056 // "VPB1", little-endian
 // 3: bends gained the fixed padding on each side of their note. The samples
 // look identical to an unpadded array, so a reader that assumed the padding
 // would silently index into the wrong part of the curve — which is exactly the

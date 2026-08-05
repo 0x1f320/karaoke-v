@@ -27,7 +27,7 @@ function git(...args) {
 }
 
 function appVersion() {
-  const manifest = join(root, "..", "..", "apps", "karaoke-v", "package.json")
+  const manifest = join(root, "..", "..", "apps", "voxpane", "package.json")
   return JSON.parse(readFileSync(manifest, "utf8")).version
 }
 

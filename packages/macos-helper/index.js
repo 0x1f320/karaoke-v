@@ -14,7 +14,7 @@ function loadNative() {
       native = require("./binding.js")
     } catch (err) {
       throw new Error(
-        `@karaoke-v/macos-helper: native addon not built for this runtime. ` +
+        `@voxpane/macos-helper: native addon not built for this runtime. ` +
           `Run pnpm build in the workspace. Original error: ${err.message}`,
       )
     }

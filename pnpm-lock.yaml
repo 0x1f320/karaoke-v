@@ -21,19 +21,19 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  apps/karaoke-v:
+  apps/voxpane:
     dependencies:
-      '@karaoke-v/macos-helper':
+      '@voxpane/macos-helper':
         specifier: workspace:*
         version: link:../../packages/macos-helper
-      '@karaoke-v/windows-helper':
+      '@voxpane/windows-helper':
         specifier: workspace:*
         version: link:../../packages/windows-helper
       i18next:
         specifier: ^26.3.6
         version: 26.3.6(typescript@6.0.3)
     devDependencies:
-      '@karaoke-v/synthv-script':
+      '@voxpane/synthv-script':
         specifier: workspace:*
         version: link:../../packages/synthv-script
       '@tailwindcss/vite':

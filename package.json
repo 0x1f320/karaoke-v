@@ -1,5 +1,5 @@
 {
-  "name": "karaoke-v",
+  "name": "voxpane",
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
@@ -9,8 +9,8 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "dev": "turbo run dev --filter @karaoke-v/app",
-    "package": "turbo run package --filter @karaoke-v/app",
+    "dev": "turbo run dev --filter @voxpane/app",
+    "package": "turbo run package --filter @voxpane/app",
     "lint": "biome lint .",
     "check": "biome check .",
     "format": "biome format --write .",

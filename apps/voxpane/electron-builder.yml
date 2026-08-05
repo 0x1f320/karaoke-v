@@ -1,5 +1,5 @@
-appId: io.github.0x1f320.karaoke-v
-productName: KaraokeV
+appId: io.github.0x1f320.voxpane
+productName: Voxpane
 directories:
   buildResources: build
   output: dist
@@ -16,7 +16,7 @@ files:
   # The helpers are workspace links, so their whole checkout — Rust sources, the
   # cargo target directory, the napi build script — would otherwise be copied in
   # behind the .node that is the only part the app loads.
-  - "!node_modules/@karaoke-v/*-helper/{src,scripts,target,build.rs,Cargo.toml,Cargo.lock}"
+  - "!node_modules/@voxpane/*-helper/{src,scripts,target,build.rs,Cargo.toml,Cargo.lock}"
 
 # resources.ts resolves assets against process.resourcesPath when packaged, so
 # they sit beside the asar rather than inside it.
@@ -35,9 +35,9 @@ npmRebuild: false
 publish:
   provider: github
   # Quoted, or YAML reads the owner as the hex number 0x1f320 and the updater
-  # goes looking for github.com/127776/karaoke-v.
+  # goes looking for github.com/127776/voxpane.
   owner: "0x1f320"
-  repo: karaoke-v
+  repo: voxpane
 
 mac:
   category: public.app-category.music
@@ -68,7 +68,7 @@ dmg:
 win:
   target:
     - nsis
-  executableName: KaraokeV
+  executableName: Voxpane
 
 nsis:
   artifactName: ${productName}-${version}-setup.${ext}

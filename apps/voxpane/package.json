@@ -1,5 +1,5 @@
 {
-  "name": "@karaoke-v/app",
+  "name": "@voxpane/app",
   "version": "0.1.0",
   "private": true,
   "description": "Electron + React app (hello world).",
@@ -14,12 +14,12 @@
   },
   "//dependencies": "Only what the packaged app resolves at runtime. electron-builder copies these into the installer verbatim; the renderer is bundled whole, so a renderer-only package belongs in devDependencies or it ships twice.",
   "dependencies": {
-    "@karaoke-v/macos-helper": "workspace:*",
-    "@karaoke-v/windows-helper": "workspace:*",
+    "@voxpane/macos-helper": "workspace:*",
+    "@voxpane/windows-helper": "workspace:*",
     "i18next": "^26.3.6"
   },
   "devDependencies": {
-    "@karaoke-v/synthv-script": "workspace:*",
+    "@voxpane/synthv-script": "workspace:*",
     "@tailwindcss/vite": "^4.1.0",
     "@types/node": "^20.19.0",
     "@types/react": "^19.0.0",

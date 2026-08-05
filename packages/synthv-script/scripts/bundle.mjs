@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const source = join(root, "out", "overlay-bridge.lua")
-const target = join(root, "..", "..", "apps", "karaoke-v", "resources", "synthv")
+const target = join(root, "..", "..", "apps", "voxpane", "resources", "synthv")
 
 await mkdir(target, { recursive: true })
 await copyFile(source, join(target, "overlay-bridge.lua"))

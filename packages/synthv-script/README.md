@@ -1,19 +1,19 @@
-# @karaoke-v/synthv-script
+# @voxpane/synthv-script
 
 The half of the bridge that runs **inside** Synthesizer V Studio 2. It reads the playhead,
 the note schedule and the view transform through SynthV's script API and publishes them to
-the app; `apps/karaoke-v/src/shared/bridgeChannels.ts` is the reader on the other end, and
+the app; `apps/voxpane/src/shared/bridgeChannels.ts` is the reader on the other end, and
 the two must agree on the format in `src/lua/bridge/codec.ts`.
 
 ## Build
 
 ```sh
-pnpm --filter @karaoke-v/synthv-script build
+pnpm --filter @voxpane/synthv-script build
 ```
 
 The script is TypeScript compiled to Lua by
 [`typescript-to-lua`](https://typescripttolua.github.io/), bundled into one file per entry
-point: `out/overlay-bridge.lua` (the bridge) and `out/karaoke-v-lua-smoke.lua` (the
+point: `out/overlay-bridge.lua` (the bridge) and `out/voxpane-lua-smoke.lua` (the
 toolchain check).
 
 SynthV also hosts JavaScript, on a bare Duktape engine, and this script used to be written
@@ -44,7 +44,7 @@ real channels. Run it after touching the toolchain.
 
 The script does not send one payload. Values do not change together — the view transform
 moves sixty times a second, the schedule moves when the user edits — so each cadence is its
-own file in `<app data>/karaoke-v/bridge/`, which **the app creates** (Lua has no mkdir).
+own file in `<app data>/voxpane/bridge/`, which **the app creates** (Lua has no mkdir).
 
 | Channel | Cadence | Written |
 | --- | --- | --- |
@@ -66,13 +66,13 @@ by 287 ms at the tail.
 Records are binary because the encoder runs on SynthV's UI thread: a 2000-note schedule with
 pitch curves costs 18.8 ms to build as JSON and 2.0 ms with `string.pack`, which is the
 difference between the editor dropping a frame on every edit and not. What that costs is
-`cat`, and `pnpm --filter @karaoke-v/synthv-script run dump` pays it back — it decodes every
+`cat`, and `pnpm --filter @voxpane/synthv-script run dump` pays it back — it decodes every
 channel and is the reference for what the app's reader does.
 
 ## Install it into the editor
 
 ```sh
-pnpm --filter @karaoke-v/synthv-script run deploy
+pnpm --filter @voxpane/synthv-script run deploy
 ```
 
 This copies everything built into SynthV's scripts directory (macOS
