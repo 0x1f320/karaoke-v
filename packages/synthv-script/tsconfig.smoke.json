@@ -9,7 +9,7 @@
   },
   "tstl": {
     "luaTarget": "5.4",
-    "luaBundle": "karaoke-v-lua-smoke.lua",
+    "luaBundle": "voxpane-lua-smoke.lua",
     "luaBundleEntry": "src/lua/smoke.ts",
     "sourceMapTraceback": true
   },

@@ -1,4 +1,4 @@
-import type { Rect, Viewport } from "@karaoke-v/macos-helper"
+import type { Rect, Viewport } from "@voxpane/macos-helper"
 import type { BridgeNote } from "../../../shared/bridgeChannels"
 import type { TransportView } from "./transport"
 

@@ -1,4 +1,4 @@
-import type { Rect } from "@karaoke-v/macos-helper"
+import type { Rect } from "@voxpane/macos-helper"
 import { Application, Container, Graphics, type Texture } from "pixi.js"
 import { GlowFlash, type GlowParams } from "./glow"
 import { ParticleField, type ParticleParams } from "./particles"

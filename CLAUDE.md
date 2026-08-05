@@ -1,4 +1,4 @@
-# karaoke-v
+# voxpane
 
 Minimal Electron + React app (Turborepo + pnpm workspace). Apps live in `apps/*`.
 
@@ -27,7 +27,7 @@ Both platform helpers — `packages/macos-helper` and `packages/windows-helper` 
 `pnpm package` builds the installers with electron-builder over the `electron-vite`
 output: a **universal** dmg + zip on macOS, an NSIS installer on Windows, plus the
 `latest*.yml` and blockmaps the auto-updater will consume. Config lives in
-`apps/karaoke-v/electron-builder.yml`, the icon in `apps/karaoke-v/build/`
+`apps/voxpane/electron-builder.yml`, the icon in `apps/voxpane/build/`
 (`icon.svg` is the source, `icon.png` is what electron-builder converts). Signing and
 notarization are not set up yet, so a local build is unsigned.
 
@@ -62,7 +62,7 @@ The app ships in **ko / en / ja**, so **no user-facing string may be written as 
 is an i18next key. A change that adds UI text is **not finished** until all three locale
 files carry the key.
 
-- Resources live in `apps/karaoke-v/src/shared/i18n/locales/{ko,en,ja}.json`. Keys are
+- Resources live in `apps/voxpane/src/shared/i18n/locales/{ko,en,ja}.json`. Keys are
   grouped by the surface that shows them (`settings.*`, `tray.*`, `permissions.*`, …);
   **ko is the source of truth** for wording, and `en` is the fallback for anything missing.
 - **Renderer:** `const { t } = useTranslation()`. **Main:** `t` from `src/main/i18n.ts`.
@@ -97,7 +97,7 @@ All **commit messages** and **PR titles** MUST follow
 
 - **The scope is required** — always fill it in whenever it can reasonably be determined.
 - The scope names the **feature area**, not the package or layer the code happens to
-  live in. A single feature routinely spans `apps/karaoke-v` and
+  live in. A single feature routinely spans `apps/voxpane` and
   `packages/macos-helper`; that is expected and does not change the scope.
 - Use one of the scopes below. The list is expected to grow as the project does, but
   **never invent a scope on your own**: if a change genuinely does not fit any existing

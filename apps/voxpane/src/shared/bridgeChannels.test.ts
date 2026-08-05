@@ -5,7 +5,7 @@ import { type BridgeStatus, decodeNotes, decodeState } from "./bridgeChannels"
 // the same layout written by hand, so a change on either side has to be made on
 // both — which is the point of having them.
 
-const MAGIC = 0x3142564b
+const MAGIC = 0x31425056
 const STATUS_CODES: Record<BridgeStatus, number> = { stopped: 0, playing: 1, looping: 2 }
 
 class Writer {

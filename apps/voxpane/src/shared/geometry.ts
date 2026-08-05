@@ -2,7 +2,7 @@ import type {
   PianoRoll as MacPianoRoll,
   Viewport as MacViewport,
   Rect,
-} from "@karaoke-v/macos-helper"
+} from "@voxpane/macos-helper"
 
 // The geometry the renderer works in, kept apart from native.ts so the web build
 // does not pull Node types in through it.

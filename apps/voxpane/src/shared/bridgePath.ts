@@ -6,7 +6,7 @@ import { isWindows } from "./native"
 // configuration, and **the app creates it**: the script runs inside SynthV's Lua
 // host, which has no mkdir, and the only alternative there is spawning a shell.
 
-const APP_DIRECTORY = "karaoke-v"
+const APP_DIRECTORY = "voxpane"
 
 export function bridgeDirectory(): string {
   if (isWindows) {

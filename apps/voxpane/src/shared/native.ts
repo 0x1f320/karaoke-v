@@ -1,5 +1,5 @@
-import * as macHelper from "@karaoke-v/macos-helper"
-import * as winHelper from "@karaoke-v/windows-helper"
+import * as macHelper from "@voxpane/macos-helper"
+import * as winHelper from "@voxpane/windows-helper"
 import type { PianoRoll, Rect, Viewport } from "./geometry"
 
 // One native surface for both platforms. What the two helpers have in common is

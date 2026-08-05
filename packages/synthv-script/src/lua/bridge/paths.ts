@@ -7,7 +7,7 @@
  * run, which the panel reports and the next tick retries.
  */
 
-const DIRECTORY_NAME = "karaoke-v"
+const DIRECTORY_NAME = "voxpane"
 const CHANNEL_DIRECTORY = "bridge"
 
 // Destructured on purpose: `string.find` returns two values, and comparing the

@@ -9,7 +9,7 @@ import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
-const MAGIC = "KVB1"
+const MAGIC = "VPB1"
 const LAYOUT = 3
 const CHANNEL = { STATE: 1, NOTES: 2 }
 const STATUS = ["stopped", "playing", "looping"]
@@ -17,9 +17,9 @@ const STATUS = ["stopped", "playing", "looping"]
 function defaultDirectory() {
   if (process.platform === "win32") {
     const local = process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local")
-    return join(local, "karaoke-v", "bridge")
+    return join(local, "voxpane", "bridge")
   }
-  return join(homedir(), "Library", "Application Support", "karaoke-v", "bridge")
+  return join(homedir(), "Library", "Application Support", "voxpane", "bridge")
 }
 
 const directory = process.argv[2] ?? defaultDirectory()

@@ -1,8 +1,8 @@
 {
-  "name": "@karaoke-v/windows-helper",
+  "name": "@voxpane/windows-helper",
   "version": "0.1.0",
   "private": true,
-  "description": "Native Windows addon for karaoke-v: follows the SynthV window and locates the piano-roll canvas through UI Automation.",
+  "description": "Native Windows addon for voxpane: follows the SynthV window and locates the piano-roll canvas through UI Automation.",
   "main": "index.js",
   "types": "index.d.ts",
   "os": [

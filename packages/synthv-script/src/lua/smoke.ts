@@ -15,7 +15,7 @@ import { bridgeDirectory } from "./bridge/paths"
 import { createPublisher } from "./bridge/publisher"
 import { encodeJson } from "./json"
 
-const SCRIPT_TITLE = "karaoke-v Lua smoke"
+const SCRIPT_TITLE = "voxpane Lua smoke"
 
 let ticks = 0
 let lastCallback = "none yet"
@@ -84,7 +84,7 @@ loop()
 
 globalThis.getClientInfo = () => ({
   name: SCRIPT_TITLE,
-  category: "karaoke-v",
+  category: "voxpane",
   author: "0x1F320",
   versionNumber: 1,
   minEditorVersion: 131330,

@@ -128,7 +128,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "karaoke-v-macos-helper"
+name = "voxpane-macos-helper"
 version = "0.1.0"
 dependencies = [
  "napi",

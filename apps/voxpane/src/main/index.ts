@@ -55,12 +55,11 @@ let toolbarWin: BrowserWindow | null = null
 // would otherwise read the package name.
 app.setName(APP_NAME)
 
-// setName would otherwise move userData to ".../KaraokeV" and orphan every
-// existing install's preferences, so the path stays on the package name it was
-// created under. It has to be pinned after setName — which recomputes the
-// default — and before anything reads userData, including the single instance
-// lock below, whose socket lives there.
-app.setPath("userData", path.join(app.getPath("appData"), "@karaoke-v", "app"))
+// setName would otherwise put userData under the display name. It has to be
+// pinned after setName — which recomputes the default — and before anything
+// reads userData, including the single instance lock below, whose socket lives
+// there.
+app.setPath("userData", path.join(app.getPath("appData"), "@voxpane", "app"))
 
 // A second copy would attach its own stick observer and clipboard bridge to the
 // same SynthV window, so the two would fight over the overlay and the pasteboard.
@@ -73,7 +72,7 @@ if (!app.requestSingleInstanceLock()) {
 // Windows attributes tray icons and toast notifications by AppUserModelID, and
 // falls back to "electron.app.Electron" without one. It has to match the ID the
 // installer writes into the shortcut, or shipped toasts go missing.
-app.setAppUserModelId("io.github.0x1f320.karaoke-v")
+app.setAppUserModelId("io.github.0x1f320.voxpane")
 
 // Schemes can only be given their privileges before the app is ready.
 registerAssetScheme()
