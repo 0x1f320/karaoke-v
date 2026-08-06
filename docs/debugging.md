@@ -195,22 +195,41 @@ cd packages/windows-helper && cargo check --target x86_64-pc-windows-msvc
 That is what actually type-checks the `#[cfg(windows)]` code; on any other target the crate
 builds empty and tells you nothing.
 
-## 7. Symptom → layer
+## 7. Symptom → technique
 
-| Symptom | Most likely layer | Check |
+Routing by **technique** rather than by file: what you are looking for is the mechanism that
+could produce this symptom. Every entry links to where that mechanism is explained, and each
+explanation ends with its own failure modes.
+
+| Symptom | Suspect technique | Check |
 | --- | --- | --- |
-| No overlay, SynthV open | window tracking | tray status; step 1 |
-| Overlay present, never draws | the script, or a layout mismatch | side panel; `dump`; step 2–3 |
+| No overlay, SynthV open | window tracking, [visibility gating](overlay.md#visibility-gating) | tray status; step 1 |
+| Overlay present, never draws | the script, or [layout refusal](bridge.md#versioning) | side panel; `dump`; step 2–3 |
 | Draws, then stops after a while | `seq` stalled — the script died mid-session | `Last error`; step 2 |
-| Effects at the wrong time | the transport clock | `dump` `at` vs SynthV's playhead |
-| Effects on the wrong note | matching | debug mode; [geometry](geometry.md#matching-a-note-to-a-rectangle) |
-| Effects drift while scrolling | the frame transform | debug mode boxes while scrolling |
+| Overlay lags behind scrolling | [no IPC in the frame path](overlay.md#the-hot-path), `backgroundThrottling` | is anything new crossing to main? |
+| Overlay chases the window on a drag | [debounced reconciliation](overlay.md#native-placement-with-debounced-reconciliation), [drag prediction](overlay.md#cursor-based-drag-prediction) | Windows only |
+| Overlay above unrelated apps | [ownership vs topmost](overlay.md#staying-above-synthv) | Windows only |
+| Effects at the wrong time | [playhead interpolation](architecture.md#the-frame-loop) | `dump` `at` vs SynthV's playhead |
+| Effects on the wrong note | [predict-and-snap / follow / anchor](geometry.md#matching-a-note-to-a-rectangle) | debug mode, while scrolling |
+| Effects drift while scrolling | [the frame transform](geometry.md#staying-aligned), [paired sampling](overlay.md#sampling-paired-values-together) | debug mode boxes while scrolling |
+| Effects jump when a read lands | [coordinate-space rebasing](effects.md#coordinate-space-rebasing) | does it coincide with the ~30 ms pump? |
 | Effects one lane off vertically | the vertical reference | macOS: the tracked chip; Windows: `refY` |
-| Everything offset on a scaled display | the DIP transform | Windows only; [geometry](geometry.md#physical-pixels-points-and-dips) |
-| Notes stale after an edit | `rev` / `notesSeq` | `dump` before and after the edit |
-| Effect fires in empty space, or off-screen | the pitch curve | `bend` ranges in `dump`; [synthv](synthv.md#the-computed-pitch-curve) |
+| Everything offset on a scaled display | [the DIP transform](geometry.md#physical-pixels-points-and-dips) | Windows only |
+| Notes stale after an edit | [`rev` / `notesSeq` pairing](bridge.md#pairing-the-channels) | `dump` before and after the edit |
+| Effect fires in empty space, or off-screen | the pitch curve, [`NO_CURVE` padding](synthv.md#the-computed-pitch-curve) | `bend` ranges in `dump` |
+| Onsets flat, or the glow never releases | [two summed envelopes](effects.md#two-summed-envelopes) | does `noteStarted` fire? |
+| Trembling continues after a note ends | [jitter multiplies, not adds](effects.md#smoothed-random-walk) | — |
+| Twice the effect on a 120 Hz display | [frame-rate independence](effects.md#frame-rate-independence) | is anything counted per frame? |
+| A burst of particles after un-hiding | the `dt` clamp | [frame-rate independence](effects.md#frame-rate-independence) |
+| Particles vanish mid-flight | [pool saturation](effects.md#sprite-pooling-with-a-hard-cap) | is a live sprite being recycled? |
+| A streak across the roll behind the trail | [join rules](effects.md#join-rules) — or bad matching upstream | debug mode |
+| Banding, or frame drops on long trails | [quantized fade](effects.md#quantized-fade) | — |
+| An imported image never appears | the `asset://` scheme, or a failed load | DevTools console; is the thumbnail fine but the overlay not? |
 | Old effects linger after a group change | schedule revision handling | #90 |
-| Works on one platform only | the geometry split | [geometry](geometry.md#two-platforms-two-strategies) |
+| Works on one platform only | [the geometry split](geometry.md#two-platforms-two-strategies) | — |
+
+`docs/README.md` carries the full [technique index](README.md#technique-index) if the symptom
+is not here.
 
 ## 8. Before changing anything
 

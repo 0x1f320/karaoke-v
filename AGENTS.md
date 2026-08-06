@@ -40,10 +40,23 @@ is the invariants, which do not survive being skimmed for a keyword.
   away; the DIP conversion; the three layered matching mechanisms (predict-and-snap,
   follow, anchor) and why each exists; and a table of **invariants against the symptom of
   breaking each one**.
+- **[docs/overlay.md](docs/overlay.md)** — the window itself: why it is owned rather than
+  topmost on Windows and why `WS_CHILD` is a dead end; how it follows SynthV's frame on each
+  platform; drag prediction and the debounced bounds reconciliation; visibility and occlusion
+  gating; and **why the per-frame path lives in the preload** with no IPC in it.
+- **[docs/effects.md](docs/effects.md)** — what is actually drawn: glow, particles and trail
+  as one document, the scene they share, pitch following and its synthesized fallback, and
+  presets/images/the preview. Its **Techniques** section is the reference for the mechanisms
+  the effects are built on — envelopes, pooling, reach parameterisation, quantized fade,
+  rebasing — each with what breaks when it goes wrong.
 - **[docs/debugging.md](docs/debugging.md)** — how to observe the running system: tray
   status, the script's side panel, `pnpm --filter @voxpane/synthv-script dump`, on-screen
-  debug mode, deploying a script change, Windows, and a symptom → layer table. Read this
-  **before investigating any bug**, and `docs/README.md`'s symptom table before grepping.
+  debug mode, deploying a script change, Windows, and a **symptom → technique** table. Read
+  this **before investigating any bug**.
+
+`docs/README.md` carries the routing tables: symptom → document, and a **technique index**
+naming every non-obvious mechanism, its one home, and what uses it. Start there rather than
+grepping.
 
 ### Which documents for which change
 
@@ -52,11 +65,12 @@ Keyed to the commit scopes below, so the answer is whatever scope the change alr
 | Scope | Read |
 | --- | --- |
 | `bridge` | architecture · **bridge** · synthv |
-| `overlay` | architecture · **geometry** |
-| `native` | architecture · **geometry** (and synthv for the script rescan) |
-| `effects` | architecture · geometry — the matched rectangle is exactly one semitone tall, and the effects are built on that |
-| `toolbar`, `settings` | architecture — the window map, and how preferences are owned and broadcast |
-| `shell` | architecture |
+| `overlay` | architecture · **overlay** · geometry |
+| `native` | architecture · **geometry** · overlay (and synthv for the script rescan) |
+| `effects` | architecture · **effects** · geometry |
+| `toolbar` | architecture · overlay (docking, and the follow loop it shares) |
+| `settings` | architecture · effects (presets, imported images, the preview) |
+| `shell` | architecture · overlay (window lifecycle, the permissions gate) |
 | `project` | none required |
 
 Any bug, in any scope, also gets **debugging.md**.

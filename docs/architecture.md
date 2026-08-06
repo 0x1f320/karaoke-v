@@ -81,7 +81,8 @@ happens per frame.
 - `preferences.ts` — the single writer of `preferences.json` under `userData`. Every update
   is broadcast to all windows, so no renderer holds its own copy of the truth.
 - `overlay.ts`, `toolbar.ts`, `settings.ts`, `permissions.ts`, `tray.ts` — one window each,
-  each owning its own creation and placement.
+  each owning its own creation and placement. The overlay's own behaviour — staying above
+  SynthV, following it, hiding with it — is [overlay.md](overlay.md).
 - `dip.ts` — see [geometry](geometry.md#physical-pixels-points-and-dips).
 
 **Preload** (`src/preload`) is where the hot path lives, which is unusual and deliberate.
@@ -167,7 +168,7 @@ overlay.
 | `apps/voxpane/src/main` | Electron main: windows, tracking, preferences, tray |
 | `apps/voxpane/src/preload` | the hot path — channel reads, geometry, `contextBridge` API |
 | `apps/voxpane/src/renderer/src/playback` | transport clock, note location, pitch, frame math |
-| `apps/voxpane/src/renderer/src/render` | the PixiJS scene: glow, particles, trail |
+| `apps/voxpane/src/renderer/src/render` | the PixiJS scene: glow, particles, trail — [effects.md](effects.md) |
 | `apps/voxpane/src/shared` | types and pure logic both sides need — and the tests |
 | `packages/synthv-script` | the Lua bridge script (authored in TypeScript) |
 | `packages/macos-helper` | Rust: Accessibility reads, window sticking, script rescan |

@@ -155,7 +155,9 @@ its own schedule, so during a drag the two disagree and the drawing slides.
 **Effects carry their frame.** Live particles and trail points are positioned in the
 coordinate space of whichever read is current, so when the pump replaces the set mid-flight
 `rebaseEffects` shifts them by the same delta the notes moved. Without it they jump every
-time a read lands during a scroll.
+time a read lands during a scroll. That is the same arithmetic as `followRect` and
+`rebaseAnchor` above, applied to a different set of things — see
+[effects.md](effects.md#coordinate-space-rebasing).
 
 ## Invariants
 
@@ -174,4 +176,8 @@ Break one of these and the symptom is listed beside it.
 
 That last one is load-bearing in an unobvious way: the matched rectangle being exactly one
 semitone tall is what lets a pitch offset in semitones scale by the rectangle's height and
-inherit the existing scroll/zoom alignment for free. `playback/pitch.ts` depends on it.
+inherit the existing scroll/zoom alignment for free. `playback/pitch.ts` depends on it —
+see [effects.md](effects.md#where-an-effect-is-drawn).
+
+What happens to the rectangle once it is found is [effects.md](effects.md); where the window
+it is drawn in comes from is [overlay.md](overlay.md).
