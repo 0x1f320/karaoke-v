@@ -233,14 +233,26 @@ loads, and a load that failed is never retried.
 
 ## The scene graph
 
-```
-stage
-├─ content            mask = clip; carries the scroll delta as one transform
-│  ├─ notes           one Graphics batching every note rect  (debug only)
-│  ├─ reaches         one Graphics batching every reach band (debug only)
-│  ├─ playing         the matched rect                       (debug only)
-│  └─ effects         trail, then glow, then particles
-└─ clip               the piano-roll viewport, window-local
+Numbered back to front — 1 is furthest away.
+
+```mermaid
+flowchart TD
+    stage(["stage"])
+    content["<b>content</b><br/>one transform carries the scroll delta"]
+    clip["<b>clip</b><br/>the piano-roll viewport, window-local"]
+    notes["1 · notes<br/>every note rect in one Graphics — debug"]
+    reaches["2 · reaches<br/>every reach band in one Graphics — debug"]
+    playing["3 · playing<br/>the matched rect — debug"]
+    effects["4 · effects"]
+    trail["4a · trail"]
+    glow["4b · glow"]
+    particles["4c · particles"]
+
+    stage --> content
+    stage --> clip
+    clip -. "mask — axis-aligned, so Pixi clips with scissor not stencil" .-> content
+    content --> notes & reaches & playing & effects
+    effects --> trail & glow & particles
 ```
 
 Four things worth knowing:

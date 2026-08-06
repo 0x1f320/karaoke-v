@@ -14,17 +14,22 @@ being drawn from. The rectangle is the truth about geometry.
 
 ## Coordinate spaces
 
-Four, in order:
+Four, in order — and the step between each pair is where a whole class of bug lives.
 
-1. **Musical** — blicks and semitones. What the schedule is in.
-2. **Canvas-local** — pixels within SynthV's piano-roll canvas. What the script's view
-   transform is in. Says nothing about where the canvas is.
-3. **Screen** — global, top-left origin. Points on macOS, **physical pixels** on Windows.
-   What the native helpers report.
-4. **Window-local** — CSS pixels inside the overlay window, which is what Pixi draws in.
-   Screen minus the window origin.
+```mermaid
+flowchart LR
+    musical["<b>1 · musical</b><br/>blicks × semitones<br/><i>the note schedule</i>"]
+    canvas["<b>2 · canvas-local</b><br/>px inside the piano roll<br/><i>the script's view transform</i>"]
+    screen["<b>3 · screen</b><br/>global, top-left origin<br/><i>points on macOS<br/>physical px on Windows</i>"]
+    window["<b>4 · window-local</b><br/>CSS px in the overlay<br/><i>what Pixi draws in</i>"]
 
-Between 3 and 4 sits the DIP conversion on Windows, below.
+    musical -- "× perBlick<br/>× perSemitone" --> canvas
+    canvas -- "+ where the canvas is<br/>(Accessibility / UI Automation)" --> screen
+    screen -- "÷ scale — Windows only<br/>− window origin" --> window
+```
+
+Space 2 is the one to watch: the script knows it exactly and it says **nothing** about where
+the canvas is on screen. That gap is what the native helpers exist to close.
 
 ## Two platforms, two strategies
 

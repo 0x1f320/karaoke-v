@@ -85,6 +85,33 @@ silently receives nothing.
 Frames are physical pixels there, so they go through the [DIP
 transform](geometry.md#physical-pixels-points-and-dips) before any window is positioned.
 
+```mermaid
+flowchart TD
+    subgraph MAC["macOS signals"]
+        ax["AXObserver<br/>moved · resized · miniaturized · destroyed"]
+        macpoll["CGWindowList poll @ 60 Hz<br/><i>only without Accessibility</i>"]
+        mactick["timer @ 10 Hz<br/>visibility + occlusion"]
+    end
+
+    subgraph WIN["Windows signals"]
+        hook["SetWinEventHook · WINEVENT_OUTOFCONTEXT<br/><b>main thread only</b>"]
+        dragt["drag timer @ 8 ms<br/>predicts from the cursor"]
+    end
+
+    place["helper calls SetWindowPos itself<br/><i>lands in the same message batch<br/>as SynthV's own move</i>"]
+    emit(["onFrame → main process"])
+    dip["DIP conversion<br/><i>identity on macOS</i>"]
+    branch{"native.follow?"}
+    direct["<b>positionOverlay</b><br/>setBounds, animate: false"]
+    debounced["<b>debounced sync, 120 ms</b><br/>reconciles Electron's idea only —<br/>the window is already where it belongs"]
+
+    ax & macpoll & mactick --> emit
+    hook & dragt --> place --> emit
+    emit --> dip --> branch
+    branch -- "macOS · no" --> direct
+    branch -- "Windows · yes" --> debounced
+```
+
 ## Techniques
 
 ### Native placement with debounced reconciliation

@@ -18,46 +18,47 @@ Reconciling them is what most of the renderer does.
 
 ## The path
 
-The data path — what is sounding:
+Two paths, from two sources that cannot answer each other's question, converging in the
+renderer:
 
-```
-  Synthesizer V Studio 2
-    └─ overlay-bridge.lua                    packages/synthv-script (TS → Lua)
-         every 16 ms : playhead, transport status, view transform
-         on edit     : the note schedule + computed pitch curves
-              │
-              │  one write per whole record
-              ▼
-  the bridge directory                       session.json · state · notes
-    ~/Library/Application Support/voxpane/bridge   (macOS)
-    %LOCALAPPDATA%\voxpane\bridge                  (Windows)
-              │
-              │  read once a frame, in the renderer's own process
-              ▼
-  preload ──▶ Transport ──▶ note matching ──▶ PixiJS effects
+```mermaid
+flowchart TD
+    subgraph SV["Synthesizer V Studio 2"]
+        script["<b>overlay-bridge.lua</b><br/>packages/synthv-script (TS → Lua)<br/>every 16 ms — playhead, status, view transform<br/>on edit — note schedule + pitch curves"]
+    end
+
+    subgraph CH["the bridge directory"]
+        files["<b>session.json · state · notes</b><br/>one whole record each,<br/>replaced in place"]
+    end
+
+    subgraph NAT["native helper — packages/macos-helper · packages/windows-helper"]
+        mac["<b>macOS · Accessibility</b><br/>canvas, scroll, zoom,<br/>note rectangles"]
+        win["<b>Windows · UI Automation</b><br/>canvas rectangle + window origin<br/>(note rects are computed)"]
+    end
+
+    subgraph REN["overlay renderer"]
+        preload["<b>preload</b><br/>reads both, in this process"]
+        transport["<b>Transport</b><br/>playhead, schedule"]
+        match["<b>note matching</b><br/>which rect is this note?"]
+        pixi["<b>PixiJS effects</b>"]
+    end
+
+    script -- "one write per whole record" --> files
+    files -- "read once a frame" --> preload
+    mac --> preload
+    win --> preload
+    preload --> transport --> match --> pixi
+    preload -- "viewport, sampled at paint time" --> match
 ```
 
-The geometry path — where it is on screen:
+The bridge directory is `~/Library/Application Support/voxpane/bridge` on macOS and
+`%LOCALAPPDATA%\voxpane\bridge` on Windows — [bridge.md](bridge.md#where) for why it is
+there and who creates it.
 
-```
-  native helper                              packages/{macos,windows}-helper
-    macOS   : Accessibility  ─▶ canvas, scroll, zoom, note rectangles
-    Windows : UI Automation  ─▶ canvas rectangle + window origin
-              │                    (note rectangles are computed instead)
-              │  read at paint time, also in the renderer's process
-              ▼
-  preload ──▶ note matching ──▶ the frame transform ──▶ PixiJS effects
-```
-
-And around both, the main process:
-
-```
-  main
-    follows SynthV's window frame  ─▶ moves the overlay and docks the toolbar
-    installs overlay-bridge.lua into SynthV's scripts directory
-    owns preferences, and broadcasts every change to all windows
-    tray · permissions gate · window lifecycle
-```
+The main process sits around both and touches neither per frame. It follows SynthV's window
+frame — moving the overlay and docking the toolbar — installs `overlay-bridge.lua` into
+SynthV's scripts directory, owns preferences and broadcasts every change to all windows, and
+runs the tray, the permissions gate and window lifecycle.
 
 Three sources of truth feed the picture, and they are genuinely independent:
 

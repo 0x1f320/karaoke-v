@@ -67,6 +67,37 @@ The script publishes the schedule *before* the state record that indexes it, so 
 every note and calls into the host per note, and it is the only thing here that scales with
 project size.
 
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as user
+    participant S as bridge script
+    participant N as notes channel
+    participant T as state channel
+    participant A as app
+
+    loop every 16 ms
+        S->>T: publish state — seq+1, playhead, status, view transform, rev
+    end
+
+    U->>S: edits a note
+    Note over S: fingerprint checked every 500 ms
+    S->>S: rev changed
+    S->>N: publish the whole schedule, notesSeq+1
+    S->>T: publish state carrying the new notesSeq
+
+    Note over S,T: the schedule goes out BEFORE the state that indexes it
+
+    loop every frame
+        A->>T: pread 256 B
+        alt notesSeq changed
+            A->>N: read the whole schedule
+        else unchanged
+            A-->>A: keep the schedule it already has
+        end
+    end
+```
+
 ## Atomicity
 
 **A record is always exactly one `write` call.** That is the whole safety story — no
