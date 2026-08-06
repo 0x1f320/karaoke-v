@@ -15,7 +15,7 @@ packages/*-helper/binding.js
 packages/*-helper/binding.d.ts
 
 # the bridge script, published into the app by the synthv-script build
-apps/karaoke-v/resources/synthv/
+apps/voxpane/resources/synthv/
 
 # the bridge script's build identity, stamped by its own build
 packages/synthv-script/src/lua/version.ts

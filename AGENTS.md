@@ -2,6 +2,90 @@
 
 Minimal Electron + React app (Turborepo + pnpm workspace). Apps live in `apps/*`.
 
+## Required reading: `docs/`
+
+This file is **conventions** — how to write a commit, where a test goes, how a string gets
+translated. It says nothing about how the app *behaves*. That is in
+**[`docs/`](docs/README.md)**, and it is not optional background: the product is split
+across an Electron app, a Lua script running inside Synthesizer V, and two Rust helpers,
+and none of the three explains the others. Working without it produces plausible code that
+silently misplaces every effect.
+
+**Before editing an area you have not already worked on in this session, read the whole
+document listed against it** — not a grep of it. These are short, and what matters in them
+is the invariants, which do not survive being skimmed for a keyword.
+
+### What each document is
+
+- **[docs/architecture.md](docs/architecture.md)** — the end-to-end path in three diagrams
+  (data, geometry, main process); which process owns what and why the hot path lives in
+  the preload; the frame loop step by step; the **three unsynchronised clocks** (script
+  tick 16 ms, note pump ~30 ms plus a ~50 ms walk, rAF) and why they are not meant to
+  agree; why decoders return `null` rather than throwing. **Read this before anything
+  else** — it names every other layer, and most questions end here.
+- **[docs/synthv.md](docs/synthv.md)** — the host application. Its object model down to the
+  note, and that the bridge follows **one group only**. The four units (blick, second,
+  semitone, cent) and which layer works in which. The Lua host: what it offers, and the
+  absences — no `mkdir`, no sockets, no scheduler but `SV.setTimeout`, no log anyone
+  outside SynthV can read — that shaped the bridge. The engine behaviours that are
+  **measured, not documented**, above all that a computed pitch curve is often absent and
+  that unvoiced frames come back as `0`, not `null`.
+- **[docs/bridge.md](docs/bridge.md)** — the script ⇄ app channel: the three files and why
+  they are split by change rate; `rev` / `notesSeq` pairing; the one-write-per-record
+  atomicity rule and the two things it forces; the byte-level record layout; and **the
+  three places a format change has to land at once**.
+- **[docs/geometry.md](docs/geometry.md)** — where a note is on screen. The four coordinate
+  spaces; why macOS reads rectangles out of the Accessibility tree while Windows computes
+  them from the script's view transform, and why that split is deliberately not abstracted
+  away; the DIP conversion; the three layered matching mechanisms (predict-and-snap,
+  follow, anchor) and why each exists; and a table of **invariants against the symptom of
+  breaking each one**.
+- **[docs/overlay.md](docs/overlay.md)** — the window itself: why it is owned rather than
+  topmost on Windows and why `WS_CHILD` is a dead end; how it follows SynthV's frame on each
+  platform; drag prediction and the debounced bounds reconciliation; visibility and occlusion
+  gating; and **why the per-frame path lives in the preload** with no IPC in it.
+- **[docs/effects.md](docs/effects.md)** — what is actually drawn: glow, particles and trail
+  as one document, the scene they share, pitch following and its synthesized fallback, and
+  presets/images/the preview. Its **Techniques** section is the reference for the mechanisms
+  the effects are built on — envelopes, pooling, reach parameterisation, quantized fade,
+  rebasing — each with what breaks when it goes wrong.
+- **[docs/debugging.md](docs/debugging.md)** — how to observe the running system: tray
+  status, the script's side panel, `pnpm --filter @voxpane/synthv-script dump`, on-screen
+  debug mode, deploying a script change, Windows, and a **symptom → technique** table. Read
+  this **before investigating any bug**.
+
+`docs/README.md` carries the routing tables: symptom → document, and a **technique index**
+naming every non-obvious mechanism, its one home, and what uses it. Start there rather than
+grepping.
+
+### Which documents for which change
+
+Keyed to the commit scopes below, so the answer is whatever scope the change already has.
+
+| Scope | Read |
+| --- | --- |
+| `bridge` | architecture · **bridge** · synthv |
+| `overlay` | architecture · **overlay** · geometry |
+| `native` | architecture · **geometry** · overlay (and synthv for the script rescan) |
+| `effects` | architecture · **effects** · geometry |
+| `toolbar` | architecture · overlay (docking, and the follow loop it shares) |
+| `settings` | architecture · effects (presets, imported images, the preview) |
+| `shell` | architecture · overlay (window lifecycle, the permissions gate) |
+| `project` | none required |
+
+Any bug, in any scope, also gets **debugging.md**.
+
+### Keeping them true
+
+A stale document is worse than none: it is what the next reader trusts instead of the
+code. **If a change makes a document wrong, fix the document in the same commit.** That is
+a `docs` type only when documentation is the whole change; otherwise it rides along with
+the behaviour change that caused it.
+
+Each document has a Korean translation beside it — `architecture.md` / `architecture.ko.md`.
+**English is the source of truth**, and the translation is brought level in the same commit;
+see **Language** below for the rules that keep the pair from drifting apart.
+
 ## Code comments
 
 **Do not write comments by default.** Names, types and small functions are expected to
@@ -72,8 +156,8 @@ All **commit messages** and **PR titles** MUST follow
 | --- | --- |
 | `effects` | Note effects themselves — glow, particles, palettes, effect presets and their preview. |
 | `overlay` | The piano-roll overlay surface: transparent window, Pixi stage, coordinate mapping, alignment through scroll/zoom. |
-| `bridge` | The SynthV data channel: script API, clipboard bridge, playhead/note/transport data and the shared types carrying it. |
-| `native` | The macOS helper add-on: Accessibility probing, piano-roll geometry, window sticking and occlusion, its native build. |
+| `bridge` | The SynthV data channel: the Lua bridge script, the file channels and their wire format, playhead/note/transport data and the shared types carrying it. |
+| `native` | The platform helper add-ons (macOS, Windows): Accessibility/UI Automation probing, piano-roll geometry, window sticking and occlusion, their native builds. |
 | `toolbar` | The floating toolbar and its controls. |
 | `settings` | Settings window, preferences storage, and shared UI primitives. |
 | `shell` | Electron app shell: process/window lifecycle, dev server and HMR, packaging and distribution. |
@@ -100,3 +184,17 @@ Examples:
 Anything written into the repository or posted to GitHub is in **English**: commit
 messages, PR titles, and **PR bodies**. This holds no matter which language the work is
 being discussed in — a Korean conversation still produces an English PR body.
+
+**The one exception is `docs/`**, which is bilingual: `<name>.md` in English and
+`<name>.ko.md` in Korean. **English is the source of truth.** A behaviour change edits the
+English document first and brings the translation level **in the same commit** — a
+translation that has drifted is worse than none, because it is what the next reader trusts
+instead of the code.
+
+- **Technical terms and proper nouns stay in English** inside the Korean documents:
+  `playhead`, `viewport`, `envelope`, `rebasing`, `blick`, and every identifier. Translating
+  them severs the link to the code and gives one concept two names.
+- **Headings stay identical to the English original**, so the two files share anchors and a
+  link into a section lands in the same place in either language.
+- Nothing else in the repository is translated. This exists because `docs/` is the one part
+  of the tree written to be *read* rather than executed.
