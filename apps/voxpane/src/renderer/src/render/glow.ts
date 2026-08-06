@@ -250,7 +250,7 @@ export class GlowFlash {
     this.sprite.scale.set((radius * 2) / this.sprite.texture.width)
   }
 
-  /** Follow the note set into a new AX read's coordinate frame. */
+  /** Follow the note set into a new note read's coordinate frame. */
   rebase(from: CoordinateFrame, to: CoordinateFrame): void {
     const scaleX = from.contentW > 0 && to.contentW > 0 ? to.contentW / from.contentW : 1
     this.lastX = to.contentX + (this.lastX - from.contentX) * scaleX

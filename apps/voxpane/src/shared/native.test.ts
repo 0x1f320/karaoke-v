@@ -5,6 +5,7 @@ import {
   IDENTITY_DIP,
   toDipPianoRoll,
   toDipRect,
+  toDipState,
   toDipViewport,
   toDipX,
   toDipY,
@@ -106,5 +107,38 @@ describe("toDipPianoRoll", () => {
 
   it("is a no-op under IDENTITY_DIP", () => {
     expect(toDipPianoRoll(IDENTITY_DIP, read)).toEqual(read)
+  })
+})
+
+describe("toDipState", () => {
+  it("scales the pixel mapping and keeps musical ranges unchanged", () => {
+    const state = {
+      seq: 1,
+      notesSeq: 2,
+      at: 3,
+      status: "playing" as const,
+      loop: null,
+      rev: "r",
+      px: {
+        perBlick: 8,
+        perSemitone: 20,
+        viewLeft: 10,
+        viewRight: 20,
+        viewTop: 72,
+        viewBottom: 60,
+      },
+    }
+
+    expect(toDipState(SCALED, state)).toEqual({
+      ...state,
+      px: {
+        perBlick: 4,
+        perSemitone: 10,
+        viewLeft: 10,
+        viewRight: 20,
+        viewTop: 72,
+        viewBottom: 60,
+      },
+    })
   })
 })

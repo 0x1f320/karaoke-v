@@ -11,8 +11,8 @@ voxpane은 Synthesizer V Studio 2의 piano roll 위에 effect를 그린다. 프�
 
 - **지금 무엇이 울리고 있는가?** SynthV만 안다. 그 안에서 도는 Lua script가 답을 publish
   한다.
-- **그 note가 화면 어디에 있는가?** script는 알 수 없다 — 좌표가 canvas-local이고, 자기
-  창이 어디 있는지도 모른다. OS의 accessibility 계층이 바깥에서 답한다.
+- **그 note가 화면 어디에 있는가?** script는 note를 canvas-local 단위로 알지만, 자기 창이
+  어디 있는지는 모른다. OS의 accessibility 계층이 그 native anchor를 바깥에서 준다.
 
 어느 쪽도 상대의 질문에 답할 수 없고, 둘은 서로 다른 clock으로 읽힌다. 이 둘을 화해시키는
 것이 renderer가 하는 일의 대부분이다.
@@ -24,7 +24,7 @@ voxpane은 Synthesizer V Studio 2의 piano roll 위에 effect를 그린다. 프�
 ```mermaid
 flowchart TD
     subgraph SV["Synthesizer V Studio 2"]
-        script["<b>overlay-bridge.lua</b><br/>packages/synthv-script (TS → Lua)<br/>16 ms마다 — playhead, status, view transform<br/>편집 시 — note schedule + pitch curve"]
+        script["<b>overlay-bridge.lua</b><br/>packages/synthv-script (TS → Lua)<br/>4 ms마다 — playhead, status, view transform<br/>편집 시 — note schedule + pitch curve"]
     end
 
     subgraph CH["the bridge directory"]
@@ -32,8 +32,8 @@ flowchart TD
     end
 
     subgraph NAT["native helper — packages/macos-helper · packages/windows-helper"]
-        mac["<b>macOS · Accessibility</b><br/>canvas, scroll, zoom,<br/>note rect"]
-        win["<b>Windows · UI Automation</b><br/>canvas rect + window origin<br/>(note rect은 계산으로 구함)"]
+        mac["<b>macOS · Accessibility</b><br/>canvas/cache seed + window frame"]
+        win["<b>Windows · UI Automation</b><br/>canvas rect + window origin"]
     end
 
     subgraph REN["overlay renderer"]
@@ -48,7 +48,7 @@ flowchart TD
     mac --> preload
     win --> preload
     preload --> transport --> match --> pixi
-    preload -- "viewport, paint 시점에 샘플링" --> match
+    preload -- "native viewport anchor" --> match
 ```
 
 bridge directory는 macOS에서 `~/Library/Application Support/voxpane/bridge`,
@@ -65,7 +65,7 @@ SynthV의 scripts 디렉터리에 설치하고, preferences를 소유하며 변�
 | 출처 | 답하는 것 | 읽는 쪽 |
 | --- | --- | --- |
 | bridge script | 무엇이 언제 어떤 pitch로 울리는가 | renderer, 프레임마다 한 번 |
-| native helper | SynthV의 창과 note가 어디 있는가 | renderer(geometry)와 main(frame) |
+| native helper | SynthV의 창과 piano-roll canvas가 어디 있는가 | renderer(geometry)와 main(frame) |
 | preferences | effect가 어떻게 보이는가 | 모든 창, main이 push |
 
 ## Processes and windows
@@ -96,9 +96,9 @@ piano roll geometry를 **프레임 경로에 IPC 없이** 읽는다. 프레임�
 가 나머지다. frame loop를 가진 것은 overlay뿐이다.
 
 **Native helper** (`packages/macos-helper`, `packages/windows-helper`)는 Rust + napi-rs다.
-둘 다 창 추종을 하고, note rect을 읽는 것은 macOS뿐이다. `shared/native.ts`가 둘 위의
-단일 표면인데, geometry 차이는 **의도적으로 감추지 않는다** — [geometry](geometry.ko.md)
-참조.
+둘 다 창 추종과 canvas 탐색을 하고, preload가 bridge schedule과 view transform으로 note rect을
+계산한다. `shared/native.ts`가 둘 위의 단일 표면인데, geometry 차이는 **의도적으로 감추지
+않는다** — [geometry](geometry.ko.md) 참조.
 
 ## The frame loop
 
@@ -107,9 +107,10 @@ piano roll geometry를 **프레임 경로에 IPC 없이** 읽는다. 프레임�
 1. **bridge를 poll한다.** `transport.poll()`이 `state` channel을 읽는다 — 한 번만 할당한
    버퍼로 `pread`하므로, 읽을지 말지 판단하는 비용보다 싸다. schedule은 state record가
    generation이 바뀌었다고 말할 때만 다시 읽는다.
-2. **viewport를 읽는다.** paint 시점에, 그릴 것이 있을 때만. scroll 위치와 zoom을 최대한
-   늦게 샘플링하는 것인데, 아래 모든 것이 *지금*과 *note rect을 읽은 시점*의 차이이기
-   때문이다.
+2. **최신 native viewport anchor를 잡는다.** 작은 비동기 manager가 draw call 밖에서 canvas와
+   window origin을 갱신한다. 그런 다음 scroll, zoom, vertical reference는 1단계에서 방금 읽은
+   bridge state로 즉시 다시 계산하므로, 느린 AX 응답은 canvas anchor를 낡게 만들 수는 있어도
+   scroll 추종을 늦추지는 못한다.
 3. **무엇이 울리는지 묻는다.** playhead는 두 state record 사이를 local clock으로 보간하고,
    schedule은 그 아래의 note를 이진 탐색으로 찾는다.
 4. **그 note의 rect을 찾는다.** 어려운 부분 — [geometry](geometry.ko.md).
@@ -118,21 +119,24 @@ piano roll geometry를 **프레임 경로에 IPC 없이** 읽는다. 프레임�
 6. **그린다.** Pixi scene에 transform 한 번. note geometry는 새 read가 set을 교체할 때만
    다시 만든다.
 
-옆에서 두 번째 loop가 돈다: **note pump**. 비동기 `while` loop가 전체 piano roll read를
-요청하고(macOS에서 ~50 ms), set을 통째로 교체하고, 30 ms 잔다. roll이 움직이는 동안 찍힌
-read는 버린다 — 좌표들이 서로 어긋나 있기 때문이다. 그동안 낡은 set이 여전히 맞는 이유는,
-4단계가 그것을 살아 있는 viewport 데이터로 매핑하기 때문이다.
+옆에서 두 번째 loop가 돈다: **note pump**. 비동기 `while` loop가 preload에 piano roll read를
+요청하고, set을 통째로 교체하고, 30 ms 잔다. read는 최신 bridge schedule과 view transform으로
+보이는 모든 note rect을 계산한다. native 작업은 canvas를 찾는 데 한정되고, macOS의 전체 AX
+walk는 cheap cached viewport가 아직 seed되지 않았을 때만 fallback으로 돈다. 그동안 낡은 set이
+여전히 맞는 이유는, 4단계가 그것을 살아 있는 viewport 데이터로 매핑하기 때문이다.
 
-그래서 **clock이 셋**이고, 이걸 혼동하는 것이 타이밍 버그 대부분의 출처다:
+그래서 **clock이 넷**이고, 이걸 혼동하는 것이 타이밍 버그 대부분의 출처다:
 
 | Clock | 주기 | 나르는 것 |
 | --- | --- | --- |
-| script의 tick | 16 ms | playhead, transport status, view transform |
-| note pump | ~30 ms + ~50 ms의 walk | note rect |
+| script의 tick | 4 ms | playhead, transport status, view transform |
+| viewport manager | ~8 ms + AX 응답 시간 | canvas와 window origin |
+| note pump | ~30 ms + canvas lookup 시간 | 계산된 note rect |
 | frame loop | 디스플레이 주사율 | 그리기, 그리고 보간된 playhead |
 
-셋은 동기화되어 있지 않고, 그럴 의도도 없다. 낡은 값은 전부 자기가 읽힌 frame과 짝지어져
-있어서, 소비자가 신선함을 기다리는 대신 자기 나이를 스스로 보정한다.
+넷은 동기화되어 있지 않고, 그럴 의도도 없다. native anchor는 조금 낡을 수 있지만, scroll과
+zoom은 그리기 전에 현재 bridge record로 다시 계산하므로, 소비자는 신선함을 기다리는 대신 나이를
+스스로 보정한다.
 
 ## Why the transport is so small
 

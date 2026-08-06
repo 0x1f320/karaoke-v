@@ -2,12 +2,12 @@ import type { Rect, Viewport } from "@voxpane/macos-helper"
 import type { BridgeNote } from "../../../shared/bridgeChannels"
 import type { TransportView } from "./transport"
 
-// Finds which AX rect is the note the bridge says is playing.
+// Finds which computed rect is the note the bridge says is playing.
 //
-// The bridge knows a note's musical position exactly and the AX walk knows where
-// rects actually are; neither alone says which rect is which note. So the view
-// mapping gives a predicted position, and the prediction picks a rect rather
-// than being drawn from — the rect is the truth about geometry.
+// A note read has screen rectangles but no identity attached to each rectangle,
+// while the transport knows the sounding note and the view mapping it was read
+// with. The mapping gives a predicted position, and the prediction picks the
+// nearest compatible rect.
 //
 // Predicting is what tolerates being slightly wrong. The scroll position paired
 // with the mapping is sampled a few ms after the payload was written, so a fast
@@ -24,7 +24,7 @@ export function locateNote(
   view: TransportView,
   vp: Viewport,
   rects: readonly Rect[],
-  /** Transform from the AX read's x coordinates into current global x coordinates. */
+  /** Transform from the note read's x coordinates into current global x coordinates. */
   xform: { scaleX: number; offsetX: number },
 ): Rect | null {
   const { mapping } = view
@@ -72,9 +72,9 @@ const FOLLOW_SLIP_PX = 6
  * The same note's rect in a new read.
  *
  * A note is matched to a rect by prediction once, and then followed — the
- * prediction is built from the bridge's view mapping, which is a round trip
- * old, so re-running it every frame lets a moving roll snap the effect onto the
- * note next door. Following asks a question the reads can answer between
+ * prediction is built from a bridge view mapping, which can be a round trip old,
+ * so re-running it every frame lets a moving roll snap the effect onto the note
+ * next door. Following asks a question the reads can answer between
  * themselves: both carry the scroll and zoom their coordinates were taken at,
  * so the old rect maps into the new frame exactly and the new read's own rect
  * for that note is simply the one sitting there.
@@ -108,14 +108,12 @@ export function followRect(
  * The musical-to-pixel relation of one read, taken from a rect that is known to
  * be a particular note's.
  *
- * Measured 2026-08-04: the bridge's view mapping is 18ms old while playing (35ms
- * at the tail), which at a real scroll speed is one to two notes of error — far
- * past what matching tolerates, so a mapping-built prediction can only ever be a
- * guess about which note it is looking at. A read can answer that question about
- * itself instead. Every note on a piano roll sits on one straight line from
- * blicks to pixels, so a single matched rect fixes that line for the whole read,
- * and every other note follows from arithmetic — with no bridge latency in it at
- * all. The mapping keeps only what it is good at: the scale.
+ * A bridge view mapping is fresh enough for drawing, but during a fast scroll it
+ * can still be old enough for a mapping-built prediction to identify the wrong
+ * note. A read can answer that question about itself instead. Every note on a
+ * piano roll sits on one straight line from blicks to pixels, so a single
+ * matched rect fixes that line for the whole read, and every other note follows
+ * from arithmetic. The mapping keeps only what it is good at: the scale.
  *
  * Coordinates are the read's own, so the frame transform carries scroll and zoom
  * as it does for everything else. Anchors are read-scoped: carrying one into the

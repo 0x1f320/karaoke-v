@@ -289,14 +289,15 @@ flowchart TD
 
 알아둘 것 넷:
 
-- **단순 스크롤 프레임은 transform 갱신 한 번이다.** note geometry는 pump가 새 set을 주거나
-  스타일이 바뀔 때만 다시 만든다. scroll과 zoom은 `content`를 움직인다.
+- **단순 스크롤 프레임은 transform 갱신 한 번이다.** effect geometry는 pump가 새 set을 주거나
+  스타일이 바뀔 때만 다시 만든다. scroll과 zoom은 `content`를 움직인다. debug note box는 예외다:
+  스크롤 중 raw note-read snapshot 사이를 튀지 않도록 current frame prediction에서 다시 만든다.
 - **mask는 축 정렬 사각형**이라 Pixi가 stencil이 아니라 scissor로 자른다. phoneme lane, 피아노
   건반, 툴바 위에는 아무것도 그려지면 안 된다.
 - **레이어 순서는 뒤에서 앞으로다:** trail은 빛이 이미 지나간 자리이므로, glow와 그다음 spark가
   그 앞에 있는 것으로 읽힌다.
 - **Pixi의 ticker는 멈춰 있다**(`autoStart: false`, `sharedTicker: false`). 렌더링은 앱 자신의
-  rAF가 몰고, 그것이 paint 시점에 viewport를 샘플링한다 — Pixi가 뒤에서 몰래 렌더하면 낡은
+  rAF가 몰고, 그 frame에 쓸 live viewport도 앱이 만든다 — Pixi가 뒤에서 몰래 렌더하면 낡은
   transform으로 그리게 된다.
 
 `NoteRenderer`는 React에게 받는 대신 자기 `<canvas>`를 소유한다: WebGL renderer를 무너뜨리면

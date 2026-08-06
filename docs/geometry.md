@@ -7,13 +7,15 @@ Where a note is on screen. This is where the subtle bugs live, because the answe
 assembled from two sources that are each authoritative about half of it and neither of
 which is fresh.
 
-- The **bridge** knows a note's musical position exactly — but in canvas-local units, and
-  its record is tens of milliseconds old by the time it is read.
-- The **native helper** knows where rectangles actually are on screen, right now — but not
-  which rectangle is which note.
+- The **bridge** knows each note's musical position and the piano-roll view transform —
+  but only in canvas-local units, and its record is tens of milliseconds old by the time it
+  is read.
+- The **native helper** knows where SynthV's window and piano-roll canvas are on screen —
+  but not which notes are visible or sounding.
 
-So: the bridge gives a *prediction*, and the prediction **picks** a rectangle rather than
-being drawn from. The rectangle is the truth about geometry.
+So: native anchors the canvas in screen space, and the bridge-derived transform computes
+the note rectangles inside it. The renderer then rebases those stale rectangles onto the
+live viewport rebuilt from the current bridge state and the latest native anchor.
 
 ## Coordinate spaces
 
@@ -38,39 +40,38 @@ the canvas is on screen. That gap is what the native helpers exist to close.
 
 This is the one place the platforms genuinely differ, and the difference is deliberately
 **not** hidden behind the abstraction in `shared/native.ts`. A change to one side is
-usually not a change to both.
+usually not a change to both. Note rectangles, however, are no longer platform-specific:
+both platforms compute them in `shared/pianoRollGeometry.ts` from the bridge schedule and
+view transform.
 
-**macOS — read the tree.** SynthV exposes an Accessibility tree, so the note rectangles are
-already there. `packages/macos-helper/src/pianoroll.rs` walks it (~50 ms), finds the canvas
-from the note area's scrollbar pair, the content group from the widest group aligned to the
-canvas' top-left, and returns the visible note rectangles in global screen points. The
-bridge only says *which* of them is sounding.
+**macOS — seed from the tree.** SynthV exposes an Accessibility tree, so
+`packages/macos-helper/src/pianoroll.rs` can find the note-area canvas and cache a cheap
+viewport read. The full AX walk remains a fallback for seeding that cache, but note
+recognition does not depend on walking visible note chips.
 
-**Windows — compute them.** JUCE draws the whole editor into a single HWND; there is no
-tree of note elements to read. So the rectangles are **derived from the script's own view
-transform** (`shared/windowsGeometry.ts`, pure and therefore testable off Windows), and
-UI Automation is asked for the one thing the script cannot know: where the canvas sits on
-screen.
+**Windows — identify the canvas by size.** JUCE draws the whole editor into a single HWND;
+there is no tree of note elements to read. UI Automation is asked for the one thing the
+script cannot know: where the canvas sits on screen.
 
-The canvas is identified by **agreement with the bridge**, not by guessing at the layout:
-the visible time and value ranges times their px-per-unit give the canvas's exact pixel
-size, and `uia.rs` looks for the element with those dimensions in JUCE's flat ~140-element
-tree. That check is self-verifying and survives SynthV rearranging its panels.
+On Windows the canvas is identified by **agreement with the bridge**, not by guessing at
+the layout: the visible time and value ranges times their px-per-unit give the canvas's
+exact pixel size, and `uia.rs` looks for the element with those dimensions in JUCE's flat
+~140-element tree. That check is self-verifying and survives SynthV rearranging its panels.
 
 Consequences worth holding onto:
 
 | | macOS | Windows |
 | --- | --- | --- |
-| note rects from | the AX tree | arithmetic on the view transform |
-| the helper supplies | canvas, scroll, zoom, note rects | the canvas rectangle, and the window origin |
-| vertical reference | a tracked note chip's `y` | stated outright by the transform |
-| a read can be skewed | yes — the tree is read while it moves | no — the flags are always true |
+| note rects from | arithmetic on the bridge view transform | arithmetic on the bridge view transform |
+| the helper supplies | cached canvas/viewport seed | the canvas rectangle, and the window origin |
+| vertical reference | stated by the transform | stated by the transform |
+| a read can be skewed | no — the rects come from one transform | no — the rects come from one transform |
 | needs a user grant | yes, Accessibility | no |
-| scroll latency | none (AX is live) | one script tick (16 ms) |
+| scroll latency | one script tick (4 ms) | one script tick (4 ms) |
 
-That last row is why the script's idle tick stays at 16 ms even when playback is stopped:
-stopped is exactly when the user scrolls, and on Windows the published transform is the
-app's only source for where the roll is.
+That last row is why the script's idle tick stays at 4 ms even when playback is stopped:
+stopped is exactly when the user scrolls, and the published transform is the app's source
+for where the roll is.
 
 ## Physical pixels, points and DIPs
 
@@ -101,8 +102,8 @@ Three mechanisms, in `playback/locate.ts`, layered because each covers the previ
 blind spot.
 
 **1. `locateNote` — predict, then snap.** Compute where the note *should* be from the view
-mapping and the scroll it was paired with, then take the nearest rectangle whose width
-agrees (within 25 %) and whose distance is under the slip limit. Nothing close enough
+mapping and the scroll it was paired with, then take the nearest computed rectangle whose
+width agrees (within 25 %) and whose distance is under the slip limit. Nothing close enough
 returns `null`: showing an effect on the wrong note is worse than showing none.
 
 Snapping is what tolerates being slightly wrong, and it works as long as the error stays
@@ -115,10 +116,11 @@ taken at, so the old rectangle maps into the new frame exactly and the note's re
 simply the one sitting there (within 6 px). Gone from a read — edited away, scrolled off,
 track switched — means match again from scratch.
 
-**3. `ReadAnchor` — one match places every note.** Measured 2026-08-04: the bridge's view
-mapping is **18 ms old while playing, 35 ms at the tail**, which at a real scroll speed is
-one to two notes of error. So a mapping-built prediction can only ever be a guess about
-*which* note it is looking at.
+**3. `ReadAnchor` — one match places every note.** The bridge's view mapping is fresh
+enough for drawing, but during a fast scroll it can still be old enough for a
+mapping-built prediction to identify the wrong note. So that prediction can only ever be a
+guess about *which* note it is looking at. Re-measure that age with the latency probe in
+[debugging](debugging.md#4-turn-on-debug-mode) before tuning the thresholds.
 
 A read can answer that question about itself instead. Every note on a piano roll sits on one
 straight line from blicks to pixels — so a **single matched rectangle fixes that line for the
@@ -153,9 +155,9 @@ everything else. Neither asks the mapping where anything is, so both survive any
 
 ## Staying aligned
 
-Note rectangles are absolute screen coordinates **as of read time**. The viewport is
-sampled at **paint time**. Everything in `playback/frame.ts` is the difference between
-those two moments:
+Note rectangles are computed as absolute screen coordinates **as of read time**. The
+viewport is the latest completed snapshot from the async viewport manager. Everything in
+`playback/frame.ts` is the difference between those two moments:
 
 | Quantity | Carries |
 | --- | --- |
@@ -178,18 +180,14 @@ as a single transform on the Pixi `content` container.
 fixed span of blicks times `perBlick`, which is proportional to the zoom, which is all
 anything needs.
 
-`refY` on macOS is a tracked note chip's `y`. Nothing scalar in SynthV's AX tree follows
-vertical scroll — the scrollbar value is dead, there is no thumb child and no moving group
-— but chip frames do move, so one cached chip read per frame gives the delta directly.
-Without a live vertical reference the y position is genuinely unknowable, and the overlay
-draws **nothing** rather than notes one lane off.
+`refY` is the screen y of value 0, derived from the same bridge view transform as the note
+rectangles. Without a live vertical reference the y position is genuinely unknowable, and
+the overlay draws **nothing** rather than notes one lane off.
 
-**Stability flags.** A macOS read taken while the roll was moving has mutually skewed
-coordinates: the chips were sampled at different instants and there is no per-chip
-reference to correct against. `xStable` / `yStable` say so, and such a read is discarded
-whole. The previous set stays correct meanwhile because it is mapped through live viewport
-data anyway. On Windows the rectangles come from one transform, so both flags are always
-true.
+**Stability flags.** Computed note reads come from one bridge view transform, so
+`xStable` / `yStable` are true. If a future native read can report mutually skewed
+coordinates, a false flag must still discard the read whole. The previous set stays
+correct meanwhile because it is mapped through live viewport data anyway.
 
 **Window origin.** The overlay maps global coordinates to window-local ones against
 `vp.origin` — the window origin sampled in the same breath as the canvas — falling back to
@@ -210,7 +208,7 @@ Break one of these and the symptom is listed beside it.
 | Invariant | If broken |
 | --- | --- |
 | A view mapping is only usable paired with the scroll position read in the same frame | effects drift ahead of / behind the notes while scrolling |
-| A prediction picks a rectangle; it never *becomes* one | effects sit slightly off the note, consistently |
+| A prediction picks a rectangle from the current note read | effects sit slightly off the note, consistently |
 | A note keeps its matched rectangle for as long as it sounds | the effect hops to a neighbouring note mid-note |
 | No new match while the roll is moving fast | a fling lands the effect one or two notes away |
 | A read with a stability flag false is discarded whole, not partly | notes skew apart from each other after a scroll |

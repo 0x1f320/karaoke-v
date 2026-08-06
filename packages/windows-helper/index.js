@@ -1,13 +1,11 @@
 // Exposes a small typed API over the compiled native addon, shaped to match
 // @voxpane/macos-helper so the app can treat the two platforms alike.
 //
-// The two helpers reach the same answers from opposite directions. On macOS the
-// Accessibility API is the truth about geometry and the bridge script supplies
-// musical identity. Here the bridge script supplies both: it publishes the exact
-// view transform, so note rectangles are computed rather than read, and UI
-// Automation is needed only for the one thing the script cannot know — where the
-// canvas sits on screen. That last part is all this file does; the arithmetic
-// lives in the app, where it can be tested on a machine that is not Windows.
+// The bridge script publishes the exact view transform, so note rectangles are
+// computed rather than read. UI Automation is needed only for the one thing the
+// script cannot know — where the canvas sits on screen. That last part is all
+// this file does; the arithmetic lives in the app, where it can be tested on a
+// machine that is not Windows.
 //
 // Everything is in physical pixels, because Win32 and UIA both are. The caller
 // converts to the DIPs Electron wants, since only Electron knows the display

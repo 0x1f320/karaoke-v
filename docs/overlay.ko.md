@@ -176,16 +176,20 @@ overlay가 살아남음.
 | 단계 | 어디서 | 비용 |
 | --- | --- | --- |
 | bridge `state` 레코드 읽기 | preload, 한 번만 할당한 버퍼로 `pread` | ~0.6 µs, 쓰레기 없음 |
-| viewport 읽기 | preload, addon으로 바로 | µs (macOS는 캐시된 AX element를 다시 읽음) |
+| viewport snapshot 갱신 | preload, 비동기 native task | rAF call stack 밖 |
 | 판단하고 그리기 | renderer | 단순 스크롤이면 transform 한 번 |
 
 위의 전부가 **overlay renderer의 프로세스 안에서** `contextBridge`를 통해 일어난다. 대안 —
 main이 읽고 renderer로 IPC — 은 프레임마다 왕복과 직렬화를 더하고, 그게 이 배치가 없애려고
 존재하는 바로 그것이다. 여기서 `sandbox: false`가 값을 하는 이유다.
 
-note *set*은 이 경로에 없다: 백그라운드 pump가 `NOTE_READ_GAP_MS` 30마다 전체 read를 요청하고
-(macOS walk 자체가 ~50 ms), frame loop는 마지막으로 받아들인 것을 살아 있는 viewport 데이터로
-매핑한다.
+frame loop는 Accessibility API 자체가 아니라 가장 최근 완료된 native viewport anchor를 읽는다.
+macOS에서 snapshotter는 여전히 캐시된 AX element를 다시 읽지만, 그 응답은 frame 사이에 도착한다.
+느린 AX 왕복은 draw를 막는 대신 canvas anchor를 조금 낡게 만들 뿐이다. 실제 그리기에 쓰는
+scroll과 zoom은 그 rAF에서 읽은 bridge state로 다시 계산한다.
+
+note *set*은 이 경로에 없다: 백그라운드 pump가 `NOTE_READ_GAP_MS` 30마다 계산된 piano-roll
+read를 요청하고, frame loop는 마지막으로 받아들인 것을 살아 있는 viewport 데이터로 매핑한다.
 
 **깨지면:** 스크롤 지연(뭔가 IPC 경로로 옮겨갔다) · GC 톱니(state 버퍼를 다시 할당하고 있다).
 
@@ -194,13 +198,16 @@ note *set*은 이 경로에 없다: 백그라운드 pump가 `NOTE_READ_GAP_MS` 3
 짝으로 읽어야 하는 것은 같은 호흡에 읽어야 한다. 안 그러면 둘이 서로 다른 순간을 묘사하고
 그림이 미끄러진다.
 
-- **view mapping과 그것이 짝지어진 scroll 위치**는 같은 프레임에서 연달아 읽는다
-  (`Transport.poll`).
+- **view mapping과 그것이 짝지어진 scroll 위치**는 `Transport.poll` 안의 같은 bridge state
+  record에서 온다. 넘겨받은 viewport snapshot은 native canvas와 window origin만 공급한다. 그
+  snapshot의 낡은 scroll field는 의도적으로 무시해서, 비동기 AX latency가 scroll latency가 되지
+  않게 한다.
 - **window origin**은 `window.screenX`가 아니라 helper가 canvas rect과 함께 주는
   것(`vp.origin`)에서 온다. Chromium은 `screenX`를 자기 일정대로 갱신하므로 드래그 중에는 둘이
   어긋난다.
 
-**깨지면:** 창을 드래그하는 동안 그림이 미끄러짐 · 스크롤 중 effect가 어긋남.
+**깨지면:** 창을 드래그하는 동안 그림이 미끄러짐 · 스크롤 중 effect가 어긋나거나 늦게 따라옴 ·
+debug box가 한두 frame 동안 잘못된 note layout으로 튐.
 
 ### Docking with hysteresis
 
@@ -224,10 +231,9 @@ toolbar는 대상 옆 `GAP` 8 px에 도킹하고 **현재 있는 쪽에 머문�
   발생해서 두 번째 observer가 같은 SynthV 창에 붙기 전에 사라져야 한다.
 - **`userData`를 고정한다.** `setName`(기본값을 다시 계산한다) 뒤, 그리고 그것을 읽는 무엇보다
   먼저 — single-instance lock의 소켓이 거기 살기 때문에 그것도 포함이다.
-- **permissions gate**가 macOS에서는 다른 무엇보다 먼저 돈다: Accessibility 없이는 모든 AX
-  읽기가 실패하므로, overlay는 존재하되 절대 정렬되지 않는다. 창은 올라와 있는 동안 1 Hz로
-  trust 상태를 양방향으로 폴링한다 — macOS는 물어봤을 때만 알려주고, 스위치는 다시 꺼질 수도
-  있다.
+- **permissions gate**가 macOS에서는 다른 무엇보다 먼저 돈다: Accessibility 없이는 canvas
+  discovery가 실패하므로, overlay는 존재하되 절대 정렬되지 않는다. 창은 올라와 있는 동안 1 Hz로
+  trust 상태를 양방향으로 폴링한다 — macOS는 물어봤을 때만 알려주고, 스위치는 다시 꺼질 수도 있다.
 - **dock 아이콘은 숨겨져 있고** overlay와 toolbar는 SynthV가 붙어 있을 때만 존재하므로, SynthV가
   닫혀 있으면 tray가 앱의 유일한 가시 표면이다. tray가 있을 때 `window-all-closed`가 종료하지
   않는 이유다.

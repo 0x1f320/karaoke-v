@@ -29,7 +29,7 @@ Lua에 `mkdir`이 없으므로 **디렉터리는 앱이 만든다**. 거기에 �
 | 파일 | 종류 | 주기 | 내용 |
 | --- | --- | --- | --- |
 | `session.json` | hot, 1 KB, JSON | 시작 시 1회 | protocol과 layout 버전, host 정보, 다른 channel이 무엇인지 |
-| `state` | hot, 256 B, binary | 16 ms마다 | playhead, transport 상태, loop 힌트, view transform, `rev`, sequence 번호 |
+| `state` | hot, 256 B, binary | 4 ms마다 | playhead, transport 상태, loop 힌트, view transform, `rev`, sequence 번호 |
 | `notes` | cold, 가변 | 편집 시 / 재생 시작 시 | pitch curve를 포함한 note schedule 전체 |
 
 **얼마나 자주 바뀌는가로** 나눈 것이다. view transform은 초당 60번 움직이고 schedule은
@@ -74,7 +74,7 @@ sequenceDiagram
     participant T as state channel
     participant A as app
 
-    loop 16 ms마다
+    loop 4 ms마다
         S->>T: state publish — seq+1, playhead, status, view transform, rev
     end
 
@@ -201,7 +201,8 @@ reader는 curve의 엉뚱한 부분을 index하며 미묘하게 틀린 것을 �
 
 소비자 쪽(`playback/transport.ts`)에서는, 찢어진 schedule이 `notesSeq`를 전진시키지 않으므로
 다음 프레임이 재시도한다 — 도착하지도 않은 schedule을 붙들고 있는 대신. 그리고 `seq`가 500 ms
-동안 움직이지 않은 state channel은 script가 사라졌다는 뜻이다: 외삽을 멈춘다.
+찢어진 state record도 그냥 건너뛴 frame이다: transport는 마지막 정상 record에서 계속 외삽한다.
+`seq`가 500 ms 동안 움직이지 않은 state channel만 script가 사라졌다는 뜻이다: 외삽을 멈춘다.
 
 ## Seeing it
 

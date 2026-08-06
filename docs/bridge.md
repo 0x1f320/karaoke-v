@@ -32,7 +32,7 @@ has ever run.
 | File | Kind | Rate | Contents |
 | --- | --- | --- | --- |
 | `session.json` | hot, 1 KB, JSON | once at startup | protocol and layout version, host info, what the other channels are |
-| `state` | hot, 256 B, binary | every 16 ms | playhead, transport status, loop hint, view transform, `rev`, sequence numbers |
+| `state` | hot, 256 B, binary | every 4 ms | playhead, transport status, loop hint, view transform, `rev`, sequence numbers |
 | `notes` | cold, grows, binary | on edit / on play | the whole note schedule with pitch curves |
 
 They are split **by how often they change**. The view transform moves 60 times a second
@@ -79,7 +79,7 @@ sequenceDiagram
     participant T as state channel
     participant A as app
 
-    loop every 16 ms
+    loop every 4 ms
         S->>T: publish state — seq+1, playhead, status, view transform, rev
     end
 
@@ -208,8 +208,9 @@ stale copy publishes and the overlay will go quiet.
 
 On the consumer side (`playback/transport.ts`), a torn schedule leaves `notesSeq`
 un-advanced, so the next frame retries rather than holding a schedule that never arrived.
-And a state channel whose `seq` has not moved for 500 ms means the script is gone: stop
-extrapolating.
+A torn state record is also just a skipped frame: the transport keeps extrapolating from the
+last good record. Only a state channel whose `seq` has not moved for 500 ms means the script
+is gone: stop extrapolating.
 
 ## Seeing it
 

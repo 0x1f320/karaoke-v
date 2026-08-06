@@ -9,12 +9,13 @@ import {
   type PianoRoll,
   type Rect,
   toDipPianoRoll,
+  toDipState,
   toDipViewport,
   type Viewport,
 } from "../shared/native"
 import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
+import { expectedCanvasSize, pianoRollFrom, viewportFrom } from "../shared/pianoRollGeometry"
 import type { Preferences, PreferencesPatch } from "../shared/preferences"
-import { expectedCanvasSize, pianoRollFrom, viewportFrom } from "../shared/windowsGeometry"
 import { readSchedule, readState } from "./bridgeReader"
 
 // The helper reports in native units — points on macOS, physical pixels on
@@ -30,43 +31,56 @@ ipcRenderer.invoke("native:dip").then((transform: DipTransform) => {
   dip = transform
 })
 
-// The renderer reads geometry directly (requires sandbox: false): the viewport at
-// rAF time for zero-lag positioning, and the notes in a background pump for
-// always-fresh rects. No main-process hop in the per-frame path.
-//
-// Where those come from is the one place the platforms genuinely differ. macOS
-// walks the Accessibility tree. Windows has no tree: the rects follow from the
-// bridge's own view transform, and the helper is asked only where the canvas is —
-// identified by the size that transform implies.
+// The renderer reads geometry directly (requires sandbox: false). Native only
+// answers where the piano-roll canvas is; note rectangles are computed from the
+// bridge's schedule and view transform, so scrolling does not depend on walking
+// a moving Accessibility tree.
 
 function windowsCanvas(state: BridgeState): Rect | null {
   return native.getCanvas?.(expectedCanvasSize(state), NATIVE_TARGET) ?? null
 }
 
-function nativeViewport(): Viewport | null {
-  if (!isWindows) {
-    return native.getViewport?.() ?? null
-  }
-  const state = readState()
-  if (!state) {
-    return null
-  }
-  const canvas = windowsCanvas(state)
-  return canvas && viewportFrom(state, canvas, native.getCanvasOrigin?.())
+function nativeCanvasFromViewport(viewport: Viewport | null): Rect | null {
+  return viewport?.canvas ?? null
 }
 
-function nativePianoRoll(): PianoRoll | null {
-  if (!isWindows) {
-    return null
+async function macViewport(): Promise<Viewport | null> {
+  const cached = native.getViewport?.() ?? null
+  if (cached) {
+    return cached
   }
+  return native.getPianoRollAsync?.(NATIVE_TARGET) ?? Promise.resolve(null)
+}
+
+function computedViewport(state: BridgeState, canvas: Rect): Viewport {
+  return viewportFrom(state, canvas, native.getCanvasOrigin?.())
+}
+
+function nativeViewport(): Viewport | null {
   const state = readState()
   if (!state) {
     return null
   }
-  const canvas = windowsCanvas(state)
+  const canvas = isWindows
+    ? windowsCanvas(state)
+    : nativeCanvasFromViewport(native.getViewport?.() ?? null)
+  return canvas && computedViewport(state, canvas)
+}
+
+async function nativeViewportAsync(): Promise<Viewport | null> {
+  const state = readState()
+  if (!state) {
+    return null
+  }
+  const viewport = isWindows ? null : await macViewport()
+  const canvas = isWindows ? windowsCanvas(state) : nativeCanvasFromViewport(viewport)
   if (!canvas) {
     return null
   }
+  return computedViewport(state, canvas)
+}
+
+function schedule(): BridgeSchedule | null {
   // The schedule only moves when the script publishes a new one, so the last
   // copy stays correct in between: a read that lost its race with the writer
   // must not blank the notes for a frame.
@@ -75,7 +89,24 @@ function nativePianoRoll(): PianoRoll | null {
     return null
   }
   lastSchedule = schedule
-  return pianoRollFrom(state, schedule.notes, canvas, native.getCanvasOrigin?.())
+  return schedule
+}
+
+async function nativePianoRoll(): Promise<PianoRoll | null> {
+  const state = readState()
+  if (!state) {
+    return null
+  }
+  const viewport = isWindows ? null : await macViewport()
+  const canvas = isWindows ? windowsCanvas(state) : nativeCanvasFromViewport(viewport)
+  if (!canvas) {
+    return null
+  }
+  const currentSchedule = schedule()
+  if (!currentSchedule) {
+    return null
+  }
+  return pianoRollFrom(state, currentSchedule.notes, canvas, native.getCanvasOrigin?.())
 }
 
 let lastSchedule: BridgeSchedule | null = null
@@ -85,11 +116,10 @@ contextBridge.exposeInMainWorld("overlay", {
     const viewport = nativeViewport()
     return viewport && toDipViewport(dip, viewport)
   },
+  getViewportAsync: (): Promise<Viewport | null> =>
+    nativeViewportAsync().then((viewport) => viewport && toDipViewport(dip, viewport)),
   readNotes: (): Promise<PianoRoll | null> =>
-    (isWindows
-      ? Promise.resolve(nativePianoRoll())
-      : (native.getPianoRollAsync?.(NATIVE_TARGET) ?? Promise.resolve(null))
-    ).then((read) => read && toDipPianoRoll(dip, read)),
+    nativePianoRoll().then((read) => read && toDipPianoRoll(dip, read)),
 })
 
 // Transport data from the SynthV bridge script, read from its channels in this
@@ -97,7 +127,10 @@ contextBridge.exposeInMainWorld("overlay", {
 // nothing crosses to main. readState is per-frame and allocation-free;
 // readSchedule is only called when the state record says the schedule changed.
 contextBridge.exposeInMainWorld("bridge", {
-  readState: (): BridgeState | null => readState(),
+  readState: (): BridgeState | null => {
+    const state = readState()
+    return state && toDipState(dip, state)
+  },
   readSchedule: (): BridgeSchedule | null => readSchedule(),
   monotonicNow: (): number => native.monotonicNow(),
 })
@@ -121,6 +154,13 @@ contextBridge.exposeInMainWorld("panel", {
 
 contextBridge.exposeInMainWorld("app", {
   quit: (): Promise<void> => ipcRenderer.invoke("app:quit"),
+})
+
+contextBridge.exposeInMainWorld("debug", {
+  latency: (line: string): void => {
+    console.info(line)
+    ipcRenderer.send("debug:latency", line)
+  },
 })
 
 // The permissions gate. Main owns the status because only it can ask macOS, and

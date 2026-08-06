@@ -305,15 +305,17 @@ flowchart TD
 
 Four things worth knowing:
 
-- **A plain scroll frame is one transform update.** Note geometry is rebuilt only when the
-  pump delivers a new set or the style changes; scroll and zoom move `content`.
+- **A plain scroll frame is one transform update.** Effect geometry is rebuilt only when the
+  pump delivers a new set or the style changes; scroll and zoom move `content`. Debug note
+  boxes are the exception: they are rebuilt from the current frame prediction so they do not
+  jump between raw note-read snapshots while scrolling.
 - **The mask is an axis-aligned rectangle** so Pixi clips with scissor rather than stencil.
   Nothing may draw over the phoneme lane, the piano keys or the toolbars.
 - **Layer order is back to front:** the trail is what the light has already passed over, so
   the glow and then the sparks read as being in front of it.
 - **Pixi's ticker is stopped** (`autoStart: false`, `sharedTicker: false`). Rendering is
-  driven from the app's own rAF, which samples the viewport at paint time — Pixi rendering
-  behind our back would draw with a stale transform.
+  driven from the app's own rAF, which builds the live viewport for that frame — Pixi
+  rendering behind our back would draw with a stale transform.
 
 `NoteRenderer` owns its `<canvas>` rather than taking one from React: tearing down a WebGL
 renderer loses its context for good, so a canvas that survived an HMR reload would come back

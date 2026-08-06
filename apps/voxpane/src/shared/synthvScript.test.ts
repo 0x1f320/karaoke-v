@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { scriptsDirectoryCandidates } from "./synthvScript"
 
@@ -34,5 +35,15 @@ describe("scriptsDirectoryCandidates", () => {
 
   it("knows of no location on other platforms", () => {
     expect(scriptsDirectoryCandidates({ platform: "linux", home: "/home/a" })).toEqual([])
+  })
+})
+
+describe("bridge script timing", () => {
+  it("publishes hot state faster than one display frame", () => {
+    const source = readFileSync(
+      new URL("../../../../packages/synthv-script/src/lua/overlay-bridge.ts", import.meta.url),
+      "utf8",
+    )
+    expect(source).toContain("tickInterval: 4,")
   })
 })

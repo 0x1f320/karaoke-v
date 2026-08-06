@@ -4,7 +4,7 @@ import { type Container, Graphics, Sprite, type Texture } from "pixi.js"
 // in whether or not the other effects follow the pitch.
 //
 // Like the sparks, everything here lives in the note set's coordinate space, so
-// rebase() moves it when a new AX read replaces the frame it was written in.
+// rebase() moves it when a new note read replaces the frame it was written in.
 
 /** Ceiling on the ribbon, so a long life cannot grow the redraw without bound. */
 const MAX_POINTS = 512
@@ -288,7 +288,7 @@ export class PitchTrail {
     }
   }
 
-  /** Follow the note set into a new AX read's coordinate frame. */
+  /** Follow the note set into a new note read's coordinate frame. */
   rebase(from: CoordinateFrame, to: CoordinateFrame): void {
     const scaleX = from.contentW > 0 && to.contentW > 0 ? to.contentW / from.contentW : 1
     const dy = to.refY - from.refY

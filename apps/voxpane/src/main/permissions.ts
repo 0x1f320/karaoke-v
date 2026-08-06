@@ -3,8 +3,8 @@ import { app, BrowserWindow, ipcMain, screen, shell, systemPreferences } from "e
 import { APP_NAME } from "../shared/i18n"
 import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
 
-// The first-run gate: without Accessibility the AX reads fail and the overlay
-// can never align, so nothing else starts until it is granted.
+// The first-run gate: without Accessibility the helper cannot discover SynthV's
+// piano-roll canvas, so nothing else starts until it is granted.
 
 // The height is only a starting point: the window follows its own content,
 // which grows and shrinks as the per-permission instructions are unfolded.

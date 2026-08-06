@@ -3,6 +3,7 @@ import type {
   Viewport as MacViewport,
   Rect,
 } from "@voxpane/macos-helper"
+import type { BridgeViewMapping } from "./bridgeChannels"
 
 // The geometry the renderer works in, kept apart from native.ts so the web build
 // does not pull Node types in through it.
@@ -17,6 +18,10 @@ export type { Rect }
  */
 export interface Viewport extends MacViewport {
   origin?: { x: number; y: number }
+  source?: {
+    seq: number
+    mapping: BridgeViewMapping
+  }
 }
 
 export interface PianoRoll extends MacPianoRoll {

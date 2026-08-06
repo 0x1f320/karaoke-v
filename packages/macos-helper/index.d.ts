@@ -89,6 +89,12 @@ export function getPianoRollAsync(target?: string): Promise<PianoRoll | null>
 export function getViewport(): Viewport | null
 
 /**
+ * Like getViewport but reads the cached AX elements off the renderer's main
+ * thread. Null until getPianoRoll has run, or if the cache went stale.
+ */
+export function getViewportAsync(): Promise<Viewport | null>
+
+/**
  * Press Scripts > Rescan in the target app, so a script file just written is
  * loaded by a SynthV that is already running — no restart. False when the app is
  * not running, Accessibility is not granted, or the menu was not found.

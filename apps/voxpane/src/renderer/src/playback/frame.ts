@@ -4,8 +4,8 @@ import type { PianoRoll, Rect, Viewport } from "../../../shared/geometry"
 // overlay draws under.
 //
 // The read's note rects are absolute screen coordinates as of read time; the
-// viewport is sampled at paint time. Everything here is the difference between
-// those two moments — horizontal scroll and zoom through contentX/contentW,
+// viewport is the latest completed snapshot. Everything here is the difference
+// between those two moments — horizontal scroll and zoom through contentX/contentW,
 // vertical scroll through the reference chip's y.
 
 export interface FrameTransform {

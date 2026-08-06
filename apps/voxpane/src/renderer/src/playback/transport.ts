@@ -1,4 +1,11 @@
-import type { BridgeNote, BridgeStatus, BridgeViewMapping } from "../../../shared/bridgeChannels"
+import type {
+  BridgeNote,
+  BridgeState,
+  BridgeStatus,
+  BridgeViewMapping,
+} from "../../../shared/bridgeChannels"
+import type { Viewport } from "../../../shared/geometry"
+import { viewportFrom } from "../../../shared/pianoRollGeometry"
 
 // Turns the bridge's state channel into a continuous playhead.
 //
@@ -9,11 +16,10 @@ import type { BridgeNote, BridgeStatus, BridgeViewMapping } from "../../../share
 // local clock. That is sound because both clocks are on this machine and every
 // read re-anchors.
 //
-// Timing is read from the channel alone. Where a note sits on screen is not —
-// that comes from the AX pipeline, which is already exact and self-correcting
-// under scroll. All this contributes to geometry is the view mapping and the
-// scroll position it was read at: enough to find a note among the AX rects, and
-// enough to work out where it would be when it is in none of them.
+// Timing is read from the channel alone. Geometry also needs the same record's
+// view mapping, plus the latest native canvas anchor, to make a live viewport:
+// enough to find a note among the current computed rects, and enough to work
+// out where it would be when it is in none of them.
 
 export interface TransportView {
   mapping: BridgeViewMapping
@@ -27,7 +33,7 @@ export interface TransportView {
 
 /**
  * How long the state channel may stand still before the script counts as gone.
- * It publishes every 16ms playing and every 50ms stopped, so this is generous
+ * It publishes every 4ms, so this is generous
  * enough to survive a stalled editor and short enough that a closed SynthV stops
  * driving effects almost immediately.
  */
@@ -40,16 +46,19 @@ export class Transport {
   private anchorClockMs = 0
   private anchored = false
   private loop: { start: number; end: number } | null = null
+  private viewportState: Viewport | null = null
   private viewState: TransportView | null = null
   private lastSeq = -1
   private lastSeqClockMs = 0
   private notesSeq = -1
 
   /** Reads the channels. Call once a frame, before anything else here. */
-  poll(nowMs: number): void {
+  poll(nowMs: number, viewport: Viewport | null): void {
     const state = window.bridge.readState()
     if (state === null) {
-      this.forget()
+      if (this.anchored && nowMs - this.lastSeqClockMs > SILENCE_MS) {
+        this.forget()
+      }
       return
     }
 
@@ -59,6 +68,8 @@ export class Transport {
       // there is nothing left to extrapolate from.
       if (nowMs - this.lastSeqClockMs > SILENCE_MS) {
         this.forget()
+      } else if (viewport) {
+        this.adoptViewport(state, viewport)
       }
       return
     }
@@ -81,17 +92,12 @@ export class Transport {
     this.anchorClockMs = nowMs
     this.anchored = true
 
-    // The mapping is only usable paired with the scroll position it was read at,
-    // and both are read here, one after the other, in the same frame.
-    const vp = window.overlay.getViewport()
-    this.viewState = vp
-      ? {
-          mapping: state.px,
-          contentX: vp.contentX,
-          contentW: vp.contentW,
-          canvasX: vp.canvas.x,
-        }
-      : null
+    if (viewport) {
+      this.adoptViewport(state, viewport)
+    } else {
+      this.viewportState = null
+      this.viewState = null
+    }
   }
 
   /** Seconds of playhead, or null before the first read. */
@@ -120,6 +126,11 @@ export class Transport {
   /** Null until a state record has been paired with a viewport read. */
   get view(): TransportView | null {
     return this.viewState
+  }
+
+  /** The live viewport recomputed from the newest state and the latest native canvas. */
+  get viewport(): Viewport | null {
+    return this.viewportState
   }
 
   /** The note under `seconds`, or null in a gap between notes. */
@@ -207,7 +218,23 @@ export class Transport {
    */
   private forget(): void {
     this.anchored = false
+    this.viewportState = null
     this.viewState = null
     this.lastSeq = -1
+  }
+
+  private adoptViewport(state: BridgeState, viewport: Viewport): void {
+    const live = viewportFrom(state, viewport.canvas, viewport.origin)
+    this.viewportState = live
+    this.viewState = this.viewFrom(state, live)
+  }
+
+  private viewFrom(state: BridgeState, viewport: Viewport): TransportView {
+    return {
+      mapping: viewport.source?.mapping ?? state.px,
+      contentX: viewport.contentX,
+      contentW: viewport.contentW,
+      canvasX: viewport.canvas.x,
+    }
   }
 }

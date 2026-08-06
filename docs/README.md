@@ -62,7 +62,7 @@ technique has **one home**; everything else links to it.
 | Predict-and-snap, follow, anchor | [geometry](geometry.md#matching-a-note-to-a-rectangle) | note matching, debug reach bands |
 | Read-scoped coordinate frames | [geometry](geometry.md#staying-aligned) | matching, and every live effect |
 | Coordinate-space rebasing | [geometry](geometry.md#staying-aligned) | matched rects, anchors, and every live effect — [effects](effects.md#coordinate-space-rebasing) |
-| Stability flags on a read | [geometry](geometry.md#staying-aligned) | the macOS note pump |
+| Stability flags on a read | [geometry](geometry.md#staying-aligned) | note-read acceptance |
 | DIP conversion | [geometry](geometry.md#physical-pixels-points-and-dips) | window placement, all Windows geometry |
 | Canvas identification by implied size | [geometry](geometry.md#two-platforms-two-strategies) | the Windows UIA lookup |
 | Native placement + debounced reconciliation | [overlay](overlay.md#native-placement-with-debounced-reconciliation) | the overlay window on Windows |

@@ -6,7 +6,7 @@ import { PitchTrail, type TrailParams } from "./trail"
 
 // PixiJS scene for the overlay. Notes live in `content`, whose position carries
 // the scroll delta — so a scroll frame moves one transform rather than touching
-// note geometry, and geometry is only rebuilt when the AX read replaces the set.
+// note geometry, and geometry is only rebuilt when a note read replaces the set.
 //
 // Layout:
 //   stage
@@ -31,7 +31,7 @@ export interface DrawParams {
   /** Added to every note's origin — the scroll delta plus the window origin. */
   offsetX: number
   offsetY: number
-  /** Horizontal zoom ratio between the current viewport and the AX read. */
+  /** Horizontal zoom ratio between the current viewport and the note read. */
   scaleX: number
   /** Nothing draws outside this rect (window-local CSS px). */
   clip: { x: number; y: number; w: number; h: number }
@@ -158,8 +158,8 @@ export class NoteRenderer {
     const app = new Application()
     await app.init({
       canvas: this.canvas,
-      // We drive rendering from our own rAF (which reads the viewport atomically
-      // at paint time), so Pixi's ticker must not render behind our back.
+      // We drive rendering from our own rAF, with the viewport snapshot chosen
+      // by the app, so Pixi's ticker must not render behind our back.
       autoStart: false,
       sharedTicker: false,
       preference: "webgl",
@@ -223,7 +223,7 @@ export class NoteRenderer {
     return texture
   }
 
-  /** Move live effects into a new AX read's coordinate frame. */
+  /** Move live effects into a new note read's coordinate frame. */
   rebaseEffects(
     from: { contentX: number; contentW: number; refY: number },
     to: { contentX: number; contentW: number; refY: number },
@@ -244,28 +244,42 @@ export class NoteRenderer {
     this.geometryDirty = true
   }
 
-  private rebuild(style: Style): void {
-    const g = this.notes
-    if (!g) {
-      return
+  private replaceDebugGraphic(current: Graphics | null, next: Graphics): Graphics | null {
+    const content = this.content
+    if (!content || !current) {
+      next.destroy()
+      return current
     }
-    g.clear()
+    const index = content.getChildIndex(current)
+    content.addChildAt(next, index)
+    current.destroy()
+    return next
+  }
+
+  private drawNotes(g: Graphics, style: Style): void {
     if (this.rects.length === 0) {
       return
     }
-    // Every rect goes into one path, so the whole set fills and strokes as a
-    // single batched draw.
     for (const n of this.rects) {
       g.rect(n.x, n.y, n.w, n.h)
     }
     g.fill({ color: rgb(style.fill), alpha: style.fill[3] })
-    // alignment 1 = inside, matching the inset border the 2D canvas drew.
     g.stroke({
       width: style.border,
       color: rgb(style.stroke),
       alpha: style.stroke[3],
       alignment: 1,
     })
+  }
+
+  private rebuild(style: Style): void {
+    const g = this.notes
+    if (!g) {
+      return
+    }
+    const next = new Graphics()
+    this.drawNotes(next, style)
+    this.notes = this.replaceDebugGraphic(g, next)
   }
 
   private sameRect(a: Rect | null, b: Rect | null): boolean {
@@ -275,13 +289,13 @@ export class NoteRenderer {
     return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h
   }
 
-  /** Every band in one path, so the whole set is a single batched draw. */
-  private rebuildReaches(rects: readonly Rect[], fill: Rgba, stroke: Rgba, border: number): void {
-    const g = this.reaches
-    if (!g) {
-      return
-    }
-    g.clear()
+  private drawReaches(
+    g: Graphics,
+    rects: readonly Rect[],
+    fill: Rgba,
+    stroke: Rgba,
+    border: number,
+  ): void {
     if (rects.length === 0) {
       return
     }
@@ -290,6 +304,17 @@ export class NoteRenderer {
     }
     g.fill({ color: rgb(fill), alpha: fill[3] })
     g.stroke({ width: border, color: rgb(stroke), alpha: stroke[3], alignment: 1 })
+  }
+
+  /** Every band in one path, so the whole set is a single batched draw. */
+  private rebuildReaches(rects: readonly Rect[], fill: Rgba, stroke: Rgba, border: number): void {
+    const g = this.reaches
+    if (!g) {
+      return
+    }
+    const next = new Graphics()
+    this.drawReaches(next, rects, fill, stroke, border)
+    this.reaches = this.replaceDebugGraphic(g, next)
   }
 
   private sameRects(a: readonly Rect[], b: readonly Rect[]): boolean {
@@ -304,16 +329,21 @@ export class NoteRenderer {
     return true
   }
 
+  private drawPlaying(g: Graphics, rect: Rect | null, fill: Rgba): void {
+    if (!rect) {
+      return
+    }
+    g.rect(rect.x, rect.y, rect.w, rect.h).fill({ color: rgb(fill), alpha: fill[3] })
+  }
+
   private rebuildPlaying(rect: Rect | null, fill: Rgba): void {
     const g = this.playing
     if (!g) {
       return
     }
-    g.clear()
-    if (!rect) {
-      return
-    }
-    g.rect(rect.x, rect.y, rect.w, rect.h).fill({ color: rgb(fill), alpha: fill[3] })
+    const next = new Graphics()
+    this.drawPlaying(next, rect, fill)
+    this.playing = this.replaceDebugGraphic(g, next)
   }
 
   draw(p: DrawParams): void {
