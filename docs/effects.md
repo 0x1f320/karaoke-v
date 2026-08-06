@@ -25,17 +25,20 @@ playback stops so that what is in flight finishes rather than vanishing.
 
 ## Where an effect is drawn
 
-`playback/frame.ts` computes the emission point from the matched rectangle:
+`playback/frame.ts` computes the emission point from the matched rectangle $\text{hit}$,
+where $p$ is how far the playhead is into the note and $s$ is the pitch offset in semitones:
 
-```
-x = hit.x + hit.w * progress
-y = hit.y + hit.h / 2 - semitones * hit.h
-spread = hit.h
+```math
+\begin{aligned}
+x &= \text{hit}_x + \text{hit}_w \cdot p \\
+y &= \text{hit}_y + \tfrac{1}{2}\,\text{hit}_h - s \cdot \text{hit}_h \\
+\text{spread} &= \text{hit}_h
+\end{aligned}
 ```
 
 Three things about this are easy to get wrong:
 
-- **`progress` is not clamped to 0..1.** A pitch contour runs into a note before it starts
+- **$p$ is not clamped to $[0, 1]$.** A pitch contour runs into a note before it starts
   and out of it after it ends, and the effect is meant to run with it. Off the ends the
   fraction leaves the range and the point leaves the rectangle sideways — which is exactly
   where the curve went.
@@ -61,8 +64,16 @@ The waiting vibrato is doing real work: notes shorter than the wait never reach 
 what keeps it off fast passages without a rule about fast passages.
 
 **Three modes** (`pitch.mode`): `position` moves the emission point, `intensity` scales
-particle rate and glow level by how fast the voice is moving, `both` does each.
-`intensityScale` caps the boost at `MAX_BOOST` 2 so an effect cannot run away.
+particle rate and glow level by how fast the voice is moving, `both` does each. Speed is a
+one-frame difference of the offset, and the boost it earns is capped so an effect cannot run
+away:
+
+```math
+\text{speed} = \frac{\lvert\, \text{offset}(t) - \text{offset}(t - \delta) \,\rvert}{\delta},
+\quad \delta = \tfrac{1}{60}
+\qquad
+\text{boost} = 1 + \min(\text{speed} \cdot \text{sensitivity},\; \text{MAX\_BOOST})
+```
 
 **`range` bounds the offset rather than trusting it.** The contour is written by a separate
 process that can restart at any version, and the engine reports unvoiced frames as pitch
@@ -81,8 +92,17 @@ Each entry is: what it is · why it is here · what breaks when it goes wrong.
 ### Two summed envelopes
 
 Glow brightness is not one value but the **sum of two**. `burst` jumps to 1 at a note onset
-and decays as `exp(-dt / flash)`. `sustain` chases its target with time constant
-`SUSTAIN_TAU` 0.16 s, and releases with the same constant when the note ends.
+and decays exponentially; `sustain` chases its target — `level` while a note sounds, zero
+otherwise — with time constant $\tau$ = `SUSTAIN_TAU` 0.16 s, and releases with the same
+constant.
+
+```math
+\begin{aligned}
+\text{burst} &\leftarrow \text{burst} \cdot e^{-\Delta t / \text{flash}} \\
+\text{sustain} &\leftarrow \text{sustain} + (\text{target} - \text{sustain})\left(1 - e^{-\Delta t / \tau}\right) \\
+\text{brightness} &= (\text{sustain} + \text{burst}) \cdot \text{flicker}
+\end{aligned}
+```
 
 **Why:** one envelope alone makes an onset read as *a light being switched on*. The spike
 carries the strike, the sustain carries the holding. Below `CUTOFF` 0.01 the sprite is not
@@ -106,8 +126,8 @@ the shake from simply tracking the brightness. The walks are **stepped even when
 zero**, so turning jitter up mid-note starts from wherever the shiver would have been rather
 than snapping.
 
-**Jitter multiplies the envelope, it does not add to it** — `(sustain + burst) * flicker`. So
-the release takes the shiver down with it; added, the trembling would outlive the note.
+**Jitter multiplies the envelope, it does not add to it** — the third line above. So the
+release takes the shiver down with it; added, the trembling would outlive the note.
 
 **Breaks as:** trembling that continues after a note ends (jitter added rather than
 multiplied) · a visible jump when the jitter slider moves (walks not stepped while unused).
@@ -126,8 +146,14 @@ thins under load (normal, and preferable).
 
 ### Reach-parameterised motion
 
-Particle settings are **reaches in pixels over one lifetime**, not speeds. Velocity falls
-out as `reach / life`; gravity is `ARC · spreadY / life²`.
+Particle settings are **reaches in pixels over one lifetime**, not speeds. Velocity and
+gravity are derived from them:
+
+```math
+v = \frac{\text{reach}}{\text{life}}
+\qquad\qquad
+g = \text{ARC} \cdot \frac{\text{spread}_y}{\text{life}^2}
+```
 
 **Why:** a reach is what stays meaningful to someone dragging a slider. Store speed instead
 and lengthening the lifetime also makes everything fly further, so the shape changes when the
@@ -146,9 +172,17 @@ Alpha falls off along the trail, and Pixi strokes one path at one alpha — so t
 drawing is a stroke per segment, hundreds rebuilt every frame. Instead the fade is quantized
 to `FADE_LEVELS` 16.
 
-**Why it is sound:** alpha only ever *decreases* towards the tail, so a level is always a
+For a point of age $a$ in a line of lifetime $L$:
+
+```math
+\text{level} = \left\lceil \left(1 - \frac{a}{L}\right)^{2} \cdot \text{FADE\_LEVELS} \right\rceil
+\qquad
+\alpha = \frac{\text{level}}{\text{FADE\_LEVELS}}
+```
+
+**Why it is sound:** $\alpha$ only ever *decreases* towards the tail, so a level is always a
 contiguous run of points, and the whole line comes out in at most 16 strokes. The fade is
-`left²` rather than linear, so the line stays readable behind the playhead and then gives way
+squared rather than linear, so the line stays readable behind the playhead and then gives way
 quickly instead of ending on a hard edge.
 
 **Breaks as:** visible banding (too few levels) · frame drops on long trails (quantization
@@ -177,9 +211,11 @@ All three effects hold positions in the coordinate frame of **whichever note rea
 current**. When the pump replaces the set mid-flight, `NoteRenderer.rebaseEffects` shifts
 everything live by the same delta the notes moved:
 
-```
-x' = to.contentX + (x - from.contentX) * (to.contentW / from.contentW)
-y' = y + (to.refY - from.refY)
+```math
+\begin{aligned}
+x' &= \text{contentX}_{to} + (x - \text{contentX}_{from}) \cdot \frac{\text{contentW}_{to}}{\text{contentW}_{from}} \\[2pt]
+y' &= y + (\text{refY}_{to} - \text{refY}_{from})
+\end{aligned}
 ```
 
 This is the same arithmetic as `followRect` and `rebaseAnchor` —
@@ -191,13 +227,22 @@ release drifting away from where it was struck.
 
 ### Frame-rate independence
 
-Everything time-based is a **rate**, integrated against `dt`. Emission accumulates
-`emitDebt += dt * rate` and spends whole sparks, carrying the remainder into the next frame,
-so 60 Hz and 120 Hz emit the same number per second. Envelopes use `exp(-dt/τ)` rather than a
-per-frame multiplier.
+Everything time-based is a **rate**, integrated against $\Delta t$. Emission accumulates a
+debt and spends whole sparks, carrying the remainder into the next frame, so 60 Hz and 120 Hz
+emit the same number per second:
 
-`dt` is clamped to `MAX_STEP_SEC` 0.1. A longer gap means the window was hidden or the loop
-stalled; catching up would fire a burst, so it is treated as a fresh start.
+```math
+\text{debt} \leftarrow \text{debt} + \Delta t \cdot \text{rate}
+\qquad
+n = \lfloor \text{debt} \rfloor
+\qquad
+\text{debt} \leftarrow \text{debt} - n
+```
+
+Envelopes use $e^{-\Delta t/\tau}$ rather than a per-frame multiplier, for the same reason.
+
+$\Delta t$ is clamped to `MAX_STEP_SEC` 0.1 s. A longer gap means the window was hidden or the
+loop stalled; catching up would fire a burst, so it is treated as a fresh start.
 
 **Breaks as:** twice the sparks on a 120 Hz display · a burst of particles when the window
 is un-hidden · effects that speed up on a fast machine.

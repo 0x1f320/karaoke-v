@@ -49,9 +49,16 @@ in the app would mean shipping the tempo map, which changes under edits.
 bearing in the renderer: a pitch offset in semitones scales by the rectangle's height and
 needs no mapping of its own.
 
-**Cents** — the pitch curve travels as cents from the note's own pitch (100 cents = one
-semitone), as `int16`. Cents, not absolute pitch, so the value stays small and a note's
-curve is meaningful without knowing which note it belongs to.
+**Cents** — the pitch curve travels as cents from the note's own pitch, as `int16`:
+
+```math
+\text{cents} = \left\lfloor (\text{sample} - \text{pitch}) \cdot 100 + 0.5 \right\rfloor
+```
+
+Cents, not absolute pitch, so the value stays small and a note's curve is meaningful without
+knowing which note it belongs to. 100 cents is one semitone, which is one lane, which is one
+rectangle height — the chain that lets an offset in cents reach the screen with no mapping of
+its own.
 
 ## The Lua scripting host
 

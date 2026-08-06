@@ -71,15 +71,22 @@ app's only source for where the roll is.
 
 ## Physical pixels, points and DIPs
 
-macOS reports points, which is already what Electron positions windows in, so the transform
-is the identity and the whole path is a no-op there.
-
 Windows reports **physical pixels** — Win32 and UI Automation both do — while Electron
-places windows and lays out renderers in **DIPs**. Only the main process can ask Electron
-for the mapping, so `main/dip.ts` derives it from whichever display the target window is on
-and pushes it to every renderer. The renderers then convert per-frame geometry locally
-(`toDipRect`, `toDipViewport`, `toDipPianoRoll` in `shared/native.ts`) rather than paying
-an IPC hop per read.
+places windows and lays out renderers in **DIPs**. The conversion is anchored on the display
+the target is on, not on the origin:
+
+```math
+x_{\text{dip}} = \text{originDip}_x + \frac{x_{\text{px}} - \text{originPx}_x}{\text{scale}}
+\qquad
+w_{\text{dip}} = \frac{w_{\text{px}}}{\text{scale}}
+```
+
+Only the main process can ask Electron for `scale` and the two origins, so `main/dip.ts`
+derives them from whichever display the target window is on and pushes them to every
+renderer. The renderers then convert per-frame geometry locally (`toDipRect`,
+`toDipViewport`, `toDipPianoRoll` in `shared/native.ts`) rather than paying an IPC hop per
+read. On macOS the transform is the identity, so applying it is a no-op rather than a
+special case.
 
 Symptom of getting this wrong: everything is correct at 100 % scaling and offset
 proportionally to the scale factor on a HiDPI display, or correct on the primary monitor
@@ -110,10 +117,28 @@ mapping is **18 ms old while playing, 35 ms at the tail**, which at a real scrol
 one to two notes of error. So a mapping-built prediction can only ever be a guess about
 *which* note it is looking at.
 
-A read can answer that question about itself instead. Every note on a piano roll sits on
-one straight line from blicks to pixels, so a **single matched rectangle fixes that line
-for the whole read**, and every other note follows by arithmetic — with no bridge latency
-in it at all. The mapping keeps only what it is good at: the scale.
+A read can answer that question about itself instead. Every note on a piano roll sits on one
+straight line from blicks to pixels — so a **single matched rectangle fixes that line for the
+whole read**, and every other note follows by arithmetic, with no bridge latency in it at
+all. One matched rectangle gives the line's intercept:
+
+```math
+x_0 = \text{rect}_x - \text{onB} \cdot \text{perBlick}
+```
+
+and every other note in that read then follows from it:
+
+```math
+\begin{aligned}
+x &= x_0 + \text{onB} \cdot \text{perBlick} \\
+y &= y_{\text{anchor}} + (\text{pitch}_{\text{anchor}} - \text{pitch}) \cdot \text{laneH} \\
+w &= (\text{offB} - \text{onB}) \cdot \text{perBlick} \\
+h &= \text{laneH}
+\end{aligned}
+```
+
+The mapping keeps only what it is good at: the scale, rescaled from the view it was read in
+to this frame.
 
 Anchors are read-scoped. Carrying one into the next read means rebasing it (`rebaseAnchor`),
 exactly as a rectangle is followed.
@@ -134,6 +159,17 @@ those two moments:
 | `contentX` | horizontal scroll — screen x of blick 0 |
 | `contentW` | the horizontal zoom, only ever compared against itself |
 | `refY` | vertical scroll — screen y of the reference |
+
+```math
+\begin{aligned}
+\text{scaleX} &= \frac{\text{contentW}_{\text{live}}}{\text{contentW}_{\text{read}}} \\[2pt]
+\text{offsetX} &= \text{contentX}_{\text{live}} - \text{contentX}_{\text{read}} \cdot \text{scaleX} \\[2pt]
+\text{dy} &= \text{refY}_{\text{live}} - \text{refY}_{\text{read}}
+\end{aligned}
+```
+
+That is the whole of alignment: one scale and two offsets, applied to the read's rectangles
+as a single transform on the Pixi `content` container.
 
 `contentW` is not a real content width on Windows; the script never reports one. It is a
 fixed span of blicks times `perBlick`, which is proportional to the zoom, which is all

@@ -137,12 +137,23 @@ overlay visibly chasing SynthV during a drag (sync not debounced).
 ### Cursor-based drag prediction
 
 While the user drags SynthV's title bar, `EVENT_SYSTEM_MOVESIZESTART` starts an 8 ms timer
-that places the overlay at `drag_origin + (cursor - drag_cursor)` — predicting from the mouse
-rather than waiting for the window's own move events.
+that predicts the window's position from the **mouse** rather than waiting for the window's
+own move events:
 
-It re-baselines when truth and prediction disagree by more than `RESYNC_PX` 8, and **gives up
-entirely on a resize**: a resize is not predictable from the cursor, and neither is a window
-the system snapped to a screen edge.
+```math
+p = p_0 + (c - c_0)
+```
+
+where $p_0$ and $c_0$ are the window frame and cursor position when the drag began.
+
+It re-baselines whenever truth and prediction disagree by more than `RESYNC_PX` 8 px,
+
+```math
+\lVert p_{\text{reported}} - p \rVert > \text{RESYNC\_PX} \;\Rightarrow\; p_0, c_0 \leftarrow \text{now}
+```
+
+and **gives up entirely on a resize**: a resize is not predictable from the cursor, and
+neither is a window the system snapped to a screen edge.
 
 **Breaks as:** the overlay trailing the window during a drag (prediction off) · the overlay
 leading it and snapping back (re-baselining too slow) · the overlay wrong during a resize
