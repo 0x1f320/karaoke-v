@@ -244,6 +244,13 @@ export class NoteRenderer {
     this.geometryDirty = true
   }
 
+  clearEffects(): void {
+    this.particles?.clear()
+    this.glow?.clear()
+    this.trail?.clear()
+    this.emitDebt = 0
+  }
+
   private rebuild(style: Style): void {
     const g = this.notes
     if (!g) {

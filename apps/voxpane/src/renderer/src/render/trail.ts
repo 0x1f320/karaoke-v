@@ -307,6 +307,8 @@ export class PitchTrail {
 
   clear(): void {
     this.points.length = 0
+    this.sparkleDebt = 0
+    this.silent = true
     for (const sparkle of this.live) {
       sparkle.sprite.visible = false
       this.pool.push(sparkle.sprite)
