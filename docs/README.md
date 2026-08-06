@@ -58,7 +58,7 @@ technique has **one home**; everything else links to it.
 | Playhead interpolation on the local clock | [architecture](architecture.md#the-frame-loop) | the transport, all effect timing |
 | Predict-and-snap, follow, anchor | [geometry](geometry.md#matching-a-note-to-a-rectangle) | note matching, debug reach bands |
 | Read-scoped coordinate frames | [geometry](geometry.md#staying-aligned) | matching, and every live effect |
-| Coordinate-space rebasing | [geometry](geometry.md#staying-aligned) · [effects](effects.md#coordinate-space-rebasing) | glow, particles, trail, anchors |
+| Coordinate-space rebasing | [geometry](geometry.md#staying-aligned) | matched rects, anchors, and every live effect — [effects](effects.md#coordinate-space-rebasing) |
 | Stability flags on a read | [geometry](geometry.md#staying-aligned) | the macOS note pump |
 | DIP conversion | [geometry](geometry.md#physical-pixels-points-and-dips) | window placement, all Windows geometry |
 | Canvas identification by implied size | [geometry](geometry.md#two-platforms-two-strategies) | the Windows UIA lookup |
