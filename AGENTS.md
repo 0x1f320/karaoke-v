@@ -82,6 +82,10 @@ code. **If a change makes a document wrong, fix the document in the same commit.
 a `docs` type only when documentation is the whole change; otherwise it rides along with
 the behaviour change that caused it.
 
+Each document has a Korean translation beside it — `architecture.md` / `architecture.ko.md`.
+**English is the source of truth**, and the translation is brought level in the same commit;
+see **Language** below for the rules that keep the pair from drifting apart.
+
 ## Code comments
 
 **Do not write comments by default.** Names, types and small functions are expected to
@@ -180,3 +184,17 @@ Examples:
 Anything written into the repository or posted to GitHub is in **English**: commit
 messages, PR titles, and **PR bodies**. This holds no matter which language the work is
 being discussed in — a Korean conversation still produces an English PR body.
+
+**The one exception is `docs/`**, which is bilingual: `<name>.md` in English and
+`<name>.ko.md` in Korean. **English is the source of truth.** A behaviour change edits the
+English document first and brings the translation level **in the same commit** — a
+translation that has drifted is worse than none, because it is what the next reader trusts
+instead of the code.
+
+- **Technical terms and proper nouns stay in English** inside the Korean documents:
+  `playhead`, `viewport`, `envelope`, `rebasing`, `blick`, and every identifier. Translating
+  them severs the link to the code and gives one concept two names.
+- **Headings stay identical to the English original**, so the two files share anchors and a
+  link into a section lands in the same place in either language.
+- Nothing else in the repository is translated. This exists because `docs/` is the one part
+  of the tree written to be *read* rather than executed.

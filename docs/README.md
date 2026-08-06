@@ -1,5 +1,8 @@
 # voxpane docs
 
+> 한국어판: **[README.ko.md](README.ko.md)**. 영어판이 원본이므로, 동작이 바뀌면 여기를 먼저 고치고
+> 같은 커밋에서 번역을 맞춘다.
+
 Context for whoever is about to change this code — what Synthesizer V is, how a note gets
 from its piano roll onto the overlay, which techniques each piece is built on, and how to
 see the running system instead of guessing at it.

@@ -1,5 +1,8 @@
 # Geometry
 
+> 한국어판: **[geometry.ko.md](geometry.ko.md)**. 영어판이 원본이므로, 동작이 바뀌면 여기를 먼저 고치고
+> 같은 커밋에서 번역을 맞춘다.
+
 Where a note is on screen. This is where the subtle bugs live, because the answer is
 assembled from two sources that are each authoritative about half of it and neither of
 which is fresh.

@@ -1,5 +1,8 @@
 # Debugging
 
+> 한국어판: **[debugging.ko.md](debugging.ko.md)**. 영어판이 원본이므로, 동작이 바뀌면 여기를 먼저 고치고
+> 같은 커밋에서 번역을 맞춘다.
+
 The overlay has no error state. When it goes wrong it draws nothing, or draws the right
 thing in the wrong place — so the first move is never a grep, it is finding out **which
 layer stopped answering**.

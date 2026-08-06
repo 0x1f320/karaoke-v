@@ -1,5 +1,8 @@
 # The bridge
 
+> 한국어판: **[bridge.ko.md](bridge.ko.md)**. 영어판이 원본이므로, 동작이 바뀌면 여기를 먼저 고치고
+> 같은 커밋에서 번역을 맞춘다.
+
 How the script inside SynthV gets data to the app.
 
 Writer: `packages/synthv-script/src/lua/bridge/`.

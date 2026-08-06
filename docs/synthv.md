@@ -1,5 +1,8 @@
 # Synthesizer V Studio 2
 
+> 한국어판: **[synthv.ko.md](synthv.ko.md)**. 영어판이 원본이므로, 동작이 바뀌면 여기를 먼저 고치고
+> 같은 커밋에서 번역을 맞춘다.
+
 The host application. voxpane draws over its piano roll and reads data out of it through a
 script; it never edits a project.
 

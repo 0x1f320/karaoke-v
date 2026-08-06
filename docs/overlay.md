@@ -1,5 +1,8 @@
 # The overlay surface
 
+> 한국어판: **[overlay.ko.md](overlay.ko.md)**. 영어판이 원본이므로, 동작이 바뀌면 여기를 먼저 고치고
+> 같은 커밋에서 번역을 맞춘다.
+
 The window the effects are painted on. It has three jobs, and they pull against each other:
 
 1. **Be exactly over SynthV's window** — same rectangle, through moves, resizes, zoom,

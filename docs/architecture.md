@@ -1,5 +1,8 @@
 # Architecture
 
+> 한국어판: **[architecture.ko.md](architecture.ko.md)**. 영어판이 원본이므로, 동작이 바뀌면 여기를 먼저 고치고
+> 같은 커밋에서 번역을 맞춘다.
+
 voxpane draws effects on top of Synthesizer V Studio 2's piano roll. It never modifies the
 project and it is not a plugin: it is a separate desktop app that puts a transparent
 window over SynthV's and paints on it in time with playback.

@@ -1,5 +1,8 @@
 # Note effects
 
+> 한국어판: **[effects.ko.md](effects.ko.md)**. 영어판이 원본이므로, 동작이 바뀌면 여기를 먼저 고치고
+> 같은 커밋에서 번역을 맞춘다.
+
 What actually gets drawn once [geometry](geometry.md) has answered *which rectangle*. Three
 effects, one scene, one shared coordinate space.
 
