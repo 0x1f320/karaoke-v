@@ -5,9 +5,9 @@ import { assetTexture } from "./assets"
 // Sparks thrown off wherever the playhead is crossing a note.
 //
 // Particles live in the same coordinate space as the note rects, which is the
-// space of whichever AX read is current — so when a read is replaced mid-flight,
-// rebase() shifts the live ones by the same delta the notes moved. Without that
-// they jump every time the pump lands during a scroll.
+// space of whichever note read is current — so when a read is replaced
+// mid-flight, rebase() shifts the live ones by the same delta the notes moved.
+// Without that they jump every time the pump lands during a scroll.
 
 const MAX_PARTICLES = 600
 
@@ -201,7 +201,7 @@ export class ParticleField {
     }
   }
 
-  /** Follow the note set into a new AX read's coordinate frame. */
+  /** Follow the note set into a new note read's coordinate frame. */
   rebase(from: CoordinateFrame, to: CoordinateFrame): void {
     const scaleX = from.contentW > 0 && to.contentW > 0 ? to.contentW / from.contentW : 1
     const dy = to.refY - from.refY

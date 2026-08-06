@@ -1,5 +1,6 @@
 import * as macHelper from "@voxpane/macos-helper"
 import * as winHelper from "@voxpane/windows-helper"
+import type { BridgeState, BridgeViewMapping } from "./bridgeChannels"
 import type { PianoRoll, Rect, Viewport } from "./geometry"
 
 // One native surface for both platforms. What the two helpers have in common is
@@ -7,10 +8,9 @@ import type { PianoRoll, Rect, Viewport } from "./geometry"
 // the part nothing above this line has to think about.
 //
 // Geometry is where they differ, and the difference is not hidden here because
-// it is not a detail: macOS reads note rectangles out of the Accessibility API,
-// while Windows has no tree to read and computes them from the bridge script's
-// view transform (`windowsGeometry.ts`), needing the helper only to find where
-// the canvas is. The preload composes whichever applies.
+// it is not a detail: note rectangles are computed from the bridge script's
+// view transform (`pianoRollGeometry.ts`), while the helpers supply the native
+// facts the script cannot know, such as the canvas rectangle and window origin.
 //
 // Importing both is deliberate: each loads its .node lazily, so the wrong-platform
 // module costs a `require` of a few hundred lines of JavaScript and nothing else.
@@ -32,8 +32,9 @@ export interface NativeHelper {
   /** macOS: press SynthV's Scripts menu so a new bridge script is loaded now. */
   rescanScripts?(target?: string): boolean
 
-  /** macOS: the Accessibility API answers both of these directly. */
+  /** macOS: cached canvas/scroll reads; the full walk is only a fallback seed. */
   getViewport?(): Viewport | null
+  getViewportAsync?(): Promise<Viewport | null>
   getPianoRollAsync?(target?: string): Promise<PianoRoll | null>
 
   /** Windows: UI Automation answers only where the canvas is. */
@@ -87,6 +88,21 @@ export function toDipRect(transform: DipTransform, rect: Rect): Rect {
   }
 }
 
+function toDipMapping(transform: DipTransform, mapping: BridgeViewMapping): BridgeViewMapping {
+  return {
+    ...mapping,
+    perBlick: mapping.perBlick / transform.scale,
+    perSemitone: mapping.perSemitone / transform.scale,
+  }
+}
+
+export function toDipState(transform: DipTransform, state: BridgeState): BridgeState {
+  return {
+    ...state,
+    px: toDipMapping(transform, state.px),
+  }
+}
+
 export function toDipViewport(transform: DipTransform, viewport: Viewport): Viewport {
   return {
     canvas: toDipRect(transform, viewport.canvas),
@@ -99,6 +115,14 @@ export function toDipViewport(transform: DipTransform, viewport: Viewport): View
           origin: {
             x: toDipX(transform, viewport.origin.x),
             y: toDipY(transform, viewport.origin.y),
+          },
+        }),
+    ...(viewport.source === undefined
+      ? {}
+      : {
+          source: {
+            seq: viewport.source.seq,
+            mapping: toDipMapping(transform, viewport.source.mapping),
           },
         }),
   }

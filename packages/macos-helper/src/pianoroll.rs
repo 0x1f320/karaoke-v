@@ -1,11 +1,10 @@
-// Reads SynthV's piano-roll geometry via the Accessibility API for the overlay.
+// Finds SynthV's piano-roll geometry via the Accessibility API for the overlay.
 //
-// getPianoRoll()/getPianoRollAsync() walk the target's AX tree (~50ms) and return
-// the visible canvas rect, the content group's scroll offset (contentX) + total
-// width (contentW, the zoom scale), and the visible note rects — global screen
-// points. The async variant runs the walk off the main thread so callers can
-// refresh notes without hitching. Both cache the geometry elements so
-// getViewport() can re-read the scroll/zoom + canvas cheaply (~µs) each frame.
+// getPianoRoll()/getPianoRollAsync() still expose the full AX walk (~50ms) and
+// return the visible canvas rect, content group metrics, and visible note rects
+// in global screen points. The overlay uses that walk only to seed cached
+// elements when needed; note recognition is computed from the bridge schedule
+// and view transform in the preload.
 //
 // The canvas rect comes from the note area's scrollbar pair, less the group
 // banner strip those bars enclose above the lanes (see compute); the content
@@ -82,6 +81,14 @@ struct Cache {
     /// Banner inset from the last full read. Scalar rather than an element to
     /// re-read: it only changes when the window layout does, and the notes pump
     /// refreshes it.
+    top_inset: f64,
+}
+
+struct ViewportRead {
+    content: Option<SendElement>,
+    hbar: SendElement,
+    vbar: SendElement,
+    reference: Option<SendElement>,
     top_inset: f64,
 }
 
@@ -498,63 +505,96 @@ pub fn get_piano_roll_async(target: Option<String>) -> AsyncTask<PianoRollTask> 
     })
 }
 
+fn snapshot_viewport_read() -> Option<ViewportRead> {
+    CACHE.with_borrow(|cache| {
+        Some(ViewportRead {
+            content: cache.content.clone(),
+            hbar: cache.hbar.clone()?,
+            vbar: cache.vbar.clone()?,
+            reference: cache.reference.clone(),
+            top_inset: cache.top_inset,
+        })
+    })
+}
+
+fn read_viewport(read: &ViewportRead) -> Option<JsViewport> {
+    let (Some(hbar), Some(vbar)) = (
+        ax::ax_frame(read.hbar.get()),
+        ax::ax_frame(read.vbar.get()),
+    ) else {
+        return None;
+    };
+    let mut content = CGRect::new(
+        CGPoint::new(hbar.origin.x, vbar.origin.y),
+        CGSize::new(vbar.origin.x - hbar.origin.x, hbar.origin.y - vbar.origin.y),
+    );
+    if let Some(content_el) = &read.content {
+        content = ax::ax_frame(content_el.get())?;
+    }
+    let ref_y = read
+        .reference
+        .as_ref()
+        .and_then(|reference| ax::ax_frame(reference.get()).map(|frame| frame.origin.y));
+
+    let cx = hbar.origin.x;
+    let cy = vbar.origin.y + read.top_inset;
+    Some(JsViewport {
+        canvas: JsRect {
+            x: cx,
+            y: cy,
+            w: vbar.origin.x - cx,
+            h: hbar.origin.y - cy,
+        },
+        content_x: content.origin.x,
+        content_w: content.size.width,
+        ref_y,
+    })
+}
+
+pub struct ViewportTask {
+    read: Option<ViewportRead>,
+}
+
+impl Task for ViewportTask {
+    type Output = Option<JsViewport>;
+    type JsValue = Option<JsViewport>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        Ok(self.read.as_ref().and_then(read_viewport))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+#[napi]
+pub fn get_viewport_async() -> AsyncTask<ViewportTask> {
+    AsyncTask::new(ViewportTask {
+        read: snapshot_viewport_read(),
+    })
+}
+
 /// Cheap read: canvas rect + scroll/zoom from the cached elements (no walk).
 #[napi]
 pub fn get_viewport() -> Option<JsViewport> {
     CACHE.with_borrow_mut(|cache| {
-        let (Some(hbar_el), Some(vbar_el)) = (&cache.hbar, &cache.vbar) else {
+        let Some(read) = (match (&cache.hbar, &cache.vbar) {
+            (Some(hbar), Some(vbar)) => Some(ViewportRead {
+                content: cache.content.clone(),
+                hbar: hbar.clone(),
+                vbar: vbar.clone(),
+                reference: cache.reference.clone(),
+                top_inset: cache.top_inset,
+            }),
+            _ => None,
+        }) else {
             return None;
         };
-        let (Some(hbar), Some(vbar)) = (ax::ax_frame(hbar_el.get()), ax::ax_frame(vbar_el.get()))
-        else {
+        let out = read_viewport(&read);
+        if out.is_none() {
             *cache = Cache::default();
-            return None;
-        };
-        // No content group means no scroll reference — the same case compute falls
-        // back on, so answer the same way it does (content_x = the canvas' left edge)
-        // rather than returning null. Null here blanks the overlay on every frame,
-        // which is far worse than a scroll correction that reads as zero between the
-        // note reads.
-        let mut content = CGRect::new(
-            CGPoint::new(hbar.origin.x, vbar.origin.y),
-            CGSize::new(vbar.origin.x - hbar.origin.x, hbar.origin.y - vbar.origin.y),
-        );
-        if let Some(content_el) = &cache.content {
-            match ax::ax_frame(content_el.get()) {
-                Some(frame) => content = frame,
-                None => {
-                    *cache = Cache::default();
-                    return None;
-                }
-            }
         }
-        // Vertical reference: the cached chip's current y. Compared against the read's
-        // ref_y it gives the vertical scroll delta in exact pixels. The chip element can
-        // die (note edited/deleted, track switched) — then omit ref_y; the next full
-        // read re-caches a fresh reference.
-        let ref_y = match &cache.reference {
-            Some(reference) => match ax::ax_frame(reference.get()) {
-                Some(frame) => Some(frame.origin.y),
-                None => {
-                    cache.reference = None;
-                    None
-                }
-            },
-            None => None,
-        };
-
-        let cx = hbar.origin.x;
-        let cy = vbar.origin.y + cache.top_inset; // skip the group banner strip
-        Some(JsViewport {
-            canvas: JsRect {
-                x: cx,
-                y: cy,
-                w: vbar.origin.x - cx,
-                h: hbar.origin.y - cy,
-            },
-            content_x: content.origin.x,
-            content_w: content.size.width,
-            ref_y,
-        })
+        out
     })
 }

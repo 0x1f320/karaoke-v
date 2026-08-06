@@ -159,8 +159,8 @@ native helper가 메우는 것이다.
 `viewTop` = `range[1]`, `viewBottom` = `range[0]`으로 저장한다.
 
 측정된 것 하나 더: **`v2y`는 lane을 값 위에서 시작시키는 게 아니라 값에 중심을 맞춘다.**
-그래서 note의 위쪽 모서리는 자기 pitch보다 반 semitone 위다. `windowsGeometry.ts`는 그 절반을
-명시적으로 빼고, macOS에서는 AX rect이 이미 그것을 반영하고 있다.
+그래서 note의 위쪽 모서리는 자기 pitch보다 반 semitone 위다. `pianoRollGeometry.ts`가 양쪽
+플랫폼에서 그 절반을 명시적으로 뺀다.
 
 ## Transport and looping
 

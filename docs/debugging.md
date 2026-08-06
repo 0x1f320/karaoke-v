@@ -135,15 +135,23 @@ What to look at when it does print:
 
 Settings ▸ General ▸ **Enable debug mode**. It draws, on the overlay itself:
 
-- **every note's rectangle** — this is the note *set*, i.e. what the geometry layer thinks
-  is on screen. If the boxes are wrong, the effects were never going to be right, and the
-  bug is in [geometry](geometry.md), not in the effects.
+- **every note's rectangle** — this is the current-frame prediction of the visible note
+  set, expressed through the same frame transform as the effects. If the boxes are wrong,
+  the effects were never going to be right, and the bug is in [geometry](geometry.md), not
+  in the effects.
 - **the matched rectangle** for the sounding note — highlighted. Watch this while scrolling:
   if it hops between notes, that is a matching bug, not a drawing one.
 - **reach bands** — how far each visible note's effect can travel vertically. Drawn only
   when pitch following is enabled *and* its mode moves the effect's position (anything but
   `intensity`). A band running past the piano roll's edge is an effect that will be masked
   away and appear to vanish.
+
+While debug mode is on, scroll bursts also produce one-line latency reports in the overlay
+DevTools console. In development they are forwarded to the main-process terminal as
+`[voxpane latency] ...`, with the current bottleneck guess plus `native->applied`,
+`bridge->applied`, `applied->draw`, and `viewportReadMax` timings. Without debug mode, set
+`localStorage.voxpaneLatencyProbe = "1"` in the overlay DevTools console to enable the same
+reports.
 
 Boxes right, effects wrong ⇒ the renderer. Boxes wrong ⇒ everything downstream is noise.
 

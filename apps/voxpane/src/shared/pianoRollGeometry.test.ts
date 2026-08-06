@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { BridgeNote, BridgeState } from "./bridgeChannels"
-import { expectedCanvasSize, pianoRollFrom, viewportFrom } from "./windowsGeometry"
+import { expectedCanvasSize, pianoRollFrom, viewportFrom } from "./pianoRollGeometry"
 
 // A view two quarters wide showing twelve semitones, at one pixel per hundredth
 // of a quarter and ten pixels per semitone: everything below is in whole pixels
@@ -42,7 +42,7 @@ function note(onQuarters: number, offQuarters: number, pitch: number): BridgeNot
 }
 
 describe("expectedCanvasSize", () => {
-  it("is the view range in pixels — what identifies the element to UI Automation", () => {
+  it("is the view range in pixels — what identifies the native canvas", () => {
     expect(expectedCanvasSize(state())).toEqual({ width: 200, height: 120 })
   })
 

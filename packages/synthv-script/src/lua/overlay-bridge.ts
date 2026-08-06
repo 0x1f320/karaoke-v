@@ -27,13 +27,13 @@ const SCRIPT_TITLE = "Overlay Bridge"
 
 const CONFIG = {
   /**
-   * Publishing costs ~4us, so there is nothing to save by slowing down while
+   * Publishing costs ~4us, so there is little to save by slowing down while
    * the transport is stopped — and stopped is exactly when the user scrolls.
    * On Windows the view transform published here is the app's only source for
    * where the piano roll is scrolled to, so a slower idle tick is a scroll the
    * overlay follows a tick late.
    */
-  tickInterval: 16,
+  tickInterval: 4,
   /**
    * Fingerprinting walks every note and calls into the host per note, which is
    * the one thing here that scales with project size — so it runs on its own

@@ -126,14 +126,20 @@ notes: ENOENT: ...
 
 설정 ▸ General ▸ **Enable debug mode**. overlay 자체에 그리는 것:
 
-- **모든 note의 rect** — 이건 note *set*, 즉 geometry 계층이 화면에 있다고 생각하는 것이다.
-  박스가 틀렸으면 effect는 애초에 맞을 수 없었고, 버그는 effect가 아니라
-  [geometry](geometry.ko.md)에 있다.
+- **모든 note의 rect** — 보이는 note set에 대한 current-frame prediction이고, effect와 같은
+  frame transform을 거쳐 표현된다. 박스가 틀렸으면 effect는 애초에 맞을 수 없었고, 버그는
+  effect가 아니라 [geometry](geometry.ko.md)에 있다.
 - 울리는 note의 **매칭된 rect** — 강조 표시된다. 스크롤하면서 이걸 볼 것: note 사이를 건너뛰면
   그리기 버그가 아니라 매칭 버그다.
 - **reach band** — 보이는 각 note의 effect가 세로로 얼마나 갈 수 있는지. pitch following이
   켜져 있고 *또한* 그 mode가 effect의 위치를 움직일 때만(`intensity`가 아닌 경우) 그린다.
   piano roll 가장자리를 넘어가는 band는 mask에 잘려 사라져 보일 effect다.
+
+debug mode가 켜져 있으면 scroll burst마다 overlay DevTools console에 latency report 한 줄도
+찍힌다. 개발 중에는 main process terminal로도 `[voxpane latency] ...`가 전달되며, 현재
+bottleneck 추정과 `native->applied`, `bridge->applied`, `applied->draw`, `viewportReadMax`
+timing을 함께 보여준다. debug mode 없이 같은 report만 켜려면 overlay DevTools console에서
+`localStorage.voxpaneLatencyProbe = "1"`을 설정한다.
 
 박스는 맞는데 effect가 틀리면 ⇒ renderer. 박스가 틀리면 ⇒ 그 아래는 전부 잡음이다.
 

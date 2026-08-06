@@ -3,9 +3,9 @@ import { BrowserWindow } from "electron"
 import { native } from "../shared/native"
 
 // The overlay window: transparent, click-through, always-on-top, covering the
-// whole SynthV window. It is otherwise inert — all per-frame work (AX reads,
-// drawing) happens in its renderer, which reads the addon directly through the
-// preload bridge. This removes the AX → main → renderer hops (and per-frame
+// whole SynthV window. It is otherwise inert — all per-frame geometry and
+// drawing happens in its renderer, which reads the addon directly through the
+// preload bridge. This removes native → main → renderer hops (and per-frame
 // setBounds) from the hot path.
 
 export function createOverlayWindow(): BrowserWindow {

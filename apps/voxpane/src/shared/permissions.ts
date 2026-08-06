@@ -1,6 +1,7 @@
 // Accessibility is the only permission the app needs, and only on macOS: the
-// piano roll is read through the AX tree there, while the Windows helper gets
-// the same data from UI Automation, which no user grant gates.
+// helper has to find SynthV's piano-roll canvas and follow its frame through
+// the AX tree, while Windows gets the same native facts from UI Automation,
+// which no user grant gates.
 //
 // Screen Recording is deliberately absent. The occlusion check reads window
 // bounds, pid and layer out of CGWindowList, none of which that permission

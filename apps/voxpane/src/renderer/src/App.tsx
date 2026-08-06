@@ -11,7 +11,9 @@ import {
 import { Permissions } from "./components/Permissions"
 import { Settings } from "./components/Settings"
 import { Toolbar } from "./components/Toolbar"
+import { predictedNoteRect, toReadFrame } from "./playback/debugNotes"
 import { composeFrame, frameTransform, padRect, pitchBounds } from "./playback/frame"
+import { ScrollLatencyProbe } from "./playback/latencyProbe"
 import {
   anchoredRect,
   anchorFromMatch,
@@ -20,8 +22,10 @@ import {
   type ReadAnchor,
   rebaseAnchor,
 } from "./playback/locate"
+import { settleNoteRead } from "./playback/noteReadPump"
 import { intensityScale, overhangSeconds, pitchExtent, samplePitch } from "./playback/pitch"
 import { Transport } from "./playback/transport"
+import { ViewportManager } from "./playback/viewportManager"
 import { NoteRenderer } from "./render/noteRenderer"
 import {
   BORDER_PX,
@@ -50,6 +54,7 @@ const EMPTY_REACHES: Rect[] = []
  * NEW match; a note that has one keeps it however hard the roll is moving.
  */
 const MAX_MATCH_SLIP_PX = 24
+const VIEWPORT_READ_GAP_MS = 8
 
 /**
  * The note whose contour covers `seconds` — the one sounding, or, in the gap
@@ -73,6 +78,14 @@ function noteInContour(transport: Transport, seconds: number): BridgeNote | null
     return after
   }
   return null
+}
+
+function latencyProbeEnabled(debug: boolean): boolean {
+  try {
+    return debug || window.localStorage.getItem("voxpaneLatencyProbe") === "1"
+  } catch {
+    return debug
+  }
 }
 
 // Back-off when SynthV / the piano roll isn't found.
@@ -106,7 +119,8 @@ function Overlay() {
     // Latest accepted full read. Notes are absolute screen coords as of read
     // time; the draw loop shifts them by how far scroll has moved since —
     // horizontally via contentX, vertically via the reference chip's y (refY).
-    // Both are exact pixel deltas read atomically at paint time.
+    // Those live values are recomputed from the bridge state, while AX only
+    // supplies the latest canvas anchor off rAF.
     let read: PianoRoll | null = null
 
     // Bounding boxes are a debug visualization. Default off, and off until the
@@ -136,6 +150,14 @@ function Overlay() {
     // Playback state from the SynthV bridge. Its channels are read once a frame
     // below; the playhead between two reads comes from the local clock.
     const transport = new Transport()
+    const latencyProbe = new ScrollLatencyProbe({ log: (line) => window.debug.latency(line) })
+    latencyProbe.setEnabled(false)
+    const viewportManager = new ViewportManager(() => window.overlay.getViewportAsync(), {
+      intervalMs: VIEWPORT_READ_GAP_MS,
+      now: () => window.bridge.monotonicNow(),
+      onRead: (event) => latencyProbe.recordViewportRead(event),
+    })
+    viewportManager.start()
 
     let alive = true
 
@@ -150,12 +172,18 @@ function Overlay() {
         try {
           pr = await window.overlay.readNotes()
         } catch {}
-        if (!pr) {
-          read = null
-        } else if (pr.xStable && pr.yStable) {
-          read = pr
+        const settled = settleNoteRead(read, pr)
+        read = settled.read
+        if (settled.accepted && pr) {
+          viewportManager.adopt(pr)
         }
-        const gap = pr ? (pr.xStable && pr.yStable ? NOTE_READ_GAP_MS : 0) : NOT_FOUND_RETRY_MS
+        const gap = pr
+          ? pr.xStable && pr.yStable
+            ? NOTE_READ_GAP_MS
+            : 0
+          : read
+            ? NOTE_READ_GAP_MS
+            : NOT_FOUND_RETRY_MS
         await new Promise((r) => setTimeout(r, gap))
       }
     }
@@ -181,24 +209,27 @@ function Overlay() {
     // Where the roll sat on the previous frame, so this one can tell how fast it
     // is moving. Null whenever the last frame had nothing to compare against.
     let wasAt: { contentX: number; refY: number } | null = null
+    let frameId = 0
     const draw = () => {
       raf = requestAnimationFrame(draw)
+      frameId += 1
       // Before anything asks what is playing. The read is a pread into a reused
       // buffer, so it costs less than the question it answers.
       const nowMs = window.bridge.monotonicNow()
-      transport.poll(nowMs)
+      latencyProbe.setEnabled(latencyProbeEnabled(debug))
+      const nativeViewport = viewportManager.current()
+      transport.poll(nowMs, nativeViewport)
+      const latestViewport = transport.viewport
       const dpr = window.devicePixelRatio || 1
       const w = window.innerWidth
       const h = window.innerHeight
 
-      // Boxes are a debug visualization but the playing-note effect is not, so
-      // the viewport is read whenever either has something to show — atomically
-      // at paint time, so position data is as fresh as possible. Effects already
-      // in flight count as something to show: stopping playback stops feeding
-      // them, but they still have to be drawn (and kept aligned to scroll) until
-      // they have faded out on their own.
-      const vp =
-        debug || transport.playing || renderer.effectsActive ? window.overlay.getViewport() : null
+      // The viewport manager keeps AX IPC off this rAF path; Transport turns its
+      // latest canvas anchor into a live viewport with the current bridge state.
+      // Effects already in flight count as something to show: stopping playback
+      // stops feeding them, but they still have to be drawn and kept aligned to
+      // scroll until they fade out on their own.
+      const vp = debug || transport.playing || renderer.effectsActive ? latestViewport : null
 
       // Scroll movement since the accepted read, in exact pixels. Without a live
       // vertical reference the y position is unknowable — draw nothing rather
@@ -234,6 +265,14 @@ function Overlay() {
           glow,
           trail,
         })
+        latencyProbe.sample({
+          atMs: nowMs,
+          frame: frameId,
+          native: nativeViewport,
+          applied: latestViewport,
+          drawStartedAtMs: nowMs,
+          drawEndedAtMs: window.bridge.monotonicNow(),
+        })
         return
       }
 
@@ -244,18 +283,10 @@ function Overlay() {
       }
       based = read
 
-      // The note set is only drawn in debug, but it is always read: it is what
-      // says where a note actually is on screen.
-      const wanted = debug ? read : null
-      if (uploaded !== wanted) {
-        renderer.setNotes(wanted ? wanted.notes : [])
-        uploaded = wanted
-      }
-
       const transform = frameTransform(read, vp, vp.refY)
 
-      // Which note is sounding, and which rect is it? The bridge answers the
-      // first exactly; only the AX read can answer the second.
+      // Which note is sounding, and which computed rect is it? The bridge
+      // answers the first exactly; matching/following keeps the second stable.
       let hit: Rect | null = null
       let progress = 0
       let onset: number | null = null
@@ -277,11 +308,10 @@ function Overlay() {
       let reaches: Rect[] = EMPTY_REACHES
       // How far the roll moved since the previous frame. Taking a match means
       // predicting a note's position from the bridge's view mapping, which is a
-      // round trip old — measured, 18ms while playing, which at a real scroll
-      // speed is one to two notes of error, so a fling may not START one. It
-      // does not have to: a match already taken is followed from read to read,
-      // and the anchor it left behind places every note that has none. Neither
-      // asks the mapping where anything is, so both survive any scrolling.
+      // round trip old. During a fling it may not START one; it does not have
+      // to. A match already taken is followed from read to read, and the anchor
+      // it left behind places every note that has none. Neither asks the
+      // mapping where anything is, so both survive any scrolling.
       const moved = wasAt
         ? Math.abs(vp.contentX - wasAt.contentX) + Math.abs(vp.refY - wasAt.refY)
         : 0
@@ -297,6 +327,17 @@ function Overlay() {
       }
 
       const view = transport.view
+      if (debug && view) {
+        const notes = transport
+          .notesBetween(view.mapping.viewLeft, view.mapping.viewRight)
+          .map((note) => toReadFrame(predictedNoteRect(note, view, vp), transform))
+        renderer.setNotes(notes)
+        uploaded = read
+      } else if (uploaded) {
+        renderer.setNotes([])
+        uploaded = null
+      }
+
       const seconds = transport.playing ? transport.playhead(nowMs) : null
       if (view && seconds !== null) {
         const riding = pitch.enabled || trail.enabled
@@ -409,11 +450,20 @@ function Overlay() {
         glow: boost === 1 ? glow : { ...glow, level: Math.min(glow.level * boost, 1) },
         trail,
       })
+      latencyProbe.sample({
+        atMs: nowMs,
+        frame: frameId,
+        native: nativeViewport,
+        applied: latestViewport,
+        drawStartedAtMs: nowMs,
+        drawEndedAtMs: window.bridge.monotonicNow(),
+      })
     }
     raf = requestAnimationFrame(draw)
 
     return () => {
       alive = false
+      viewportManager.stop()
       cancelAnimationFrame(raf)
       unsubscribe()
       renderer.dispose()

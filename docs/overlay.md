@@ -188,7 +188,7 @@ The per-frame path deliberately does not cross a process boundary.
 | Step | Where | Cost |
 | --- | --- | --- |
 | read the bridge `state` record | preload, `pread` into a buffer allocated once | ~0.6 µs, no garbage |
-| read the viewport | preload, straight into the addon | µs (macOS re-reads cached AX elements) |
+| refresh the viewport snapshot | preload, async native task | off the rAF call stack |
 | decide and draw | renderer | one transform on a plain scroll |
 
 Everything above happens **inside the overlay renderer's process**, via `contextBridge`. The
@@ -196,9 +196,15 @@ alternative — main reads, IPC to renderer — adds a hop and a serialisation t
 which is exactly what this arrangement exists to avoid. It is why `sandbox: false` is worth
 its cost here.
 
-The note *set* is not on this path: a background pump asks for a full read every
-`NOTE_READ_GAP_MS` 30 (the macOS walk itself takes ~50 ms) and the frame loop maps whatever
-it last accepted through live viewport data.
+The frame loop reads the latest completed native viewport anchor, not the Accessibility API
+itself. On macOS the snapshotter still re-reads cached AX elements, but its reply lands
+between frames; a slow AX round trip makes the canvas anchor older instead of blocking the
+draw. The actual scroll and zoom used for drawing are recomputed from the bridge state read
+on that rAF.
+
+The note *set* is not on this path: a background pump asks for a computed piano-roll read
+every `NOTE_READ_GAP_MS` 30, and the frame loop maps whatever it last accepted through
+live viewport data.
 
 **Breaks as:** scroll lag (something moved onto the IPC path) · GC sawtooth (the state buffer
 is being reallocated).
@@ -208,14 +214,17 @@ is being reallocated).
 Anything read as a pair must be read in the same breath, or the two describe different
 moments and the drawing slides.
 
-- The **view mapping and the scroll position** it is paired with are read one after the
-  other in the same frame (`Transport.poll`).
+- The **view mapping and the scroll position** it is paired with come from the same bridge
+  state record inside `Transport.poll`. The viewport snapshot passed in supplies only the
+  native canvas and window origin; its older scroll fields are deliberately ignored so async
+  AX latency cannot become scroll latency.
 - The **window origin** comes from the helper alongside the canvas rectangle (`vp.origin`),
   not from `window.screenX`. Chromium updates `screenX` on its own schedule, so during a drag
   the two disagree.
 
-**Breaks as:** the drawing sliding while the window is dragged · effects drifting during a
-scroll.
+**Breaks as:** the drawing sliding while the window is dragged · effects drifting or
+following late during a scroll · debug boxes that jump to a wrong note layout for one or two
+frames.
 
 ### Docking with hysteresis
 
@@ -239,9 +248,10 @@ Worth knowing, in order:
   be gone before `ready` fires and a second observer attaches to the same SynthV window.
 - **`userData` is pinned** after `setName` (which recomputes the default) and before anything
   reads it, including the single-instance lock, whose socket lives there.
-- **The permissions gate** runs before anything else on macOS: without Accessibility every AX
-  read fails, so an overlay would exist and never align. The window polls the trust state at
-  1 Hz in both directions — macOS reports it only when asked, and the switch can go back off.
+- **The permissions gate** runs before anything else on macOS: without Accessibility canvas
+  discovery fails, so an overlay would exist and never align. The window polls the trust
+  state at 1 Hz in both directions — macOS reports it only when asked, and the switch can go
+  back off.
 - **The dock icon is hidden** and the overlay and toolbar only exist while SynthV is
   attached, so with SynthV closed the tray is the app's only visible surface. That is why
   `window-all-closed` does not quit when a tray exists.

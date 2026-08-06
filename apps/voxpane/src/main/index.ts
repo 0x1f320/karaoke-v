@@ -89,8 +89,8 @@ app.on("second-instance", () => {
 })
 
 // Everything below the permissions gate. On macOS the app only gets here once
-// Accessibility is granted: without it every AX read fails, so an overlay would
-// exist but never align with anything.
+// Accessibility is granted: without it canvas discovery fails, so an overlay
+// would exist but never align with anything.
 let started = false
 
 function start(): void {
@@ -203,6 +203,11 @@ app.whenReady().then(() => {
   ipcMain.handle("settings:open", () => openSettingsWindow())
   ipcMain.handle("settings:close", () => closeSettingsWindow())
   ipcMain.handle("app:quit", () => app.quit())
+  ipcMain.on("debug:latency", (_event, line: unknown) => {
+    if (typeof line === "string" && line.startsWith("[voxpane latency]")) {
+      console.info(line)
+    }
+  })
 
   // Before anything is shown: an app update ships a newer bridge script, and
   // SynthV only rereads its scripts directory when it starts — so the sooner the

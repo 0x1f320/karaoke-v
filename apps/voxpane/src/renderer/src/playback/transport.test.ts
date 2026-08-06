@@ -45,14 +45,12 @@ function harness(options: { viewport?: Viewport | null } = {}) {
   let state: BridgeState | null = null
   let schedule: BridgeSchedule | null = null
   let seq = 0
+  let viewport = options.viewport === undefined ? VIEWPORT : options.viewport
 
   const win = {
     bridge: {
       readState: () => state,
       readSchedule: () => schedule,
-    },
-    overlay: {
-      getViewport: () => (options.viewport === undefined ? VIEWPORT : options.viewport),
     },
   }
   ;(globalThis as { window?: unknown }).window = win
@@ -74,12 +72,16 @@ function harness(options: { viewport?: Viewport | null } = {}) {
         rev: "r",
         ...fields,
       }
-      transport.poll(nowMs)
+      transport.poll(nowMs, viewport)
     },
 
     /** Poll again without the script having ticked. */
     idle(nowMs: number) {
-      transport.poll(nowMs)
+      transport.poll(nowMs, viewport)
+    },
+
+    setViewport(next: Viewport | null) {
+      viewport = next
     },
 
     publish(notes: BridgeNote[]) {
@@ -163,12 +165,24 @@ describe("Transport.playhead", () => {
     expect(transport.view).toBeNull()
   })
 
-  it("stops extrapolating when the channel disappears", () => {
+  it("keeps extrapolating through a transient state miss", () => {
     const { transport, tick, idle, vanish } = harness()
-    tick({ at: 2 }, 0)
+    tick({ at: 2 }, 1000)
     vanish()
-    idle(16)
-    expect(transport.playhead(16)).toBeNull()
+    idle(1016)
+    expect(transport.playhead(1016)).toBeCloseTo(2.016)
+    expect(transport.playing).toBe(true)
+    expect(transport.view).not.toBeNull()
+  })
+
+  it("stops extrapolating when the state channel stays missing", () => {
+    const { transport, tick, idle, vanish } = harness()
+    tick({ at: 2 }, 1000)
+    vanish()
+    idle(1601)
+    expect(transport.playhead(1601)).toBeNull()
+    expect(transport.playing).toBe(false)
+    expect(transport.view).toBeNull()
   })
 
   it("picks up again after the script comes back", () => {
@@ -243,14 +257,101 @@ describe("Transport.noteAt", () => {
 })
 
 describe("Transport.view", () => {
-  it("pairs the mapping with the viewport read in the same frame", () => {
+  it("builds the view from the newest state and the viewport canvas", () => {
     const { transport, tick } = harness()
     tick()
     expect(transport.view).toEqual({
       mapping: MAPPING,
-      contentX: VIEWPORT.contentX,
-      contentW: VIEWPORT.contentW,
+      contentX: VIEWPORT.canvas.x,
+      contentW: 2_000_000_000,
       canvasX: VIEWPORT.canvas.x,
+    })
+  })
+
+  it("recomputes the viewport from the newest state instead of waiting for async scroll", () => {
+    const { transport, tick } = harness({
+      viewport: {
+        ...VIEWPORT,
+        contentX: -999,
+        contentW: 123,
+        refY: -50,
+        source: {
+          seq: 0,
+          mapping: {
+            ...MAPPING,
+            perBlick: 1,
+            viewLeft: -300,
+            viewRight: -200,
+          },
+        },
+      },
+    })
+    tick({
+      px: {
+        ...MAPPING,
+        viewLeft: 20,
+        viewRight: 120,
+        viewTop: 10,
+        viewBottom: -2,
+      },
+    })
+    expect(transport.viewport).toMatchObject({
+      canvas: VIEWPORT.canvas,
+      contentX: 60,
+      contentW: 2_000_000_000,
+      refY: 170,
+      source: {
+        mapping: {
+          ...MAPPING,
+          viewLeft: 20,
+          viewRight: 120,
+          viewTop: 10,
+          viewBottom: -2,
+        },
+      },
+    })
+    expect(transport.view).toEqual({
+      mapping: {
+        ...MAPPING,
+        viewLeft: 20,
+        viewRight: 120,
+        viewTop: 10,
+        viewBottom: -2,
+      },
+      contentX: 60,
+      contentW: 2_000_000_000,
+      canvasX: VIEWPORT.canvas.x,
+    })
+  })
+
+  it("refreshes the view when the viewport snapshot catches up before the next state tick", () => {
+    const staleMapping: BridgeViewMapping = {
+      ...MAPPING,
+      perBlick: 1,
+      viewLeft: -100,
+      viewRight: 0,
+    }
+    const caughtUp = {
+      ...VIEWPORT,
+      canvas: { ...VIEWPORT.canvas, x: 140 },
+      contentX: 300,
+      source: { seq: 1, mapping: MAPPING },
+    } as Viewport
+    const { transport, tick, idle, setViewport } = harness({
+      viewport: {
+        ...VIEWPORT,
+        contentX: 50,
+        source: { seq: 0, mapping: staleMapping },
+      } as Viewport,
+    })
+    tick({ px: MAPPING }, 1000)
+    setViewport(caughtUp)
+    idle(1016)
+    expect(transport.view).toEqual({
+      mapping: MAPPING,
+      contentX: 140,
+      contentW: 2_000_000_000,
+      canvasX: 140,
     })
   })
 

@@ -1,17 +1,9 @@
 import type { BridgeNote, BridgeState } from "./bridgeChannels"
 import type { PianoRoll, Rect, Viewport } from "./geometry"
 
-// Where notes are on screen, on Windows.
-//
-// The two platforms reach the same answer from opposite directions. macOS reads
-// the Accessibility tree: the note rectangles are already there, and the bridge
-// only says which of them is sounding. Windows has no such tree — JUCE draws the
-// piano roll into a single HWND — so the rectangles are *computed* from the
-// script's own view transform, and UI Automation is needed for the one thing the
-// script cannot know: where the canvas sits on screen.
-//
-// This is the arithmetic half of that, kept pure and away from the addon so it
-// can be tested on a machine that is not Windows.
+// Where notes are on screen, computed from the bridge's musical coordinates and
+// view transform. Native helpers answer only where the piano-roll canvas sits on
+// screen; the script supplies the rest.
 
 /** The canvas the script is looking through, in physical pixels. */
 export function expectedCanvasSize(state: BridgeState): { width: number; height: number } {
@@ -45,26 +37,26 @@ export function viewportFrom(
   const at = origin(state)
   return {
     canvas,
+    source: { seq: state.seq, mapping: state.px },
     // The overlay window is positioned to exactly this rectangle, so the
     // renderer can map to window-local coordinates against a value sampled at
     // the same instant as the canvas — rather than against Chromium's own idea
     // of where the window is, which updates on its own schedule.
     origin: windowOrigin,
-    // Screen y of value 0. macOS has to track a reference chip to get this; here
-    // the transform states it outright.
+    // Screen y of value 0. Keeping this in the same transform as the notes means
+    // vertical scroll cannot skew individual rectangles apart.
     refY: canvas.y + at.y,
-    // Screen x of blick 0: the same quantity macOS reads off the content group's
-    // left edge, so it moves with horizontal scroll in the same way.
+    // Screen x of blick 0. This moves with horizontal scroll and is paired with
+    // contentW so the renderer can rebase stale reads onto fresh viewports.
     contentX: canvas.x + at.x,
     contentW: state.px.perBlick * ZOOM_REFERENCE_BLICKS,
   }
 }
 
 /**
- * The viewport plus a rect per visible note. Unlike the macOS walk these rects
- * come from the transform rather than from a tree being read while it moves, so
- * they cannot be skewed by a scroll landing mid-read — the stability flags are
- * always true.
+ * The viewport plus a rect per visible note. Rects come from one bridge view
+ * transform rather than from a tree being read while it moves, so they cannot
+ * be skewed by a scroll landing mid-read — the stability flags are always true.
  */
 export function pianoRollFrom(
   state: BridgeState,

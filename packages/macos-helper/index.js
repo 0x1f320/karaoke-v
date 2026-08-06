@@ -74,6 +74,14 @@ function getViewport() {
 }
 
 /**
+ * Like getViewport but runs the cached AX reads off the renderer's main thread.
+ * @returns {Promise<null | { canvas: {x,y,w,h}, contentX: number, contentW: number, refY?: number }>}
+ */
+function getViewportAsync() {
+  return loadNative().getViewportAsync()
+}
+
+/**
  * Disable AppKit's automatic show/hide/order animations for a window.
  * @param {Buffer} view result of BrowserWindow.getNativeWindowHandle()
  */
@@ -108,6 +116,7 @@ module.exports = {
   getPianoRoll,
   getPianoRollAsync,
   getViewport,
+  getViewportAsync,
   rescanScripts,
   monotonicNow,
 }

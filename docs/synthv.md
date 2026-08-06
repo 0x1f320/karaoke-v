@@ -169,8 +169,8 @@ Note the sign convention: `getValueViewRange()` returns bottom first, and the st
 stores `viewTop` = `range[1]`, `viewBottom` = `range[0]`.
 
 One more measured detail: **`v2y` centres a lane on its value** rather than starting at it,
-so a note's top edge is half a semitone above its pitch. `windowsGeometry.ts` subtracts the
-half explicitly; on macOS the AX rectangles already reflect it.
+so a note's top edge is half a semitone above its pitch. `pianoRollGeometry.ts` subtracts
+the half explicitly on both platforms.
 
 ## Transport and looping
 

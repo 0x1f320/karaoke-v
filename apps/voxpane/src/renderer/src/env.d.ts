@@ -8,7 +8,9 @@ declare global {
     overlay: {
       /** Cheap atomic viewport read (canvas rect + scroll/zoom) — safe per-frame. */
       getViewport(): Viewport | null
-      /** Full off-thread AX walk (~5-10ms) returning the visible notes. */
+      /** Async viewport read, used to keep AX IPC out of the draw call. */
+      getViewportAsync(): Promise<Viewport | null>
+      /** Off-thread piano-roll read returning the current computed note rects. */
       readNotes(): Promise<PianoRoll | null>
     }
     bridge: {
@@ -16,7 +18,7 @@ declare global {
       readState(): BridgeState | null
       /** The note schedule. Only worth reading when readState's notesSeq changes. */
       readSchedule(): BridgeSchedule | null
-      /** Monotonic clock shared with the AX reads, for measuring a read's age. */
+      /** Monotonic clock shared with native geometry reads, for measuring age. */
       monotonicNow(): number
     }
     settings: {
@@ -37,6 +39,10 @@ declare global {
     app: {
       /** Quit the whole app — the toolbar, the overlay and the tray go with it. */
       quit(): Promise<void>
+    }
+    debug: {
+      /** Report a debug-only latency summary outside the renderer console. */
+      latency(line: string): void
     }
     permissions: {
       /** Current grant status. */

@@ -37,9 +37,9 @@ export interface BridgeViewMapping {
   perBlick: number
   perSemitone: number
   /**
-   * Both edges of each range, not just the near one. Windows has no
-   * accessibility tree to find the piano roll in and identifies the element by
-   * the size these ranges imply — see `windowsGeometry.ts`.
+   * Both edges of each range, not just the near one. The app identifies the
+   * piano-roll canvas by the size these ranges imply — see
+   * `pianoRollGeometry.ts`.
    */
   viewLeft: number
   viewRight: number

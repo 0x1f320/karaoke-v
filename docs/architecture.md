@@ -12,9 +12,9 @@ questions sixty times a second about a program it does not control:
 
 - **What is sounding right now?** Only SynthV knows. A Lua script running inside it
   publishes the answer.
-- **Where is that note on screen?** The script cannot know — its coordinates are
-  canvas-local and it has no idea where its own window is. The OS accessibility layer
-  answers this, from outside.
+- **Where is that note on screen?** The script knows the note in canvas-local units, but
+  it has no idea where its own window is. The OS accessibility layer supplies that native
+  anchor from outside.
 
 Neither source can answer the other's question, and the two are read on different clocks.
 Reconciling them is what most of the renderer does.
@@ -27,7 +27,7 @@ renderer:
 ```mermaid
 flowchart TD
     subgraph SV["Synthesizer V Studio 2"]
-        script["<b>overlay-bridge.lua</b><br/>packages/synthv-script (TS → Lua)<br/>every 16 ms — playhead, status, view transform<br/>on edit — note schedule + pitch curves"]
+        script["<b>overlay-bridge.lua</b><br/>packages/synthv-script (TS → Lua)<br/>every 4 ms — playhead, status, view transform<br/>on edit — note schedule + pitch curves"]
     end
 
     subgraph CH["the bridge directory"]
@@ -35,8 +35,8 @@ flowchart TD
     end
 
     subgraph NAT["native helper — packages/macos-helper · packages/windows-helper"]
-        mac["<b>macOS · Accessibility</b><br/>canvas, scroll, zoom,<br/>note rectangles"]
-        win["<b>Windows · UI Automation</b><br/>canvas rectangle + window origin<br/>(note rects are computed)"]
+        mac["<b>macOS · Accessibility</b><br/>canvas/cache seed + window frame"]
+        win["<b>Windows · UI Automation</b><br/>canvas rectangle + window origin"]
     end
 
     subgraph REN["overlay renderer"]
@@ -51,7 +51,7 @@ flowchart TD
     mac --> preload
     win --> preload
     preload --> transport --> match --> pixi
-    preload -- "viewport, sampled at paint time" --> match
+    preload -- "native viewport anchor" --> match
 ```
 
 The bridge directory is `~/Library/Application Support/voxpane/bridge` on macOS and
@@ -68,7 +68,7 @@ Three sources of truth feed the picture, and they are genuinely independent:
 | Source | Answers | Read by |
 | --- | --- | --- |
 | the bridge script | what is sounding, when, at what pitch | the renderer, once a frame |
-| the native helper | where SynthV's window and notes are | the renderer (geometry) and main (the frame) |
+| the native helper | where SynthV's window and piano-roll canvas are | the renderer (geometry) and main (the frame) |
 | preferences | what the effects look like | every window, pushed from main |
 
 ## Processes and windows
@@ -99,9 +99,10 @@ A per-frame round trip to main was the thing this arrangement exists to avoid.
 `#permissions` are the others. The overlay is the only one with a frame loop.
 
 **Native helpers** (`packages/macos-helper`, `packages/windows-helper`) are Rust + napi-rs.
-Both do window following; only macOS reads note rectangles. `shared/native.ts` is the one
-surface over both, and it deliberately does *not* hide the geometry difference —
-see [geometry](geometry.md).
+Both do window following and canvas discovery; the preload then computes note rectangles
+from the bridge schedule and view transform. `shared/native.ts` is the one surface over
+both, and it deliberately does *not* hide the geometry difference — see
+[geometry](geometry.md).
 
 ## The frame loop
 
@@ -111,9 +112,10 @@ order:
 1. **Poll the bridge.** `transport.poll()` reads the `state` channel — a `pread` into a
    buffer allocated once, so it costs less than deciding whether to do it. The schedule is
    re-read only when the state record says its generation changed.
-2. **Read the viewport**, at paint time, only if there is something to draw. This is scroll
-   position and zoom sampled as late as possible, because everything downstream is the
-   difference between *now* and *when the note rectangles were read*.
+2. **Take the latest native viewport anchor.** A small async manager keeps the canvas and
+   window origin refreshed off the draw call. Scroll, zoom and the vertical reference are
+   then recomputed immediately from the bridge state just read in step 1, so a slow AX reply
+   can make the canvas anchor older but cannot delay scroll following.
 3. **Ask what is sounding.** The playhead is interpolated on the local clock between two
    state records; the schedule is binary-searched for the note under it.
 4. **Find that note's rectangle.** The hard part — [geometry](geometry.md).
@@ -122,22 +124,25 @@ order:
 6. **Draw.** One transform update on the Pixi scene; note geometry is only rebuilt when a
    new read replaces the set.
 
-A second loop runs beside it: the **note pump**, an async `while` loop that asks for a full
-piano-roll read (~50 ms on macOS), replaces the set wholesale, and sleeps 30 ms. Reads taken
-while the roll was moving are discarded — their coordinates are mutually skewed. The stale
-set stays correct meanwhile, because step 4 maps it through live viewport data.
+A second loop runs beside it: the **note pump**, an async `while` loop that asks the preload
+for a piano-roll read, replaces the set wholesale, and sleeps 30 ms. The read uses the latest
+bridge schedule and view transform to compute every visible note rectangle; native work is
+limited to finding the canvas, with a full macOS AX walk only when the cheap cached viewport
+has not been seeded yet. The stale set stays correct meanwhile, because step 4 maps it
+through live viewport data.
 
-So there are **three clocks**, and confusing them is the source of most timing bugs:
+So there are **four clocks**, and confusing them is the source of most timing bugs:
 
 | Clock | Rate | Carries |
 | --- | --- | --- |
-| the script's tick | 16 ms | playhead, transport status, view transform |
-| the note pump | ~30 ms + ~50 ms of walking | the note rectangles |
+| the script's tick | 4 ms | playhead, transport status, view transform |
+| the viewport manager | ~8 ms + AX response time | canvas and window origin |
+| the note pump | ~30 ms + canvas lookup time | computed note rectangles |
 | the frame loop | display refresh | the drawing, and the interpolated playhead |
 
-They are not synchronised and are not meant to be. Every stale value is paired with the
-frame it was read in, so the consumer can correct for its own age rather than waiting for
-freshness.
+They are not synchronised and are not meant to be. Native anchors may be slightly stale, but
+scroll and zoom are recomputed from the current bridge record before drawing, so the consumer
+corrects for age rather than waiting for freshness.
 
 ## Why the transport is so small
 
