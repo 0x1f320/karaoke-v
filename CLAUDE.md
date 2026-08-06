@@ -2,6 +2,72 @@
 
 Minimal Electron + React app (Turborepo + pnpm workspace). Apps live in `apps/*`.
 
+## Required reading: `docs/`
+
+This file is **conventions** — how to write a commit, where a test goes, how a string gets
+translated. It says nothing about how the app *behaves*. That is in
+**[`docs/`](docs/README.md)**, and it is not optional background: the product is split
+across an Electron app, a Lua script running inside Synthesizer V, and two Rust helpers,
+and none of the three explains the others. Working without it produces plausible code that
+silently misplaces every effect.
+
+**Before editing an area you have not already worked on in this session, read the whole
+document listed against it** — not a grep of it. These are short, and what matters in them
+is the invariants, which do not survive being skimmed for a keyword.
+
+### What each document is
+
+- **[docs/architecture.md](docs/architecture.md)** — the end-to-end path in three diagrams
+  (data, geometry, main process); which process owns what and why the hot path lives in
+  the preload; the frame loop step by step; the **three unsynchronised clocks** (script
+  tick 16 ms, note pump ~30 ms plus a ~50 ms walk, rAF) and why they are not meant to
+  agree; why decoders return `null` rather than throwing. **Read this before anything
+  else** — it names every other layer, and most questions end here.
+- **[docs/synthv.md](docs/synthv.md)** — the host application. Its object model down to the
+  note, and that the bridge follows **one group only**. The four units (blick, second,
+  semitone, cent) and which layer works in which. The Lua host: what it offers, and the
+  absences — no `mkdir`, no sockets, no scheduler but `SV.setTimeout`, no log anyone
+  outside SynthV can read — that shaped the bridge. The engine behaviours that are
+  **measured, not documented**, above all that a computed pitch curve is often absent and
+  that unvoiced frames come back as `0`, not `null`.
+- **[docs/bridge.md](docs/bridge.md)** — the script ⇄ app channel: the three files and why
+  they are split by change rate; `rev` / `notesSeq` pairing; the one-write-per-record
+  atomicity rule and the two things it forces; the byte-level record layout; and **the
+  three places a format change has to land at once**.
+- **[docs/geometry.md](docs/geometry.md)** — where a note is on screen. The four coordinate
+  spaces; why macOS reads rectangles out of the Accessibility tree while Windows computes
+  them from the script's view transform, and why that split is deliberately not abstracted
+  away; the DIP conversion; the three layered matching mechanisms (predict-and-snap,
+  follow, anchor) and why each exists; and a table of **invariants against the symptom of
+  breaking each one**.
+- **[docs/debugging.md](docs/debugging.md)** — how to observe the running system: tray
+  status, the script's side panel, `pnpm --filter @voxpane/synthv-script dump`, on-screen
+  debug mode, deploying a script change, Windows, and a symptom → layer table. Read this
+  **before investigating any bug**, and `docs/README.md`'s symptom table before grepping.
+
+### Which documents for which change
+
+Keyed to the commit scopes below, so the answer is whatever scope the change already has.
+
+| Scope | Read |
+| --- | --- |
+| `bridge` | architecture · **bridge** · synthv |
+| `overlay` | architecture · **geometry** |
+| `native` | architecture · **geometry** (and synthv for the script rescan) |
+| `effects` | architecture · geometry — the matched rectangle is exactly one semitone tall, and the effects are built on that |
+| `toolbar`, `settings` | architecture — the window map, and how preferences are owned and broadcast |
+| `shell` | architecture |
+| `project` | none required |
+
+Any bug, in any scope, also gets **debugging.md**.
+
+### Keeping them true
+
+A stale document is worse than none: it is what the next reader trusts instead of the
+code. **If a change makes a document wrong, fix the document in the same commit.** That is
+a `docs` type only when documentation is the whole change; otherwise it rides along with
+the behaviour change that caused it.
+
 ## Native addons
 
 Both platform helpers — `packages/macos-helper` and `packages/windows-helper` — are
