@@ -72,7 +72,9 @@ sequenceDiagram
     participant S as bridge script
     participant N as notes channel
     participant T as state channel
-    participant A as app
+    participant W as preload Web Worker
+    participant M as preload memory cache
+    participant A as renderer
 
     loop 4 ms마다
         S->>T: state publish — seq+1, playhead, status, view transform, rev
@@ -86,13 +88,20 @@ sequenceDiagram
 
     Note over S,T: schedule이 그것을 index하는 state보다 먼저 나간다
 
-    loop 프레임마다
-        A->>T: 256 B pread
+    loop rAF와 독립적으로 4 ms마다
+        W->>T: 256 B pread
+        W->>M: 정상 state를 transfer하고 decode
         alt notesSeq가 바뀜
-            A->>N: schedule 전체를 읽음
+            W->>N: schedule 전체를 읽음
+            W->>M: notesSeq별로 유지
         else 그대로
-            A-->>A: 갖고 있던 schedule을 유지
+            W-->>W: cache된 schedule을 유지
         end
+    end
+
+    loop 프레임마다
+        A->>M: 최신 state object를 읽음
+        A->>M: notesSeq가 바뀐 경우에만 schedule 선택
     end
 ```
 
@@ -189,23 +198,29 @@ reader는 curve의 엉뚱한 부분을 index하며 미묘하게 틀린 것을 �
 
 `preload/bridgeReader.ts`는 channel마다 fd를 하나씩 열어 두고 offset 0에서 읽는다.
 
-- `readState()`는 한 번만 할당한 버퍼로 하는 `pread`다 — ~0.6 µs, 쓰레기 없음. 60 Hz loop가
-  입력에 바라는 것이 그것이다. **프레임마다** 돈다.
-- `readSchedule()`은 할당하므로 `notesSeq`가 바뀌었을 때만 돈다 — 프레임마다가 아니라 세션당
-  몇 번.
-- preload는 transport reader와 computed note geometry가 공유하는 `notesSeq` key schedule
-  cache를 소유한다. 약 30 ms note-geometry pump는 hot state channel로 rectangle을 다시
-  계산하되 cached cold record를 재사용할 수 있다.
+- 전용 Node-enabled Web Worker가 약 4 ms마다 reader를 호출한다. 따라서 file acquisition은
+  rAF와 독립적이고, renderer frame이 밀려도 계속된다.
+- state `pread`는 하나의 256 B 버퍼를 재사용한다. 검증이 끝나면 worker가 record 사본을
+  preload로 transfer하고, preload는 한 번 decode해 최신 state object를 교체한다. renderer의
+  프레임별 호출은 그 object만 반환하며 file I/O도 Electron IPC도 하지 않는다.
+- worker는 sampled state의 `notesSeq`가 전진할 때만 `notes`를 열고 검증한다. 그 record는
+  preload cache로 한 번 transfer되고, cache가 정확한 generation을 decode해 유지한다. renderer의
+  `readSchedule(notesSeq)`는 그다음부터 in-memory lookup이다.
+- worker는 schedule 자체의 `rev`가 그것을 요청한 state와 같은지 검증한다. 어긋나거나 완성되지
+  않은 pair는 노출하지 않고 나중 sample에서 다시 시도한다.
+- preload runtime이 `notesSeq` key schedule cache다. renderer transport는 받아들인 cold
+  record를 재사용하면서 hot state와 최신 canvas snapshot으로 note geometry를 다시 계산한다.
 - **아무것도 throw하지 않는다.** 짧은 읽기, 찢어진 레코드, 모르는 layout, 없는 파일 — 전부
-  `null`, 즉 "이번 프레임엔 데이터 없음"이다. writer는 언제든 재시작할 수 있는 별개 프로세스이고,
-  SynthV가 없는 것이 overlay를 깨뜨릴 수는 없다.
-- 실패한 읽기는 **fd를 닫는다.** 다음 프레임이 다시 연다. 살아 있는 handle 아래에서 script가
-  재설치되거나 디렉터리가 비워질 수 있다.
+  `null`, 즉 "마지막 정상 cache entry를 유지"다. writer는 언제든 재시작할 수 있는 별개
+  프로세스이고, SynthV가 없는 것이 overlay를 깨뜨릴 수는 없다.
+- 실패한 읽기는 **fd를 닫는다.** 다음 display frame이 아니라 다음 worker sample이 다시 연다.
+  살아 있는 handle 아래에서 script가 재설치되거나 디렉터리가 비워질 수 있다.
 
-소비자 쪽(`playback/transport.ts`)에서는, 찢어진 schedule이 `notesSeq`를 전진시키지 않으므로
-다음 프레임이 재시도한다 — 도착하지도 않은 schedule을 붙들고 있는 대신. 그리고 `seq`가 500 ms
-찢어진 state record도 그냥 건너뛴 frame이다: transport는 마지막 정상 record에서 계속 외삽한다.
-`seq`가 500 ms 동안 움직이지 않은 state channel만 script가 사라졌다는 뜻이다: 외삽을 멈춘다.
+소비자 쪽(`playback/transport.ts`)에서는 state snapshot이 실은 정확한 `notesSeq`에 대해서만
+schedule을 받는다. 아직 없는 generation은 transport의 `notesSeq`를 전진시키지 않으므로 나중
+frame이 cache lookup을 다시 시도한다. 잘못된 state sample은 memory를 교체하지 않으므로,
+transport는 마지막 정상 record에서 계속 외삽한다. `seq`가 500 ms 동안 움직이지 않은 state
+channel만 script가 사라졌다는 뜻이다: 외삽을 멈춘다.
 
 ## Seeing it
 

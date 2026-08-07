@@ -1,26 +1,18 @@
 import { closeSync, openSync, readSync, statSync } from "node:fs"
 import { join } from "node:path"
-import {
-  type BridgeSchedule,
-  type BridgeState,
-  decodeNotes,
-  decodeState,
-  STATE_BYTES,
-} from "../shared/bridgeChannels"
+import { STATE_BYTES } from "../shared/bridgeChannels"
 import { bridgeDirectory, CHANNEL_NOTES, CHANNEL_STATE } from "../shared/bridgePath"
 
-// Reads the bridge channels straight from the renderer process, the way the AX
-// geometry already is: a per-frame path with no main-process hop. The state read
-// is a `pread` into a buffer that is allocated once — 0.6us and no garbage,
-// which is what a 60Hz overlay wants from its input.
+// Reads the bridge channels inside the Node-enabled Web Worker. The state read
+// is a `pread` into a buffer allocated once; the renderer never waits for it.
 //
 // The schedule is read only when the state record says its generation changed,
 // so the expensive channel is touched a handful of times per session rather than
-// per frame.
+// on every state sample.
 //
 // Nothing here throws. The writer is SynthV, which may not be running, may have
 // been restarted, or may be replacing a record at the moment of the read; all of
-// those are "no data this frame".
+// those are "no data this sample".
 
 const stateBuffer = Buffer.allocUnsafe(STATE_BYTES)
 
@@ -46,7 +38,7 @@ class Channel {
       return read > 0 ? buffer.subarray(0, read) : null
     } catch {
       // The script can be reinstalled or the directory cleared underneath us;
-      // dropping the handle means the next frame reopens rather than reading a
+      // dropping the handle means the next sample reopens rather than reading a
       // file nobody writes any more.
       this.close()
       return null
@@ -76,16 +68,14 @@ class Channel {
 const state = new Channel(CHANNEL_STATE)
 const notes = new Channel(CHANNEL_NOTES)
 
-export function readState(): BridgeState | null {
-  const bytes = state.read(stateBuffer, STATE_BYTES)
-  return bytes && decodeState(bytes)
+export function readStateRecord(): Uint8Array | null {
+  return state.read(stateBuffer, STATE_BYTES)
 }
 
-export function readSchedule(): BridgeSchedule | null {
+export function readScheduleRecord(): Uint8Array | null {
   const size = notes.size()
   if (size === 0) {
     return null
   }
-  const bytes = notes.read(Buffer.allocUnsafe(size), size)
-  return bytes && decodeNotes(bytes)
+  return notes.read(Buffer.allocUnsafeSlow(size), size)
 }

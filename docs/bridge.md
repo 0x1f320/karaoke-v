@@ -77,7 +77,9 @@ sequenceDiagram
     participant S as bridge script
     participant N as notes channel
     participant T as state channel
-    participant A as app
+    participant W as preload Web Worker
+    participant M as preload memory cache
+    participant A as renderer
 
     loop every 4 ms
         S->>T: publish state — seq+1, playhead, status, view transform, rev
@@ -91,13 +93,20 @@ sequenceDiagram
 
     Note over S,T: the schedule goes out BEFORE the state that indexes it
 
-    loop every frame
-        A->>T: pread 256 B
+    loop every 4 ms, independent of rAF
+        W->>T: pread 256 B
+        W->>M: transfer and decode the valid state
         alt notesSeq changed
-            A->>N: read the whole schedule
+            W->>N: read the whole schedule
+            W->>M: retain it by notesSeq
         else unchanged
-            A-->>A: keep the schedule it already has
+            W-->>W: keep the schedule already cached
         end
+    end
+
+    loop every frame
+        A->>M: copy the latest state snapshot
+        A->>M: select schedule only if notesSeq changed
     end
 ```
 
@@ -193,27 +202,36 @@ stale copy publishes and the overlay will go quiet.
 
 ## Reading, in the app
 
-`preload/bridgeReader.ts` holds one open fd per channel and reads from offset 0.
+`preload/bridgeReader.ts` holds one open fd per channel and reads from offset 0. A dedicated
+Node-enabled Web Worker calls it every ~4 ms; file acquisition is therefore independent of
+rAF and continues even while the renderer misses or delays a frame.
 
-- `readState()` is a `pread` into a buffer allocated once — ~0.6 µs, no garbage, which is
-  what a 60 Hz loop wants from its input. It runs **every frame**.
-- `readSchedule()` allocates, so it runs only when `notesSeq` changed — a handful of times
-  per session rather than per frame.
-- The preload owns a `notesSeq`-keyed schedule cache shared by the transport reader and
-  computed note geometry. The ~30 ms note-geometry pump can reuse the cached cold record
-  while recomputing rectangles from the hot state channel.
+- State `pread`s reuse one 256 B buffer. After validation, the worker transfers a copy of
+  the record to preload, which decodes it once and replaces its latest state object. The
+  renderer's per-frame call only returns that object; it performs neither file I/O nor
+  Electron IPC.
+- The worker opens and validates `notes` only when the sampled state's `notesSeq` advances.
+  It transfers that record once to the preload cache, which decodes and retains the exact
+  generation. The renderer's `readSchedule(notesSeq)` is then an in-memory lookup.
+- The worker validates the schedule's own `rev` against the state that requested it. A
+  mismatched or incomplete pair is retried on a later sample rather than being exposed.
+- The preload runtime is the `notesSeq`-keyed schedule cache. The renderer transport
+  reuses its accepted cold record while recomputing note geometry from hot state and the
+  latest canvas snapshot.
 - **Nothing throws.** A short read, a torn record, an unknown layout, a missing file: every
-  one of them is `null`, meaning "no data this frame". The writer is a different process
-  that can restart at any moment, and a missing SynthV must not be able to break the
-  overlay.
+  one of them is `null`, meaning "keep the last valid cache entry". The writer is a
+  different process that can restart at any moment, and a missing SynthV must not be able
+  to break the overlay.
 - A failed read **closes the fd**, so the next frame reopens. The script can be reinstalled
-  or the directory cleared underneath a live handle.
+  or the directory cleared underneath a live handle. In practice the next worker sample,
+  not the next display frame, performs that reopen.
 
-On the consumer side (`playback/transport.ts`), a torn schedule leaves `notesSeq`
-un-advanced, so the next frame retries rather than holding a schedule that never arrived.
-A torn state record is also just a skipped frame: the transport keeps extrapolating from the
-last good record. Only a state channel whose `seq` has not moved for 500 ms means the script
-is gone: stop extrapolating.
+On the consumer side (`playback/transport.ts`), a schedule is accepted only for the exact
+`notesSeq` carried by the state snapshot. An unavailable generation leaves the transport's
+`notesSeq` unadvanced, so a later frame retries the cache lookup. A bad state sample never
+replaces the memory cache: the transport keeps extrapolating from the last good record. Only a
+state channel whose `seq` has not moved for 500 ms means the script is gone: stop
+extrapolating.
 
 ## Seeing it
 

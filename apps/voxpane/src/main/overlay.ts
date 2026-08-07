@@ -28,6 +28,7 @@ export function createOverlayWindow(): BrowserWindow {
       contextIsolation: true,
       // The preload requires the native AX addon.
       sandbox: false,
+      nodeIntegrationInWorker: true,
       // The overlay is never focused; without this Electron throttles its
       // rendering (rAF/timers) as a background window, causing scroll lag.
       backgroundThrottling: false,

@@ -1,23 +1,68 @@
+import { join } from "node:path"
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron"
 import type { BridgeSchedule, BridgeState } from "../shared/bridgeChannels"
 import {
+  type CanvasSnapshot,
   type DipTransform,
   IDENTITY_DIP,
   isWindows,
   NATIVE_TARGET,
   native,
-  type PianoRoll,
   type Rect,
-  toDipPianoRoll,
+  toDipCanvasSnapshot,
   toDipState,
-  toDipViewport,
-  type Viewport,
 } from "../shared/native"
 import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
-import { expectedCanvasSize, pianoRollFrom, viewportFrom } from "../shared/pianoRollGeometry"
+import { expectedCanvasSize } from "../shared/pianoRollGeometry"
 import type { Preferences, PreferencesPatch } from "../shared/preferences"
-import { readSchedule, readState } from "./bridgeReader"
-import { ScheduleCache } from "./scheduleCache"
+import { BridgeRuntime } from "./bridgeRuntime"
+
+interface StateMessage {
+  type: "state"
+  bytes: ArrayBuffer
+}
+
+interface ScheduleMessage {
+  type: "schedule"
+  notesSeq: number
+  bytes: ArrayBuffer
+}
+
+type BridgeWorkerMessage = StateMessage | ScheduleMessage
+
+interface BrowserWorker {
+  onmessage: ((event: { data: BridgeWorkerMessage }) => void) | null
+}
+
+interface BrowserWorkerConstructor {
+  new (scriptUrl: string): BrowserWorker
+}
+
+let bridgeRuntime: BridgeRuntime | null = null
+let bridgeWorker: BrowserWorker | null = null
+
+function cachedBridge(): BridgeRuntime {
+  if (bridgeRuntime && bridgeWorker) {
+    return bridgeRuntime
+  }
+  const runtime = new BridgeRuntime()
+  const workerPath = join(__dirname, "bridgeWorker.js")
+  const workerUrl = URL.createObjectURL(
+    new Blob([`require(${JSON.stringify(workerPath)})`], { type: "text/javascript" }),
+  )
+  const Worker = (globalThis as unknown as { Worker: BrowserWorkerConstructor }).Worker
+  const worker = new Worker(workerUrl)
+  worker.onmessage = ({ data }) => {
+    if (data.type === "state") {
+      runtime.acceptState(new Uint8Array(data.bytes))
+    } else {
+      runtime.acceptSchedule(data.notesSeq, new Uint8Array(data.bytes))
+    }
+  }
+  bridgeWorker = worker
+  bridgeRuntime = runtime
+  return runtime
+}
 
 // The helper reports in native units — points on macOS, physical pixels on
 // Windows — and only main can ask Electron for the mapping to DIPs, so it pushes
@@ -41,86 +86,55 @@ function windowsCanvas(state: BridgeState): Rect | null {
   return native.getCanvas?.(expectedCanvasSize(state), NATIVE_TARGET) ?? null
 }
 
-function nativeCanvasFromViewport(viewport: Viewport | null): Rect | null {
-  return viewport?.canvas ?? null
-}
+let macCanvasSeeded = false
+let macCanvasFailures = 0
 
-async function macViewport(): Promise<Viewport | null> {
-  const cached = native.getViewport?.() ?? null
+async function macCanvas(): Promise<Rect | null> {
+  const cached = (await native.getCanvasAsync?.()) ?? null
   if (cached) {
+    macCanvasSeeded = true
+    macCanvasFailures = 0
     return cached
   }
-  return native.getPianoRollAsync?.(NATIVE_TARGET) ?? Promise.resolve(null)
-}
-
-function computedViewport(state: BridgeState, canvas: Rect): Viewport {
-  return viewportFrom(state, canvas, native.getCanvasOrigin?.())
-}
-
-function nativeViewport(): Viewport | null {
-  const state = readState()
-  if (!state) {
+  macCanvasFailures += 1
+  if (macCanvasSeeded && macCanvasFailures < 4) {
     return null
   }
-  const canvas = isWindows
-    ? windowsCanvas(state)
-    : nativeCanvasFromViewport(native.getViewport?.() ?? null)
-  return canvas && computedViewport(state, canvas)
-}
-
-async function nativeViewportAsync(): Promise<Viewport | null> {
-  const state = readState()
-  if (!state) {
+  const seeded = (await native.getPianoRollAsync?.(NATIVE_TARGET)) ?? null
+  if (!seeded) {
     return null
   }
-  const viewport = isWindows ? null : await macViewport()
-  const canvas = isWindows ? windowsCanvas(state) : nativeCanvasFromViewport(viewport)
+  macCanvasSeeded = true
+  macCanvasFailures = 0
+  return (await native.getCanvasAsync?.()) ?? null
+}
+
+async function nativeCanvasAsync(): Promise<CanvasSnapshot | null> {
+  const state = isWindows ? cachedBridge().readState() : null
+  const canvas = isWindows ? state && windowsCanvas(state) : await macCanvas()
   if (!canvas) {
     return null
   }
-  return computedViewport(state, canvas)
+  return {
+    canvas,
+    origin: isWindows ? native.getCanvasOrigin?.() : { x: 0, y: 0 },
+  }
 }
-
-async function nativePianoRoll(): Promise<PianoRoll | null> {
-  const state = readState()
-  if (!state) {
-    return null
-  }
-  const viewport = isWindows ? null : await macViewport()
-  const canvas = isWindows ? windowsCanvas(state) : nativeCanvasFromViewport(viewport)
-  if (!canvas) {
-    return null
-  }
-  const currentSchedule = scheduleCache.read(state.notesSeq) ?? scheduleCache.latest
-  if (!currentSchedule) {
-    return null
-  }
-  return pianoRollFrom(state, currentSchedule.notes, canvas, native.getCanvasOrigin?.())
-}
-
-const scheduleCache = new ScheduleCache(readSchedule)
 
 contextBridge.exposeInMainWorld("overlay", {
-  getViewport: (): Viewport | null => {
-    const viewport = nativeViewport()
-    return viewport && toDipViewport(dip, viewport)
-  },
-  getViewportAsync: (): Promise<Viewport | null> =>
-    nativeViewportAsync().then((viewport) => viewport && toDipViewport(dip, viewport)),
-  readNotes: (): Promise<PianoRoll | null> =>
-    nativePianoRoll().then((read) => read && toDipPianoRoll(dip, read)),
+  getCanvasAsync: (): Promise<CanvasSnapshot | null> =>
+    nativeCanvasAsync().then((snapshot) => snapshot && toDipCanvasSnapshot(dip, snapshot)),
 })
 
-// Transport data from the SynthV bridge script, read from its channels in this
-// process for the same reason the geometry is: the renderer asks at rAF time and
-// nothing crosses to main. readState is per-frame and allocation-free;
-// readSchedule is only called when the state record says the schedule changed.
+// A Node-enabled Web Worker reads the bridge independently of rAF and transfers
+// the newest records into this preload's cache. The renderer only asks for the
+// latest decoded object; neither file I/O nor Electron IPC occurs while drawing.
 contextBridge.exposeInMainWorld("bridge", {
   readState: (): BridgeState | null => {
-    const state = readState()
+    const state = cachedBridge().readState()
     return state && toDipState(dip, state)
   },
-  readSchedule: (notesSeq: number): BridgeSchedule | null => scheduleCache.read(notesSeq),
+  readSchedule: (notesSeq: number): BridgeSchedule | null => cachedBridge().readSchedule(notesSeq),
   monotonicNow: (): number => native.monotonicNow(),
 })
 

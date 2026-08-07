@@ -11,6 +11,7 @@ import {
 import { Permissions } from "./components/Permissions"
 import { Settings } from "./components/Settings"
 import { Toolbar } from "./components/Toolbar"
+import { CanvasManager } from "./playback/canvasManager"
 import { predictedNoteRect, toReadFrame } from "./playback/debugNotes"
 import { composeFrame, frameTransform, padRect, pitchBounds } from "./playback/frame"
 import { ScrollLatencyProbe } from "./playback/latencyProbe"
@@ -22,10 +23,8 @@ import {
   type ReadAnchor,
   rebaseAnchor,
 } from "./playback/locate"
-import { settleNoteRead } from "./playback/noteReadPump"
 import { intensityScale, overhangSeconds, pitchExtent, samplePitch } from "./playback/pitch"
 import { Transport } from "./playback/transport"
-import { ViewportManager } from "./playback/viewportManager"
 import { NoteRenderer } from "./render/noteRenderer"
 import {
   BORDER_PX,
@@ -40,10 +39,6 @@ import {
   trailParams,
 } from "./render/palette"
 
-// Interval between full note reads. Note positions are corrected per-frame from
-// the viewport read, so this only bounds how stale the note SET can be (edits,
-// track switches) — not positional smoothness.
-const NOTE_READ_GAP_MS = 30
 /** Shared empty list, so a frame with no bands allocates nothing. */
 const EMPTY_REACHES: Rect[] = []
 /**
@@ -54,7 +49,7 @@ const EMPTY_REACHES: Rect[] = []
  * NEW match; a note that has one keeps it however hard the roll is moving.
  */
 const MAX_MATCH_SLIP_PX = 24
-const VIEWPORT_READ_GAP_MS = 8
+const CANVAS_READ_GAP_MS = 250
 
 /**
  * The note whose contour covers `seconds` — the one sounding, or, in the gap
@@ -88,9 +83,6 @@ function latencyProbeEnabled(debug: boolean): boolean {
   }
 }
 
-// Back-off when SynthV / the piano roll isn't found.
-const NOT_FOUND_RETRY_MS = 500
-
 // One renderer bundle serves every window; each is loaded with the hash naming
 // its view, the overlay with no hash.
 export function App() {
@@ -116,11 +108,6 @@ function Overlay() {
     }
     const renderer = new NoteRenderer(host)
 
-    // Latest accepted full read. Notes are absolute screen coords as of read
-    // time; the draw loop shifts them by how far scroll has moved since —
-    // horizontally via contentX, vertically via the reference chip's y (refY).
-    // Those live values are recomputed from the bridge state, while AX only
-    // supplies the latest canvas anchor off rAF.
     let read: PianoRoll | null = null
 
     // Bounding boxes are a debug visualization. Default off, and off until the
@@ -147,51 +134,17 @@ function Overlay() {
     window.preferences.get().then(adopt)
     const unsubscribe = window.preferences.onChange(adopt)
 
-    // Playback state from the SynthV bridge. Its channels are read once a frame
-    // below; the playhead between two reads comes from the local clock.
     const transport = new Transport()
     const latencyProbe = new ScrollLatencyProbe({ log: (line) => window.debug.latency(line) })
     latencyProbe.setEnabled(false)
-    const viewportManager = new ViewportManager(() => window.overlay.getViewportAsync(), {
-      intervalMs: VIEWPORT_READ_GAP_MS,
+    const canvasManager = new CanvasManager(() => window.overlay.getCanvasAsync(), {
+      intervalMs: CANVAS_READ_GAP_MS,
       now: () => window.bridge.monotonicNow(),
-      onRead: (event) => latencyProbe.recordViewportRead(event),
+      onRead: (event) => latencyProbe.recordCanvasRead(event),
     })
-    viewportManager.start()
-
-    let alive = true
-
-    // Note pump: continuous off-thread walks, each replacing the set wholesale —
-    // no cross-read cache to go stale or corrupt on track switches/edits. Reads
-    // taken while scroll/zoom was moving (xStable/yStable false) are discarded:
-    // their per-chip coordinates are mutually skewed and unusable. The stale set
-    // stays correct meanwhile because draw() maps it through live viewport data.
-    const pump = async () => {
-      while (alive) {
-        let pr: PianoRoll | null = null
-        try {
-          pr = await window.overlay.readNotes()
-        } catch {}
-        const settled = settleNoteRead(read, pr)
-        read = settled.read
-        if (settled.accepted && pr) {
-          viewportManager.adopt(pr)
-        }
-        const gap = pr
-          ? pr.xStable && pr.yStable
-            ? NOTE_READ_GAP_MS
-            : 0
-          : read
-            ? NOTE_READ_GAP_MS
-            : NOT_FOUND_RETRY_MS
-        await new Promise((r) => setTimeout(r, gap))
-      }
-    }
-    pump()
+    canvasManager.start()
 
     let raf = 0
-    // The note set only reaches the GPU when the pump accepts a new read; every
-    // other frame is one transform update and a re-render.
     let uploaded: PianoRoll | null = null
     // The read whose coordinate frame the live particles are currently in.
     let based: PianoRoll | null = null
@@ -213,29 +166,21 @@ function Overlay() {
     const draw = () => {
       raf = requestAnimationFrame(draw)
       frameId += 1
-      // Before anything asks what is playing. The read is a pread into a reused
-      // buffer, so it costs less than the question it answers.
       const nowMs = window.bridge.monotonicNow()
       latencyProbe.setEnabled(latencyProbeEnabled(debug))
-      const nativeViewport = viewportManager.current()
-      transport.poll(nowMs, nativeViewport)
+      const nativeCanvas = canvasManager.current()
+      transport.poll(nowMs, nativeCanvas)
+      const currentRead = transport.pianoRoll
+      if (currentRead) {
+        read = currentRead
+      }
       const latestViewport = transport.viewport
       const dpr = window.devicePixelRatio || 1
       const w = window.innerWidth
       const h = window.innerHeight
 
-      // The viewport manager keeps AX IPC off this rAF path; Transport turns its
-      // latest canvas anchor into a live viewport with the current bridge state.
-      // Effects already in flight count as something to show: stopping playback
-      // stops feeding them, but they still have to be drawn and kept aligned to
-      // scroll until they fade out on their own.
       const vp = debug || transport.playing || renderer.effectsActive ? latestViewport : null
 
-      // Scroll movement since the accepted read, in exact pixels. Without a live
-      // vertical reference the y position is unknowable — draw nothing rather
-      // than notes one lane off (the pump restores the reference within ~50ms).
-      // Unlike a 2D context, the scene persists until it is re-rendered, so this
-      // still has to render an empty frame to clear what was drawn last.
       if (!vp || !read || vp.refY === undefined) {
         wasAt = null
         if (uploaded) {
@@ -268,7 +213,7 @@ function Overlay() {
         latencyProbe.sample({
           atMs: nowMs,
           frame: frameId,
-          native: nativeViewport,
+          native: nativeCanvas,
           applied: latestViewport,
           drawStartedAtMs: nowMs,
           drawEndedAtMs: window.bridge.monotonicNow(),
@@ -276,8 +221,6 @@ function Overlay() {
         return
       }
 
-      // Live particles are positioned in the current read's frame, so they have
-      // to move with it when the pump replaces the set mid-flight.
       if (based && based !== read) {
         renderer.rebaseEffects(based, read)
       }
@@ -453,7 +396,7 @@ function Overlay() {
       latencyProbe.sample({
         atMs: nowMs,
         frame: frameId,
-        native: nativeViewport,
+        native: nativeCanvas,
         applied: latestViewport,
         drawStartedAtMs: nowMs,
         drawEndedAtMs: window.bridge.monotonicNow(),
@@ -462,8 +405,7 @@ function Overlay() {
     raf = requestAnimationFrame(draw)
 
     return () => {
-      alive = false
-      viewportManager.stop()
+      canvasManager.stop()
       cancelAnimationFrame(raf)
       unsubscribe()
       renderer.dispose()

@@ -47,6 +47,7 @@ struct Walked {
 
 /// Computed result (screen points) + geometry elements for the viewport cache.
 pub struct PianoRollResult {
+    window_el: SendElement,
     canvas: CGRect,
     /// How far the note lanes start below the scrollbar box (the group banner strip).
     top_inset: f64,
@@ -73,6 +74,7 @@ pub struct PianoRollResult {
 /// Cached elements from the last full read, so getViewport reads cheaply.
 #[derive(Default)]
 struct Cache {
+    window: Option<SendElement>,
     content: Option<SendElement>,
     hbar: Option<SendElement>,
     vbar: Option<SendElement>,
@@ -89,6 +91,13 @@ struct ViewportRead {
     hbar: SendElement,
     vbar: SendElement,
     reference: Option<SendElement>,
+    top_inset: f64,
+}
+
+struct CanvasRead {
+    window: SendElement,
+    hbar: SendElement,
+    vbar: SendElement,
     top_inset: f64,
 }
 
@@ -192,9 +201,9 @@ fn walk(el: &AXUIElement, depth: u32, out: &mut Walked) {
 /// — safe to call off the main thread. Never touches the module cache.
 fn compute(pid: i32) -> Option<PianoRollResult> {
     let app = unsafe { AXUIElement::new_application(pid) };
-    let root = ax::copy_main_window(&app);
+    let window = ax::copy_main_window(&app)?;
     let mut walked = Walked::default();
-    walk(root.as_deref().unwrap_or(&app), 0, &mut walked);
+    walk(&window, 0, &mut walked);
 
     // The note area's scrollbar pair. The widest horizontal bar is reliably its
     // own — nothing else in the window spans the note area. "Tallest vertical" is
@@ -393,6 +402,7 @@ fn compute(pid: i32) -> Option<PianoRollResult> {
     }
 
     Some(PianoRollResult {
+        window_el: SendElement(window),
         canvas: CGRect::new(CGPoint::new(cx, cy), CGSize::new(cw, chh)),
         top_inset,
         content_x: x_ref,
@@ -433,6 +443,7 @@ fn adopt(result: PianoRollResult) {
             cache.reference.take()
         };
         *cache = Cache {
+            window: Some(result.window_el),
             content: result.content_el,
             hbar: Some(result.hbar_el),
             vbar: Some(result.vbar_el),
@@ -517,6 +528,77 @@ fn snapshot_viewport_read() -> Option<ViewportRead> {
     })
 }
 
+fn snapshot_canvas_read() -> Option<CanvasRead> {
+    CACHE.with_borrow(|cache| {
+        Some(CanvasRead {
+            window: cache.window.clone()?,
+            hbar: cache.hbar.clone()?,
+            vbar: cache.vbar.clone()?,
+            top_inset: cache.top_inset,
+        })
+    })
+}
+
+fn local_canvas(canvas: CGRect, window: CGRect) -> CGRect {
+    CGRect::new(
+        CGPoint::new(
+            canvas.origin.x - window.origin.x,
+            canvas.origin.y - window.origin.y,
+        ),
+        canvas.size,
+    )
+}
+
+fn frame_changed(before: CGRect, after: CGRect) -> bool {
+    (before.origin.x - after.origin.x).abs() > 0.5
+        || (before.origin.y - after.origin.y).abs() > 0.5
+        || (before.size.width - after.size.width).abs() > 0.5
+        || (before.size.height - after.size.height).abs() > 0.5
+}
+
+fn read_canvas(read: &CanvasRead) -> Option<CGRect> {
+    let before = ax::ax_frame(read.window.get())?;
+    let hbar = ax::ax_frame(read.hbar.get())?;
+    let vbar = ax::ax_frame(read.vbar.get())?;
+    let after = ax::ax_frame(read.window.get())?;
+    if frame_changed(before, after) {
+        return None;
+    }
+    let x = hbar.origin.x;
+    let y = vbar.origin.y + read.top_inset;
+    Some(local_canvas(
+        CGRect::new(
+            CGPoint::new(x, y),
+            CGSize::new(vbar.origin.x - x, hbar.origin.y - y),
+        ),
+        after,
+    ))
+}
+
+pub struct CanvasTask {
+    read: Option<CanvasRead>,
+}
+
+impl Task for CanvasTask {
+    type Output = Option<CGRect>;
+    type JsValue = Option<JsRect>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        Ok(self.read.as_ref().and_then(read_canvas))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.map(JsRect::from))
+    }
+}
+
+#[napi]
+pub fn get_canvas_async() -> AsyncTask<CanvasTask> {
+    AsyncTask::new(CanvasTask {
+        read: snapshot_canvas_read(),
+    })
+}
+
 fn read_viewport(read: &ViewportRead) -> Option<JsViewport> {
     let (Some(hbar), Some(vbar)) = (ax::ax_frame(read.hbar.get()), ax::ax_frame(read.vbar.get()))
     else {
@@ -593,4 +675,31 @@ pub fn get_viewport() -> Option<JsViewport> {
         }
         out
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(x: f64, y: f64, w: f64, h: f64) -> CGRect {
+        CGRect::new(CGPoint::new(x, y), CGSize::new(w, h))
+    }
+
+    #[test]
+    fn local_canvas_does_not_move_when_the_window_translates() {
+        let first = local_canvas(
+            rect(140.0, 260.0, 800.0, 400.0),
+            rect(100.0, 200.0, 1200.0, 800.0),
+        );
+        let moved = local_canvas(
+            rect(440.0, 160.0, 800.0, 400.0),
+            rect(400.0, 100.0, 1200.0, 800.0),
+        );
+
+        assert_eq!(first.origin.x, 40.0);
+        assert_eq!(first.origin.y, 60.0);
+        assert_eq!(first.size.width, 800.0);
+        assert_eq!(first.size.height, 400.0);
+        assert_eq!(first, moved);
+    }
 }

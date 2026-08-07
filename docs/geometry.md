@@ -45,9 +45,10 @@ both platforms compute them in `shared/pianoRollGeometry.ts` from the bridge sch
 view transform.
 
 **macOS — seed from the tree.** SynthV exposes an Accessibility tree, so
-`packages/macos-helper/src/pianoroll.rs` can find the note-area canvas and cache a cheap
-viewport read. The full AX walk remains a fallback for seeding that cache, but note
-recognition does not depend on walking visible note chips.
+`packages/macos-helper/src/pianoroll.rs` can find the note-area canvas and cache the AX
+elements needed to read just that rectangle. The full AX walk remains a fallback for
+seeding the cache, but steady-state sampling reads only the window and two scroll bars;
+note recognition never walks visible note chips.
 
 **Windows — identify the canvas by size.** JUCE draws the whole editor into a single HWND;
 there is no tree of note elements to read. UI Automation is asked for the one thing the
@@ -63,11 +64,16 @@ Consequences worth holding onto:
 | | macOS | Windows |
 | --- | --- | --- |
 | note rects from | arithmetic on the bridge view transform | arithmetic on the bridge view transform |
-| the helper supplies | cached canvas/viewport seed | the canvas rectangle, and the window origin |
+| the helper supplies | a canvas rectangle in window-local coordinates | the canvas rectangle, and the window origin |
 | vertical reference | stated by the transform | stated by the transform |
 | a read can be skewed | no — the rects come from one transform | no — the rects come from one transform |
 | needs a user grant | yes, Accessibility | no |
 | scroll latency | one script tick (4 ms) | one script tick (4 ms) |
+
+Canvas position does not need the scroll clock. `CanvasManager` samples it every ~250 ms,
+retains the last valid result, and never overlaps native reads. On macOS the helper samples
+the window frame before and after its AX reads and rejects the result if the window moved;
+this prevents combining a canvas from one window position with an origin from another.
 
 That last row is why the script's idle tick stays at 4 ms even when playback is stopped:
 stopped is exactly when the user scrolls, and the published transform is the app's source
@@ -87,8 +93,8 @@ w_{\text{dip}} = \frac{w_{\text{px}}}{\text{scale}}
 
 Only the main process can ask Electron for `scale` and the two origins, so `main/dip.ts`
 derives them from whichever display the target window is on and pushes them to every
-renderer. The renderers then convert per-frame geometry locally (`toDipRect`,
-`toDipViewport`, `toDipPianoRoll` in `shared/native.ts`) rather than paying an IPC hop per
+preload. The preload converts cached bridge state and each low-rate canvas snapshot locally
+(`toDipState`, `toDipCanvasSnapshot` in `shared/native.ts`) rather than paying an IPC hop per
 read. On macOS the transform is the identity, so applying it is a no-op rather than a
 special case.
 
@@ -155,8 +161,9 @@ everything else. Neither asks the mapping where anything is, so both survive any
 
 ## Staying aligned
 
-Note rectangles are computed as absolute screen coordinates **as of read time**. The
-viewport is the latest completed snapshot from the async viewport manager. Everything in
+Base note rectangles are computed as absolute screen coordinates when either the schedule
+generation or native canvas changes. The live viewport is rebuilt on every frame from the
+newest in-memory bridge state and the latest canvas snapshot. Everything in
 `playback/frame.ts` is the difference between those two moments:
 
 | Quantity | Carries |
@@ -195,10 +202,10 @@ correct meanwhile because it is mapped through live viewport data anyway.
 its own schedule, so during a drag the two disagree and the drawing slides.
 
 **Effects carry their frame.** Live particles and trail points are positioned in the
-coordinate space of whichever read is current, so when the pump replaces the set mid-flight
-`rebaseEffects` shifts them by the same delta the notes moved. Without it they jump every
-time a read lands during a scroll. That is the same arithmetic as `followRect` and
-`rebaseAnchor` above, applied to a different set of things — see
+coordinate space of whichever base piano-roll set is current, so when a schedule or canvas
+change replaces that set mid-flight `rebaseEffects` shifts them by the same delta the notes
+moved. Without it they jump when a new base set lands. That is the same arithmetic as
+`followRect` and `rebaseAnchor` above, applied to a different set of things — see
 [effects.md](effects.md#coordinate-space-rebasing).
 
 ## Invariants
