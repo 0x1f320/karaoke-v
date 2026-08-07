@@ -1,3 +1,9 @@
+## [1.0.0-dev.4](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.3...v1.0.0-dev.4) (2026-08-07)
+
+### ⚡ Performance Improvements
+
+* **bridge:** decouple state sampling from overlay rendering ([#97](https://github.com/0x1f320/voxpane/issues/97)) ([bce50f4](https://github.com/0x1f320/voxpane/commit/bce50f489d71f3b28a3450adba5a02b206560b3f))
+
 ## [1.0.0-dev.3](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.2...v1.0.0-dev.3) (2026-08-07)
 
 ### 🐛 Bug Fixes
