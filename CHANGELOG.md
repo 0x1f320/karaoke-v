@@ -1,3 +1,13 @@
+## [1.0.0-dev.2](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.1...v1.0.0-dev.2) (2026-08-07)
+
+### 🐛 Bug Fixes
+
+* **overlay:** reduce scroll latency through bridge geometry ([#94](https://github.com/0x1f320/voxpane/issues/94)) ([1120a34](https://github.com/0x1f320/voxpane/commit/1120a3494f5d6cc919267e7346fbcee77f9bc982))
+
+### ⚡ Performance Improvements
+
+* **bridge:** cache schedules by notes generation ([#95](https://github.com/0x1f320/voxpane/issues/95)) ([3b26a38](https://github.com/0x1f320/voxpane/commit/3b26a38fd56a9d3d72783624b37b8599021b177b))
+
 ## 1.0.0-dev.1 (2026-08-05)
 
 ### ✨ Features
