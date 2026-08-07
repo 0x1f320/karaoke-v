@@ -1,7 +1,7 @@
 import * as macHelper from "@voxpane/macos-helper"
 import * as winHelper from "@voxpane/windows-helper"
 import type { BridgeState, BridgeViewMapping } from "./bridgeChannels"
-import type { PianoRoll, Rect, Viewport } from "./geometry"
+import type { CanvasSnapshot, PianoRoll, Rect, Viewport } from "./geometry"
 
 // One native surface for both platforms. What the two helpers have in common is
 // window work — following the target, its frame, the shared clock — and that is
@@ -15,7 +15,7 @@ import type { PianoRoll, Rect, Viewport } from "./geometry"
 // Importing both is deliberate: each loads its .node lazily, so the wrong-platform
 // module costs a `require` of a few hundred lines of JavaScript and nothing else.
 
-export type { PianoRoll, Rect, Viewport }
+export type { CanvasSnapshot, PianoRoll, Rect, Viewport }
 
 export interface NativeHelper {
   start(options: {
@@ -35,6 +35,7 @@ export interface NativeHelper {
   /** macOS: cached canvas/scroll reads; the full walk is only a fallback seed. */
   getViewport?(): Viewport | null
   getViewportAsync?(): Promise<Viewport | null>
+  getCanvasAsync?(): Promise<Rect | null>
   getPianoRollAsync?(target?: string): Promise<PianoRoll | null>
 
   /** Windows: UI Automation answers only where the canvas is. */
@@ -123,6 +124,23 @@ export function toDipViewport(transform: DipTransform, viewport: Viewport): View
           source: {
             seq: viewport.source.seq,
             mapping: toDipMapping(transform, viewport.source.mapping),
+          },
+        }),
+  }
+}
+
+export function toDipCanvasSnapshot(
+  transform: DipTransform,
+  snapshot: CanvasSnapshot,
+): CanvasSnapshot {
+  return {
+    canvas: toDipRect(transform, snapshot.canvas),
+    ...(snapshot.origin === undefined
+      ? {}
+      : {
+          origin: {
+            x: toDipX(transform, snapshot.origin.x),
+            y: toDipY(transform, snapshot.origin.y),
           },
         }),
   }

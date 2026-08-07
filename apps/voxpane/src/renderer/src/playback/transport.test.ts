@@ -256,6 +256,42 @@ describe("Transport.noteAt", () => {
   })
 })
 
+describe("Transport.pianoRoll", () => {
+  it("builds note rectangles from the accepted schedule and canvas", () => {
+    const { transport, publish, tick } = harness()
+    publish([note(0, 1)])
+
+    tick()
+
+    expect(transport.pianoRoll?.notes).toHaveLength(1)
+    expect(transport.pianoRoll?.canvas).toEqual(VIEWPORT.canvas)
+  })
+
+  it("keeps the same note base across scroll-only state changes", () => {
+    const { transport, publish, tick } = harness()
+    publish([note(0, 1)])
+    tick()
+    const first = transport.pianoRoll
+
+    tick({ px: { ...MAPPING, viewLeft: 20, viewRight: 120 } })
+
+    expect(transport.pianoRoll).toBe(first)
+  })
+
+  it("rebuilds the note base when the canvas changes", () => {
+    const { transport, publish, tick, idle, setViewport } = harness()
+    publish([note(0, 1)])
+    tick()
+    const first = transport.pianoRoll
+    setViewport({ ...VIEWPORT, canvas: { ...VIEWPORT.canvas, x: 140 } })
+
+    idle(16)
+
+    expect(transport.pianoRoll).not.toBe(first)
+    expect(transport.pianoRoll?.canvas.x).toBe(140)
+  })
+})
+
 describe("Transport.view", () => {
   it("builds the view from the newest state and the viewport canvas", () => {
     const { transport, tick } = harness()

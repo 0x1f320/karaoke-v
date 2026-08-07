@@ -175,21 +175,22 @@ overlay가 살아남음.
 
 | 단계 | 어디서 | 비용 |
 | --- | --- | --- |
-| bridge `state` 레코드 읽기 | preload, 한 번만 할당한 버퍼로 `pread` | ~0.6 µs, 쓰레기 없음 |
-| viewport snapshot 갱신 | preload, 비동기 native task | rAF call stack 밖 |
+| bridge 파일 sample | preload Web Worker | 약 4 ms마다, rAF와 독립적 |
+| 최신 bridge `state` 읽기 | preload memory cache | file I/O와 할당 없음 |
+| canvas snapshot 갱신 | preload, 비동기 native task | 약 250 ms마다, rAF call stack 밖 |
 | 판단하고 그리기 | renderer | 단순 스크롤이면 transform 한 번 |
 
 위의 전부가 **overlay renderer의 프로세스 안에서** `contextBridge`를 통해 일어난다. 대안 —
 main이 읽고 renderer로 IPC — 은 프레임마다 왕복과 직렬화를 더하고, 그게 이 배치가 없애려고
 존재하는 바로 그것이다. 여기서 `sandbox: false`가 값을 하는 이유다.
 
-frame loop는 Accessibility API 자체가 아니라 가장 최근 완료된 native viewport anchor를 읽는다.
-macOS에서 snapshotter는 여전히 캐시된 AX element를 다시 읽지만, 그 응답은 frame 사이에 도착한다.
-느린 AX 왕복은 draw를 막는 대신 canvas anchor를 조금 낡게 만들 뿐이다. 실제 그리기에 쓰는
-scroll과 zoom은 그 rAF에서 읽은 bridge state로 다시 계산한다.
+frame loop는 Accessibility API 자체가 아니라 가장 최근 완료된 native canvas anchor를 읽는다.
+macOS에서 snapshotter는 cache된 window와 scrollbar AX element만 다시 읽고, 그 응답은 frame
+사이에 도착한다. 느린 AX 왕복은 draw를 막는 대신 canvas anchor를 조금 낡게 만들 뿐이다. 실제
+그리기에 쓰는 scroll과 zoom은 memory에 이미 sample된 bridge state로 다시 계산한다.
 
-note *set*은 이 경로에 없다: 백그라운드 pump가 `NOTE_READ_GAP_MS` 30마다 계산된 piano-roll
-read를 요청하고, frame loop는 마지막으로 받아들인 것을 살아 있는 viewport 데이터로 매핑한다.
+base note set은 cached schedule generation이나 canvas가 바뀔 때만 다시 만든다. 평범한 scroll과
+zoom update는 같은 set을 유지하고 live bridge-derived viewport로 매핑한다. 별도 note pump는 없다.
 
 **깨지면:** 스크롤 지연(뭔가 IPC 경로로 옮겨갔다) · GC 톱니(state 버퍼를 다시 할당하고 있다).
 
@@ -199,9 +200,8 @@ read를 요청하고, frame loop는 마지막으로 받아들인 것을 살아 �
 그림이 미끄러진다.
 
 - **view mapping과 그것이 짝지어진 scroll 위치**는 `Transport.poll` 안의 같은 bridge state
-  record에서 온다. 넘겨받은 viewport snapshot은 native canvas와 window origin만 공급한다. 그
-  snapshot의 낡은 scroll field는 의도적으로 무시해서, 비동기 AX latency가 scroll latency가 되지
-  않게 한다.
+  snapshot에서 온다. 넘겨받은 canvas snapshot은 native canvas와 window origin만 공급하므로,
+  비동기 AX latency가 scroll latency가 될 수 없다.
 - **window origin**은 `window.screenX`가 아니라 helper가 canvas rect과 함께 주는
   것(`vp.origin`)에서 온다. Chromium은 `screenX`를 자기 일정대로 갱신하므로 드래그 중에는 둘이
   어긋난다.

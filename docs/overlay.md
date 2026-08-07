@@ -187,8 +187,9 @@ The per-frame path deliberately does not cross a process boundary.
 
 | Step | Where | Cost |
 | --- | --- | --- |
-| read the bridge `state` record | preload, `pread` into a buffer allocated once | ~0.6 µs, no garbage |
-| refresh the viewport snapshot | preload, async native task | off the rAF call stack |
+| sample the bridge files | preload worker | every ~4 ms, independent of rAF |
+| read the latest bridge `state` | preload memory cache | allocation-free, no file I/O |
+| refresh the canvas snapshot | preload, async native task | every ~250 ms, off the rAF call stack |
 | decide and draw | renderer | one transform on a plain scroll |
 
 Everything above happens **inside the overlay renderer's process**, via `contextBridge`. The
@@ -196,15 +197,15 @@ alternative — main reads, IPC to renderer — adds a hop and a serialisation t
 which is exactly what this arrangement exists to avoid. It is why `sandbox: false` is worth
 its cost here.
 
-The frame loop reads the latest completed native viewport anchor, not the Accessibility API
-itself. On macOS the snapshotter still re-reads cached AX elements, but its reply lands
-between frames; a slow AX round trip makes the canvas anchor older instead of blocking the
-draw. The actual scroll and zoom used for drawing are recomputed from the bridge state read
-on that rAF.
+The frame loop reads the latest completed native canvas anchor, not the Accessibility API
+itself. On macOS the snapshotter re-reads only the cached window and scroll-bar AX elements,
+and its reply lands between frames; a slow AX round trip makes the canvas anchor older
+instead of blocking the draw. The actual scroll and zoom used for drawing are recomputed
+from the bridge state already sampled into the preload memory cache.
 
-The note *set* is not on this path: a background pump asks for a computed piano-roll read
-every `NOTE_READ_GAP_MS` 30, and the frame loop maps whatever it last accepted through
-live viewport data.
+The base note set is rebuilt only when the cached schedule generation or canvas changes.
+Plain scroll and zoom updates keep the same set and map it through the live bridge-derived
+viewport. There is no separate note pump.
 
 **Breaks as:** scroll lag (something moved onto the IPC path) · GC sawtooth (the state buffer
 is being reallocated).
@@ -215,9 +216,8 @@ Anything read as a pair must be read in the same breath, or the two describe dif
 moments and the drawing slides.
 
 - The **view mapping and the scroll position** it is paired with come from the same bridge
-  state record inside `Transport.poll`. The viewport snapshot passed in supplies only the
-  native canvas and window origin; its older scroll fields are deliberately ignored so async
-  AX latency cannot become scroll latency.
+  state snapshot inside `Transport.poll`. The canvas snapshot passed in supplies only the
+  native canvas and window origin, so async AX latency cannot become scroll latency.
 - The **window origin** comes from the helper alongside the canvas rectangle (`vp.origin`),
   not from `window.screenX`. Chromium updates `screenX` on its own schedule, so during a drag
   the two disagree.

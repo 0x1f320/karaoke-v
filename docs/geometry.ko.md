@@ -41,9 +41,9 @@ rect은 더 이상 플랫폼별이 아니다: 양쪽 모두 `shared/pianoRollGeo
 view transform으로 계산한다.
 
 **macOS — 트리에서 seed한다.** SynthV가 Accessibility 트리를 노출하므로
-`packages/macos-helper/src/pianoroll.rs`가 note-area canvas를 찾고 cheap viewport read용 cache를
-seed할 수 있다. 전체 AX walk는 그 cache가 아직 없을 때의 fallback으로 남지만, note 인식은 보이는
-note chip들을 걷는 데 의존하지 않는다.
+`packages/macos-helper/src/pianoroll.rs`가 note-area canvas를 찾고 그 rect만 읽는 데 필요한 AX
+element를 cache할 수 있다. 전체 AX walk는 cache를 seed하는 fallback으로 남지만, steady-state
+sampling은 window와 scrollbar 둘만 읽으며 note 인식은 보이는 note chip들을 걷지 않는다.
 
 **Windows — 크기로 canvas를 식별한다.** JUCE가 editor 전체를 HWND 하나에 그리므로 읽을 note
 element 트리가 없다. UI Automation에는 script가 알 수 없는 단 하나 — canvas가 화면 어디 있는지 —
@@ -59,11 +59,16 @@ JUCE의 평평한 ~140-element 트리에서 그 치수를 가진 element를 찾�
 | | macOS | Windows |
 | --- | --- | --- |
 | note rect 출처 | bridge view transform에 대한 산술 | bridge view transform에 대한 산술 |
-| helper가 주는 것 | cached canvas/viewport seed | canvas rect, 그리고 window origin |
+| helper가 주는 것 | window-local 좌표의 canvas rect | canvas rect, 그리고 window origin |
 | 세로 기준 | transform이 직접 말해줌 | transform이 직접 말해줌 |
 | read가 어긋날 수 있는가 | 아니다 — rect이 transform 하나에서 나옴 | 아니다 — rect이 transform 하나에서 나옴 |
 | 사용자 승인 필요 | 그렇다, Accessibility | 아니다 |
 | scroll 지연 | script tick 하나(4 ms) | script tick 하나(4 ms) |
+
+canvas 위치에는 scroll clock이 필요하지 않다. `CanvasManager`가 약 250 ms마다 sample하고, 마지막
+정상 결과를 유지하며, native read를 겹쳐 실행하지 않는다. macOS helper는 AX read 전후에 window
+frame을 sample하고 창이 움직였으면 결과를 버린다. 서로 다른 window 위치의 canvas와 origin이
+섞이는 것을 막기 위해서다.
 
 마지막 줄이, 재생이 멈춰 있어도 script의 idle tick이 4 ms로 유지되는 이유다: 멈춰 있을 때가
 바로 사용자가 스크롤하는 때이고, publish된 transform이 roll이 어디로 스크롤되어 있는지에 대한
@@ -82,10 +87,10 @@ w_{\text{dip}} = \frac{w_{\text{px}}}{\text{scale}}
 ```
 
 `scale`과 두 origin을 Electron에 물을 수 있는 것은 main process뿐이라, `main/dip.ts`가 대상
-창이 올라가 있는 디스플레이에서 그것들을 유도해 모든 renderer에 push한다. renderer는 프레임
-geometry를 로컬에서 변환한다(`shared/native.ts`의 `toDipRect`, `toDipViewport`,
-`toDipPianoRoll`) — 읽을 때마다 IPC를 왕복하는 대신. macOS에서는 transform이 항등이라, 적용하는
-것이 특수 케이스가 아니라 no-op이 된다.
+창이 올라가 있는 디스플레이에서 그것들을 유도해 모든 preload에 push한다. preload는 cached
+bridge state와 저주기 canvas snapshot을 로컬에서 변환한다(`shared/native.ts`의 `toDipState`,
+`toDipCanvasSnapshot`) — 읽을 때마다 IPC를 왕복하는 대신. macOS에서는 transform이 항등이라,
+적용하는 것이 특수 케이스가 아니라 no-op이 된다.
 
 잘못됐을 때의 증상: 100 % 배율에서는 맞는데 HiDPI 디스플레이에서 배율에 비례해 어긋난다,
 또는 주 모니터에서는 맞는데 배율이 다른 두 번째 모니터에서 틀린다.
@@ -147,8 +152,9 @@ anchor는 read 범위다. 다음 read로 들고 가려면 rebase해야 하고(`r
 
 ## Staying aligned
 
-note rect은 **read 시점 기준의** 절대 screen 좌표로 계산된다. viewport는 비동기 viewport manager가
-마지막으로 완료한 snapshot이다. `playback/frame.ts`에 있는 것은 전부 그 두 순간의 차이다:
+base note rect은 schedule generation이나 native canvas가 바뀌는 순간의 절대 screen 좌표로
+계산된다. live viewport는 최신 in-memory bridge state와 마지막 canvas snapshot으로 프레임마다
+다시 만든다. `playback/frame.ts`에 있는 것은 전부 그 두 순간의 차이다:
 
 | 값 | 나르는 것 |
 | --- | --- |
@@ -183,11 +189,11 @@ blick 구간에 `perBlick`을 곱한 값이고, zoom에 비례하며, 그거면 
 호흡에 샘플링된 window origin — 을 쓰고, helper가 주지 않을 때만 `window.screenX`로 떨어진다.
 Chromium은 `screenX`를 자기 일정대로 갱신하므로 드래그 중에는 둘이 어긋나고 그림이 미끄러진다.
 
-**Effect도 자기 frame을 싣는다.** 살아 있는 particle과 trail point는 현재 read의 좌표 공간에
-놓여 있으므로, pump가 날아다니는 중에 set을 교체하면 `rebaseEffects`가 note가 움직인 만큼 그것들을
-옮긴다. 없으면 스크롤 중에 read가 들어올 때마다 튄다. 위의 `followRect`·`rebaseAnchor`와 같은
-산술을 다른 대상에 적용한 것이다 — [effects.ko.md](effects.ko.md#coordinate-space-rebasing)
-참조.
+**Effect도 자기 frame을 싣는다.** 살아 있는 particle과 trail point는 현재 base piano-roll set의
+좌표 공간에 놓여 있으므로, schedule이나 canvas 변경이 set을 교체하면 `rebaseEffects`가 note가
+움직인 만큼 그것들을 옮긴다. 없으면 새 base set이 들어올 때 튄다. 위의
+`followRect`·`rebaseAnchor`와 같은 산술을 다른 대상에 적용한 것이다 —
+[effects.ko.md](effects.ko.md#coordinate-space-rebasing) 참조.
 
 ## Invariants
 

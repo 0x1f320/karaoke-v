@@ -4,17 +4,17 @@ import type {
   BridgeStatus,
   BridgeViewMapping,
 } from "../../../shared/bridgeChannels"
-import type { Viewport } from "../../../shared/geometry"
-import { viewportFrom } from "../../../shared/pianoRollGeometry"
+import type { CanvasSnapshot, PianoRoll, Viewport } from "../../../shared/geometry"
+import { pianoRollFrom, viewportFrom } from "../../../shared/pianoRollGeometry"
 
 // Turns the bridge's state channel into a continuous playhead.
 //
-// The script publishes state on every tick and the app reads it once a frame,
-// so this no longer waits to be told about seeks, wraps and stops — it sees
-// them. What it still does is interpolate: the script's tick and this frame loop
-// beat against each other, so between two fresh records the playhead runs on the
-// local clock. That is sound because both clocks are on this machine and every
-// read re-anchors.
+// The script publishes state on every tick and a worker keeps the latest record
+// in memory, so this no longer waits to be told about seeks, wraps and stops —
+// it sees them. What it still does is interpolate: the script's tick and this
+// frame loop beat against each other, so between two fresh records the playhead
+// runs on the local clock. That is sound because both clocks are on this machine
+// and every read re-anchors.
 //
 // Timing is read from the channel alone. Geometry also needs the same record's
 // view mapping, plus the latest native canvas anchor, to make a live viewport:
@@ -41,6 +41,9 @@ const SILENCE_MS = 500
 
 export class Transport {
   private schedule: readonly BridgeNote[] = []
+  private scheduleReady = false
+  private pianoRollState: PianoRoll | null = null
+  private pianoRollKey: string | null = null
   private status: BridgeStatus = "stopped"
   private anchorAt = 0
   private anchorClockMs = 0
@@ -53,7 +56,7 @@ export class Transport {
   private notesSeq = -1
 
   /** Reads the channels. Call once a frame, before anything else here. */
-  poll(nowMs: number, viewport: Viewport | null): void {
+  poll(nowMs: number, viewport: CanvasSnapshot | null): void {
     const state = window.bridge.readState()
     if (state === null) {
       if (this.anchored && nowMs - this.lastSeqClockMs > SILENCE_MS) {
@@ -77,11 +80,12 @@ export class Transport {
     this.lastSeqClockMs = nowMs
 
     if (state.notesSeq !== this.notesSeq) {
-      const schedule = window.bridge.readSchedule()
+      const schedule = window.bridge.readSchedule(state.notesSeq)
       // A torn or half-written schedule leaves notesSeq alone, so the next frame
       // tries again rather than holding a schedule that never arrived.
       if (schedule !== null) {
         this.schedule = schedule.notes
+        this.scheduleReady = true
         this.notesSeq = state.notesSeq
       }
     }
@@ -131,6 +135,10 @@ export class Transport {
   /** The live viewport recomputed from the newest state and the latest native canvas. */
   get viewport(): Viewport | null {
     return this.viewportState
+  }
+
+  get pianoRoll(): PianoRoll | null {
+    return this.pianoRollState
   }
 
   /** The note under `seconds`, or null in a gap between notes. */
@@ -223,10 +231,28 @@ export class Transport {
     this.lastSeq = -1
   }
 
-  private adoptViewport(state: BridgeState, viewport: Viewport): void {
+  private adoptViewport(state: BridgeState, viewport: CanvasSnapshot): void {
     const live = viewportFrom(state, viewport.canvas, viewport.origin)
     this.viewportState = live
     this.viewState = this.viewFrom(state, live)
+    if (!this.scheduleReady) {
+      return
+    }
+    const { canvas, origin } = viewport
+    const key = [
+      this.notesSeq,
+      canvas.x,
+      canvas.y,
+      canvas.w,
+      canvas.h,
+      origin?.x ?? 0,
+      origin?.y ?? 0,
+    ].join(":")
+    if (key === this.pianoRollKey) {
+      return
+    }
+    this.pianoRollKey = key
+    this.pianoRollState = pianoRollFrom(state, this.schedule, canvas, origin)
   }
 
   private viewFrom(state: BridgeState, viewport: Viewport): TransportView {

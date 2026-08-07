@@ -37,14 +37,15 @@ flowchart TD
     end
 
     subgraph REN["overlay renderer"]
-        preload["<b>preload</b><br/>둘 다 이 프로세스에서 읽음"]
+        worker["<b>bridge Web Worker</b><br/>4 ms마다 파일 poll<br/>검증된 record를 transfer"]
+        preload["<b>preload cache</b><br/>최신 decoded state<br/>generation별 schedule"]
         transport["<b>Transport</b><br/>playhead, schedule"]
         match["<b>note matching</b><br/>어느 rect이 이 note인가?"]
         pixi["<b>PixiJS effects</b>"]
     end
 
     script -- "레코드 하나당 write 한 번" --> files
-    files -- "프레임마다 한 번 읽음" --> preload
+    files -- "rendering과 독립적으로 poll" --> worker --> preload
     mac --> preload
     win --> preload
     preload --> transport --> match --> pixi
@@ -64,8 +65,8 @@ SynthV의 scripts 디렉터리에 설치하고, preferences를 소유하며 변�
 
 | 출처 | 답하는 것 | 읽는 쪽 |
 | --- | --- | --- |
-| bridge script | 무엇이 언제 어떤 pitch로 울리는가 | renderer, 프레임마다 한 번 |
-| native helper | SynthV의 창과 piano-roll canvas가 어디 있는가 | renderer(geometry)와 main(frame) |
+| bridge script | 무엇이 언제 어떤 pitch로 울리는가 | preload worker가 4 ms마다, renderer는 memory snapshot을 읽음 |
+| native helper | SynthV의 창과 piano-roll canvas가 어디 있는가 | renderer는 ~250 ms마다(canvas), main은 frame을 읽음 |
 | preferences | effect가 어떻게 보이는가 | 모든 창, main이 push |
 
 ## Processes and windows
@@ -86,10 +87,12 @@ SynthV의 scripts 디렉터리에 설치하고, preferences를 소유하며 변�
   따라가기, 같이 숨기 — 은 [overlay.ko.md](overlay.ko.md).
 - `dip.ts` — [geometry](geometry.ko.md#physical-pixels-points-and-dips) 참조.
 
-**Preload** (`src/preload`)에 hot path가 있다. 이례적이고, 의도적이다. `sandbox: false`로
-돌기 때문에 native addon을 `require`하고 파일을 열 수 있다 — 즉 renderer가 bridge channel과
-piano roll geometry를 **프레임 경로에 IPC 없이** 읽는다. 프레임마다 main으로 왕복하는 것,
-그게 이 배치가 없애려고 존재하는 바로 그것이다.
+**Preload** (`src/preload`)가 hot input cache를 소유한다. 이례적이고, 의도적이다.
+`sandbox: false`로 돌고 overlay가 전용 Web Worker의 Node integration을 켜므로, 그 worker가
+main이나 renderer frame loop를 거치지 않고 bridge 파일을 계속 열어 두고 sample할 수 있다.
+검증된 record는 preload로 transfer된다. state는 하나의 최신 object로 decode되고, schedule은
+`notesSeq`별로 유지된다. renderer는 그 memory cache만 읽는다. 프레임마다 main을 왕복하거나
+파일을 읽는 것, 그게 이 배치가 없애려고 존재하는 바로 그것이다.
 
 **Renderer** (`src/renderer`)는 하나의 번들이 네 개의 view를 담당하고, `App.tsx`에서
 `window.location.hash`로 고른다: hash 없음이 overlay, `#toolbar`·`#settings`·`#permissions`
@@ -104,11 +107,12 @@ piano roll geometry를 **프레임 경로에 IPC 없이** 읽는다. 프레임�
 
 `App.tsx`의 `draw()`가 `requestAnimationFrame`으로 돌고, 그게 overlay의 전부다. 순서대로:
 
-1. **bridge를 poll한다.** `transport.poll()`이 `state` channel을 읽는다 — 한 번만 할당한
-   버퍼로 `pread`하므로, 읽을지 말지 판단하는 비용보다 싸다. schedule은 state record가
-   generation이 바뀌었다고 말할 때만 다시 읽는다.
-2. **최신 native viewport anchor를 잡는다.** 작은 비동기 manager가 draw call 밖에서 canvas와
-   window origin을 갱신한다. 그런 다음 scroll, zoom, vertical reference는 1단계에서 방금 읽은
+1. **최신 bridge snapshot을 잡는다.** `transport.poll()`이 preload memory에 있는 최신 정상
+   decoded state object를 읽는다. bridge worker가 rAF와 독립적으로 4 ms마다 파일을 sample하므로,
+   frame이 늦어져도 acquisition까지 늦어지지 않는다. 바뀐 `notesSeq`는 preload cache가 이미
+   유지 중인 schedule을 선택한다.
+2. **최신 native canvas anchor를 잡는다.** `CanvasManager`가 draw call 밖에서 canvas와 window
+   origin만 ~250 ms마다 갱신한다. 그런 다음 scroll, zoom, vertical reference는 1단계의 in-memory
    bridge state로 즉시 다시 계산하므로, 느린 AX 응답은 canvas anchor를 낡게 만들 수는 있어도
    scroll 추종을 늦추지는 못한다.
 3. **무엇이 울리는지 묻는다.** playhead는 두 state record 사이를 local clock으로 보간하고,
@@ -116,23 +120,22 @@ piano roll geometry를 **프레임 경로에 IPC 없이** 읽는다. 프레임�
 4. **그 note의 rect을 찾는다.** 어려운 부분 — [geometry](geometry.ko.md).
 5. **이 순간의 sung pitch를 샘플링한다**(`playback/pitch.ts`). 발사점을 note 자신의 lane
    밖으로 옮기고, effect 강도를 몰 수도 있다.
-6. **그린다.** Pixi scene에 transform 한 번. note geometry는 새 read가 set을 교체할 때만
-   다시 만든다.
+6. **그린다.** Pixi scene에 transform 한 번. base note geometry는 schedule generation이나
+   native canvas가 바뀔 때만 다시 만들고, scroll만 바뀐 state는 같은 geometry를 재사용해 scene
+   transform만 갱신한다.
 
-옆에서 두 번째 loop가 돈다: **note pump**. 비동기 `while` loop가 preload에 piano roll read를
-요청하고, set을 통째로 교체하고, 30 ms 잔다. read는 최신 bridge schedule과 view transform으로
-보이는 모든 note rect을 계산한다. native 작업은 canvas를 찾는 데 한정되고, macOS의 전체 AX
-walk는 cheap cached viewport가 아직 seed되지 않았을 때만 fallback으로 돈다. 그동안 낡은 set이
-여전히 맞는 이유는, 4단계가 그것을 살아 있는 viewport 데이터로 매핑하기 때문이다.
+note pump는 없다. `Transport`가 schedule, native canvas snapshot, 유도된 piano-roll set을 함께
+소유한다. 이로써 중복된 30 ms geometry loop와 그 loop가 일으키던 bridge/native 경쟁 read가
+사라진다.
 
 그래서 **clock이 넷**이고, 이걸 혼동하는 것이 타이밍 버그 대부분의 출처다:
 
 | Clock | 주기 | 나르는 것 |
 | --- | --- | --- |
 | script의 tick | 4 ms | playhead, transport status, view transform |
-| viewport manager | ~8 ms + AX 응답 시간 | canvas와 window origin |
-| note pump | ~30 ms + canvas lookup 시간 | 계산된 note rect |
-| frame loop | 디스플레이 주사율 | 그리기, 그리고 보간된 playhead |
+| bridge worker | ~4 ms + file read 시간 | 최신 정상 state, 바뀐 schedule generation |
+| canvas manager | ~250 ms + native 응답 시간 | canvas와 window origin |
+| frame loop | 디스플레이 주사율 | in-memory snapshot 소비, geometry transform, 그리기 |
 
 넷은 동기화되어 있지 않고, 그럴 의도도 없다. native anchor는 조금 낡을 수 있지만, scroll과
 zoom은 그리기 전에 현재 bridge record로 다시 계산하므로, 소비자는 신선함을 기다리는 대신 나이를
@@ -147,7 +150,8 @@ zoom은 그리기 전에 현재 bridge record로 다시 계산하므로, 소비�
 150 ms만 잠깐 빌릴 수 있었고, 그래서 script가 무엇이 event인지 판단해야 했다. 파일은
 publish 하나에 ~4 µs이므로, state는 그냥 매 tick 나가고 — 이미 그리려고 프레임마다 읽고
 있는 — 앱이 불연속을 직접 본다. 인색한 transport를 보상하려고 존재하던 기계장치가 그것과
-함께 사라졌다.
+함께 사라졌다. 현재 앱은 acquisition을 display refresh에 묶지 않고 전용 worker에서 그 파일을
+sample한다.
 
 옛 이슈(#61, #75)를 읽을 때 알아둘 것: clipboard blip이나 Windows memory scan 얘기는 이제
 존재하지 않는 transport를 묘사한 것이다.

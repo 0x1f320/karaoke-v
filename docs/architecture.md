@@ -40,14 +40,15 @@ flowchart TD
     end
 
     subgraph REN["overlay renderer"]
-        preload["<b>preload</b><br/>reads both, in this process"]
+        worker["<b>bridge Web Worker</b><br/>polls files every 4 ms<br/>transfers validated records"]
+        preload["<b>preload cache</b><br/>latest decoded state<br/>schedule by generation"]
         transport["<b>Transport</b><br/>playhead, schedule"]
         match["<b>note matching</b><br/>which rect is this note?"]
         pixi["<b>PixiJS effects</b>"]
     end
 
     script -- "one write per whole record" --> files
-    files -- "read once a frame" --> preload
+    files -- "poll independently of rendering" --> worker --> preload
     mac --> preload
     win --> preload
     preload --> transport --> match --> pixi
@@ -67,8 +68,8 @@ Three sources of truth feed the picture, and they are genuinely independent:
 
 | Source | Answers | Read by |
 | --- | --- | --- |
-| the bridge script | what is sounding, when, at what pitch | the renderer, once a frame |
-| the native helper | where SynthV's window and piano-roll canvas are | the renderer (geometry) and main (the frame) |
+| the bridge script | what is sounding, when, at what pitch | the preload worker every 4 ms; the renderer reads its memory snapshot |
+| the native helper | where SynthV's window and piano-roll canvas are | the renderer at ~250 ms (canvas) and main (the frame) |
 | preferences | what the effects look like | every window, pushed from main |
 
 ## Processes and windows
@@ -89,10 +90,13 @@ happens per frame.
   SynthV, following it, hiding with it — is [overlay.md](overlay.md).
 - `dip.ts` — see [geometry](geometry.md#physical-pixels-points-and-dips).
 
-**Preload** (`src/preload`) is where the hot path lives, which is unusual and deliberate.
-It runs with `sandbox: false`, so it can `require` the native addons and open files —
-meaning the renderer reads bridge channels and piano-roll geometry **without an IPC hop**.
-A per-frame round trip to main was the thing this arrangement exists to avoid.
+**Preload** (`src/preload`) owns the hot input cache, which is unusual and deliberate. It
+runs with `sandbox: false` and the overlay enables Node integration in a dedicated Web
+Worker, so that worker can keep the bridge files open and sample them without involving
+either main or the renderer frame loop. Valid records are transferred to preload; state is
+decoded into one latest object and schedules are retained by `notesSeq`. The renderer only
+reads that memory cache. A per-frame round trip to main, or a per-frame file read, is what
+this arrangement exists to avoid.
 
 **Renderer** (`src/renderer`) is one bundle serving four views, selected by
 `window.location.hash` in `App.tsx`: no hash is the overlay, `#toolbar`, `#settings`,
@@ -109,36 +113,35 @@ both, and it deliberately does *not* hide the geometry difference — see
 `App.tsx`'s `draw()` runs on `requestAnimationFrame` and is the whole of the overlay. In
 order:
 
-1. **Poll the bridge.** `transport.poll()` reads the `state` channel — a `pread` into a
-   buffer allocated once, so it costs less than deciding whether to do it. The schedule is
-   re-read only when the state record says its generation changed.
-2. **Take the latest native viewport anchor.** A small async manager keeps the canvas and
-   window origin refreshed off the draw call. Scroll, zoom and the vertical reference are
-   then recomputed immediately from the bridge state just read in step 1, so a slow AX reply
-   can make the canvas anchor older but cannot delay scroll following.
+1. **Take the latest bridge snapshot.** `transport.poll()` reads the newest valid decoded
+   state object from preload memory. The bridge worker samples the file every 4 ms
+   independently of rAF, so a late frame does not delay acquisition. A changed `notesSeq`
+   selects the schedule already retained in the preload cache.
+2. **Take the latest native canvas anchor.** `CanvasManager` refreshes only the canvas and
+   window origin every ~250 ms, outside the draw call. Scroll, zoom and the vertical
+   reference are recomputed immediately from the in-memory bridge state in step 1, so a
+   slow AX reply can make the canvas anchor older but cannot delay scroll following.
 3. **Ask what is sounding.** The playhead is interpolated on the local clock between two
    state records; the schedule is binary-searched for the note under it.
 4. **Find that note's rectangle.** The hard part — [geometry](geometry.md).
 5. **Sample the sung pitch** at this instant (`playback/pitch.ts`), which moves the
    emission point off the note's own lane and can drive effect intensity.
-6. **Draw.** One transform update on the Pixi scene; note geometry is only rebuilt when a
-   new read replaces the set.
+6. **Draw.** One transform update on the Pixi scene. Base note geometry is rebuilt only
+   when the schedule generation or native canvas changes; scroll-only state changes reuse
+   it and update the scene transform.
 
-A second loop runs beside it: the **note pump**, an async `while` loop that asks the preload
-for a piano-roll read, replaces the set wholesale, and sleeps 30 ms. The read uses the latest
-bridge schedule and view transform to compute every visible note rectangle; native work is
-limited to finding the canvas, with a full macOS AX walk only when the cheap cached viewport
-has not been seeded yet. The stale set stays correct meanwhile, because step 4 maps it
-through live viewport data.
+There is no note pump. `Transport` owns the schedule, native canvas snapshot and derived
+piano-roll set together. This removes the redundant 30 ms geometry loop and its competing
+bridge/native reads.
 
 So there are **four clocks**, and confusing them is the source of most timing bugs:
 
 | Clock | Rate | Carries |
 | --- | --- | --- |
 | the script's tick | 4 ms | playhead, transport status, view transform |
-| the viewport manager | ~8 ms + AX response time | canvas and window origin |
-| the note pump | ~30 ms + canvas lookup time | computed note rectangles |
-| the frame loop | display refresh | the drawing, and the interpolated playhead |
+| the bridge worker | ~4 ms + file-read time | latest valid state; changed schedule generations |
+| the canvas manager | ~250 ms + native response time | canvas and window origin |
+| the frame loop | display refresh | in-memory snapshot consumption, geometry transform and drawing |
 
 They are not synchronised and are not meant to be. Native anchors may be slightly stale, but
 scroll and zoom are recomputed from the current bridge record before drawing, so the consumer
@@ -154,7 +157,8 @@ The bridge used to move data through the clipboard, which belongs to the user, s
 only be taken for ~150 ms **on an event**. The script therefore had to decide what an event
 was. A file costs ~4 µs per publish, so state simply goes out on every tick and the app —
 already reading once a frame in order to draw — sees discontinuities itself. All the
-machinery that existed to compensate for a stingy transport left with it.
+machinery that existed to compensate for a stingy transport left with it. The current app
+samples that file on a dedicated worker rather than tying acquisition to display refresh.
 
 Worth knowing when reading old issues (#61, #75): anything about clipboard blips or a
 Windows memory scan describes a transport that no longer exists.

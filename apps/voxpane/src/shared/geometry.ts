@@ -16,7 +16,12 @@ export type { Rect }
  * against that, rather than against `window.screenX`, keeps both numbers from the
  * same instant — otherwise the drawing slides while the window is being dragged.
  */
-export interface Viewport extends MacViewport {
+export interface CanvasSnapshot {
+  canvas: Rect
+  origin?: { x: number; y: number }
+}
+
+export interface Viewport extends MacViewport, CanvasSnapshot {
   origin?: { x: number; y: number }
   source?: {
     seq: number

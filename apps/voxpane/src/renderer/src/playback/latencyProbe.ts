@@ -1,4 +1,4 @@
-import type { Viewport } from "../../../shared/geometry"
+import type { CanvasSnapshot, Viewport } from "../../../shared/geometry"
 
 const EPS = 0.5
 const IDLE_MS = 120
@@ -8,16 +8,16 @@ const SOURCE_GAP_MS = 8
 export interface LatencyProbeFrame {
   atMs: number
   frame: number
-  native: Viewport | null
+  native: CanvasSnapshot | null
   applied: Viewport | null
   drawStartedAtMs: number
   drawEndedAtMs: number
 }
 
-export interface ViewportReadProbeEvent {
+export interface CanvasReadProbeEvent {
   startedAtMs: number
   finishedAtMs: number
-  viewport: Viewport | null
+  snapshot: CanvasSnapshot | null
   accepted: boolean
 }
 
@@ -29,7 +29,6 @@ type Signature = {
   contentX: number
   contentW: number
   refY: number | null
-  seq: number | null
   viewLeft: number | null
   viewRight: number | null
   viewTop: number | null
@@ -124,7 +123,7 @@ export class ScrollLatencyProbe {
     }
   }
 
-  recordViewportRead(event: ViewportReadProbeEvent): void {
+  recordCanvasRead(event: CanvasReadProbeEvent): void {
     if (!this.enabled || !this.burst) {
       return
     }
@@ -168,20 +167,20 @@ export class ScrollLatencyProbe {
   }
 }
 
-function signature(viewport: Viewport | null): Signature | null {
+function signature(viewport: CanvasSnapshot | Viewport | null): Signature | null {
   if (!viewport) {
     return null
   }
-  const mapping = viewport.source?.mapping
+  const detailed = "contentX" in viewport ? viewport : null
+  const mapping = detailed?.source?.mapping
   return {
     x: viewport.canvas.x,
     y: viewport.canvas.y,
     w: viewport.canvas.w,
     h: viewport.canvas.h,
-    contentX: viewport.contentX,
-    contentW: viewport.contentW,
-    refY: viewport.refY ?? null,
-    seq: viewport.source?.seq ?? null,
+    contentX: detailed?.contentX ?? 0,
+    contentW: detailed?.contentW ?? 0,
+    refY: detailed?.refY ?? null,
     viewLeft: mapping?.viewLeft ?? null,
     viewRight: mapping?.viewRight ?? null,
     viewTop: mapping?.viewTop ?? null,
@@ -198,7 +197,6 @@ function bridgeSignature(viewport: Viewport | null): string | null {
   }
   const { mapping } = source
   return [
-    source.seq,
     mapping.viewLeft,
     mapping.viewRight,
     mapping.viewTop,
@@ -220,7 +218,6 @@ function moved(before: Signature | null, after: Signature | null): boolean {
     Math.abs(before.contentX - after.contentX) > EPS ||
     Math.abs(before.contentW - after.contentW) > EPS ||
     absDiff(before.refY, after.refY) > EPS ||
-    before.seq !== after.seq ||
     absDiff(before.viewLeft, after.viewLeft) > EPS ||
     absDiff(before.viewRight, after.viewRight) > EPS ||
     absDiff(before.viewTop, after.viewTop) > EPS ||

@@ -39,6 +39,42 @@ function shifted(viewport: Viewport, shift: number, seq: number): Viewport {
 }
 
 describe("ScrollLatencyProbe", () => {
+  it("does not treat a bridge sequence tick as viewport movement", () => {
+    const reports: string[] = []
+    const probe = new ScrollLatencyProbe({ log: (line) => reports.push(line) })
+    const withSeq = (seq: number): Viewport => ({
+      ...VIEWPORT,
+      source: VIEWPORT.source ? { ...VIEWPORT.source, seq } : undefined,
+    })
+
+    probe.sample({
+      atMs: 0,
+      frame: 1,
+      native: VIEWPORT,
+      applied: VIEWPORT,
+      drawStartedAtMs: 0,
+      drawEndedAtMs: 1,
+    })
+    probe.sample({
+      atMs: 16,
+      frame: 2,
+      native: VIEWPORT,
+      applied: withSeq(2),
+      drawStartedAtMs: 16,
+      drawEndedAtMs: 17,
+    })
+    probe.sample({
+      atMs: 200,
+      frame: 3,
+      native: VIEWPORT,
+      applied: withSeq(3),
+      drawStartedAtMs: 200,
+      drawEndedAtMs: 201,
+    })
+
+    expect(reports).toEqual([])
+  })
+
   it("reports bridge delay when native movement is visible first", () => {
     const reports: string[] = []
     const probe = new ScrollLatencyProbe({ log: (line) => reports.push(line) })

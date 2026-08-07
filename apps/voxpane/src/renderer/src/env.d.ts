@@ -1,23 +1,18 @@
 import type { BridgeSchedule, BridgeState } from "../../shared/bridgeChannels"
-import type { PianoRoll, Viewport } from "../../shared/geometry"
+import type { CanvasSnapshot } from "../../shared/geometry"
 import type { PermissionKey, PermissionsStatus } from "../../shared/permissions"
 import type { Preferences, PreferencesPatch } from "../../shared/preferences"
 
 declare global {
   interface Window {
     overlay: {
-      /** Cheap atomic viewport read (canvas rect + scroll/zoom) — safe per-frame. */
-      getViewport(): Viewport | null
-      /** Async viewport read, used to keep AX IPC out of the draw call. */
-      getViewportAsync(): Promise<Viewport | null>
-      /** Off-thread piano-roll read returning the current computed note rects. */
-      readNotes(): Promise<PianoRoll | null>
+      getCanvasAsync(): Promise<CanvasSnapshot | null>
     }
     bridge: {
       /** The hot channel: playhead, transport and view transform. Safe per-frame. */
       readState(): BridgeState | null
       /** The note schedule. Only worth reading when readState's notesSeq changes. */
-      readSchedule(): BridgeSchedule | null
+      readSchedule(notesSeq: number): BridgeSchedule | null
       /** Monotonic clock shared with native geometry reads, for measuring age. */
       monotonicNow(): number
     }

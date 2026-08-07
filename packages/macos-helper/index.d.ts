@@ -95,6 +95,13 @@ export function getViewport(): Viewport | null
 export function getViewportAsync(): Promise<Viewport | null>
 
 /**
+ * Reads the cached piano-roll canvas anchors off the renderer main thread.
+ * The rectangle is relative to the target window and remains stable while the
+ * whole window moves.
+ */
+export function getCanvasAsync(): Promise<Rect | null>
+
+/**
  * Press Scripts > Rescan in the target app, so a script file just written is
  * loaded by a SynthV that is already running — no restart. False when the app is
  * not running, Accessibility is not granted, or the menu was not found.

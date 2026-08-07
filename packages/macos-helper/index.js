@@ -82,6 +82,15 @@ function getViewportAsync() {
 }
 
 /**
+ * Reads only the cached canvas anchors off the renderer main thread.
+ * Coordinates are relative to the target window.
+ * @returns {Promise<null | {x: number, y: number, w: number, h: number}>}
+ */
+function getCanvasAsync() {
+  return loadNative().getCanvasAsync()
+}
+
+/**
  * Disable AppKit's automatic show/hide/order animations for a window.
  * @param {Buffer} view result of BrowserWindow.getNativeWindowHandle()
  */
@@ -117,6 +126,7 @@ module.exports = {
   getPianoRollAsync,
   getViewport,
   getViewportAsync,
+  getCanvasAsync,
   rescanScripts,
   monotonicNow,
 }
