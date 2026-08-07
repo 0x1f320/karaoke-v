@@ -518,10 +518,8 @@ fn snapshot_viewport_read() -> Option<ViewportRead> {
 }
 
 fn read_viewport(read: &ViewportRead) -> Option<JsViewport> {
-    let (Some(hbar), Some(vbar)) = (
-        ax::ax_frame(read.hbar.get()),
-        ax::ax_frame(read.vbar.get()),
-    ) else {
+    let (Some(hbar), Some(vbar)) = (ax::ax_frame(read.hbar.get()), ax::ax_frame(read.vbar.get()))
+    else {
         return None;
     };
     let mut content = CGRect::new(
@@ -579,7 +577,7 @@ pub fn get_viewport_async() -> AsyncTask<ViewportTask> {
 #[napi]
 pub fn get_viewport() -> Option<JsViewport> {
     CACHE.with_borrow_mut(|cache| {
-        let Some(read) = (match (&cache.hbar, &cache.vbar) {
+        let read = (match (&cache.hbar, &cache.vbar) {
             (Some(hbar), Some(vbar)) => Some(ViewportRead {
                 content: cache.content.clone(),
                 hbar: hbar.clone(),
@@ -588,9 +586,7 @@ pub fn get_viewport() -> Option<JsViewport> {
                 top_inset: cache.top_inset,
             }),
             _ => None,
-        }) else {
-            return None;
-        };
+        })?;
         let out = read_viewport(&read);
         if out.is_none() {
             *cache = Cache::default();

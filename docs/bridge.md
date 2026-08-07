@@ -199,6 +199,9 @@ stale copy publishes and the overlay will go quiet.
   what a 60 Hz loop wants from its input. It runs **every frame**.
 - `readSchedule()` allocates, so it runs only when `notesSeq` changed — a handful of times
   per session rather than per frame.
+- The preload owns a `notesSeq`-keyed schedule cache shared by the transport reader and
+  computed note geometry. The ~30 ms note-geometry pump can reuse the cached cold record
+  while recomputing rectangles from the hot state channel.
 - **Nothing throws.** A short read, a torn record, an unknown layout, a missing file: every
   one of them is `null`, meaning "no data this frame". The writer is a different process
   that can restart at any moment, and a missing SynthV must not be able to break the

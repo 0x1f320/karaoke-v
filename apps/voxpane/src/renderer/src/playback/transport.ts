@@ -77,7 +77,7 @@ export class Transport {
     this.lastSeqClockMs = nowMs
 
     if (state.notesSeq !== this.notesSeq) {
-      const schedule = window.bridge.readSchedule()
+      const schedule = window.bridge.readSchedule(state.notesSeq)
       // A torn or half-written schedule leaves notesSeq alone, so the next frame
       // tries again rather than holding a schedule that never arrived.
       if (schedule !== null) {

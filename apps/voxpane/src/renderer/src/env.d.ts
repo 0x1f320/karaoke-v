@@ -17,7 +17,7 @@ declare global {
       /** The hot channel: playhead, transport and view transform. Safe per-frame. */
       readState(): BridgeState | null
       /** The note schedule. Only worth reading when readState's notesSeq changes. */
-      readSchedule(): BridgeSchedule | null
+      readSchedule(notesSeq: number): BridgeSchedule | null
       /** Monotonic clock shared with native geometry reads, for measuring age. */
       monotonicNow(): number
     }
