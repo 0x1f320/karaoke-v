@@ -6,12 +6,14 @@
   "scripts": {
     "typecheck": "pnpm generate && tsc --noEmit",
     "build": "pnpm typecheck && tstl -p tsconfig.json && tstl -p tsconfig.smoke.json && node scripts/bundle.mjs",
+    "test": "vitest run",
     "deploy": "node scripts/deploy.mjs",
     "dump": "node scripts/dump.mjs",
     "generate": "node scripts/version.mjs"
   },
   "devDependencies": {
     "lua-types": "^2.14.1",
-    "typescript-to-lua": "^1.34.0"
+    "typescript-to-lua": "^1.34.0",
+    "vitest": "^4.1.10"
   }
 }
