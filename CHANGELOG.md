@@ -1,3 +1,9 @@
+## [1.0.0-dev.3](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.2...v1.0.0-dev.3) (2026-08-07)
+
+### 🐛 Bug Fixes
+
+* **bridge:** keep notes generation stable on failed writes ([5cf543e](https://github.com/0x1f320/voxpane/commit/5cf543e748c9afe656cc79bc1f45f078a78e64cc))
+
 ## [1.0.0-dev.2](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.1...v1.0.0-dev.2) (2026-08-07)
 
 ### 🐛 Bug Fixes
