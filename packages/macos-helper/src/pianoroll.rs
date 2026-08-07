@@ -659,7 +659,7 @@ pub fn get_viewport_async() -> AsyncTask<ViewportTask> {
 #[napi]
 pub fn get_viewport() -> Option<JsViewport> {
     CACHE.with_borrow_mut(|cache| {
-        let Some(read) = (match (&cache.hbar, &cache.vbar) {
+        let read = (match (&cache.hbar, &cache.vbar) {
             (Some(hbar), Some(vbar)) => Some(ViewportRead {
                 content: cache.content.clone(),
                 hbar: hbar.clone(),
@@ -668,9 +668,7 @@ pub fn get_viewport() -> Option<JsViewport> {
                 top_inset: cache.top_inset,
             }),
             _ => None,
-        }) else {
-            return None;
-        };
+        })?;
         let out = read_viewport(&read);
         if out.is_none() {
             *cache = Cache::default();

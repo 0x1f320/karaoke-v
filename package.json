@@ -1,6 +1,6 @@
 {
   "name": "voxpane",
-  "version": "1.0.0-dev.1",
+  "version": "1.0.0-dev.3",
   "private": true,
   "license": "MIT",
   "description": "Electron + React app (hello world), Turborepo + pnpm workspace.",

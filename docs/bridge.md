@@ -215,6 +215,9 @@ rAF and continues even while the renderer misses or delays a frame.
   generation. The renderer's `readSchedule(notesSeq)` is then an in-memory lookup.
 - The worker validates the schedule's own `rev` against the state that requested it. A
   mismatched or incomplete pair is retried on a later sample rather than being exposed.
+- The preload runtime is the `notesSeq`-keyed schedule cache. The renderer transport
+  reuses its accepted cold record while recomputing note geometry from hot state and the
+  latest canvas snapshot.
 - **Nothing throws.** A short read, a torn record, an unknown layout, a missing file: every
   one of them is `null`, meaning "keep the last valid cache entry". The writer is a
   different process that can restart at any moment, and a missing SynthV must not be able

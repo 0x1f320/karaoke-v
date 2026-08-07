@@ -208,6 +208,8 @@ reader는 curve의 엉뚱한 부분을 index하며 미묘하게 틀린 것을 �
   `readSchedule(notesSeq)`는 그다음부터 in-memory lookup이다.
 - worker는 schedule 자체의 `rev`가 그것을 요청한 state와 같은지 검증한다. 어긋나거나 완성되지
   않은 pair는 노출하지 않고 나중 sample에서 다시 시도한다.
+- preload runtime이 `notesSeq` key schedule cache다. renderer transport는 받아들인 cold
+  record를 재사용하면서 hot state와 최신 canvas snapshot으로 note geometry를 다시 계산한다.
 - **아무것도 throw하지 않는다.** 짧은 읽기, 찢어진 레코드, 모르는 layout, 없는 파일 — 전부
   `null`, 즉 "마지막 정상 cache entry를 유지"다. writer는 언제든 재시작할 수 있는 별개
   프로세스이고, SynthV가 없는 것이 overlay를 깨뜨릴 수는 없다.

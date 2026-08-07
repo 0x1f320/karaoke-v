@@ -123,8 +123,9 @@ export function createPublisher(): Publisher {
     },
 
     publishNotes(rev, value) {
-      notesSeq = notesSeq + 1
-      if (!notes.publish(encodeNotes(rev, value))) {
+      if (notes.publish(encodeNotes(rev, value))) {
+        notesSeq = notesSeq + 1
+      } else {
         lastError = "notes write failed"
       }
     },
