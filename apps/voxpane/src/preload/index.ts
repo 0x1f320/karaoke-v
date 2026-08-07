@@ -17,6 +17,7 @@ import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
 import { expectedCanvasSize, pianoRollFrom, viewportFrom } from "../shared/pianoRollGeometry"
 import type { Preferences, PreferencesPatch } from "../shared/preferences"
 import { readSchedule, readState } from "./bridgeReader"
+import { ScheduleCache } from "./scheduleCache"
 
 // The helper reports in native units — points on macOS, physical pixels on
 // Windows — and only main can ask Electron for the mapping to DIPs, so it pushes
@@ -80,18 +81,6 @@ async function nativeViewportAsync(): Promise<Viewport | null> {
   return computedViewport(state, canvas)
 }
 
-function schedule(): BridgeSchedule | null {
-  // The schedule only moves when the script publishes a new one, so the last
-  // copy stays correct in between: a read that lost its race with the writer
-  // must not blank the notes for a frame.
-  const schedule = readSchedule() ?? lastSchedule
-  if (!schedule) {
-    return null
-  }
-  lastSchedule = schedule
-  return schedule
-}
-
 async function nativePianoRoll(): Promise<PianoRoll | null> {
   const state = readState()
   if (!state) {
@@ -102,14 +91,14 @@ async function nativePianoRoll(): Promise<PianoRoll | null> {
   if (!canvas) {
     return null
   }
-  const currentSchedule = schedule()
+  const currentSchedule = scheduleCache.read(state.notesSeq) ?? scheduleCache.latest
   if (!currentSchedule) {
     return null
   }
   return pianoRollFrom(state, currentSchedule.notes, canvas, native.getCanvasOrigin?.())
 }
 
-let lastSchedule: BridgeSchedule | null = null
+const scheduleCache = new ScheduleCache(readSchedule)
 
 contextBridge.exposeInMainWorld("overlay", {
   getViewport: (): Viewport | null => {
@@ -131,7 +120,7 @@ contextBridge.exposeInMainWorld("bridge", {
     const state = readState()
     return state && toDipState(dip, state)
   },
-  readSchedule: (): BridgeSchedule | null => readSchedule(),
+  readSchedule: (notesSeq: number): BridgeSchedule | null => scheduleCache.read(notesSeq),
   monotonicNow: (): number => native.monotonicNow(),
 })
 

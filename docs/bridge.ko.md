@@ -193,6 +193,9 @@ reader는 curve의 엉뚱한 부분을 index하며 미묘하게 틀린 것을 �
   입력에 바라는 것이 그것이다. **프레임마다** 돈다.
 - `readSchedule()`은 할당하므로 `notesSeq`가 바뀌었을 때만 돈다 — 프레임마다가 아니라 세션당
   몇 번.
+- preload는 transport reader와 computed note geometry가 공유하는 `notesSeq` key schedule
+  cache를 소유한다. 약 30 ms note-geometry pump는 hot state channel로 rectangle을 다시
+  계산하되 cached cold record를 재사용할 수 있다.
 - **아무것도 throw하지 않는다.** 짧은 읽기, 찢어진 레코드, 모르는 layout, 없는 파일 — 전부
   `null`, 즉 "이번 프레임엔 데이터 없음"이다. writer는 언제든 재시작할 수 있는 별개 프로세스이고,
   SynthV가 없는 것이 overlay를 깨뜨릴 수는 없다.

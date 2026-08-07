@@ -50,7 +50,7 @@ function harness(options: { viewport?: Viewport | null } = {}) {
   const win = {
     bridge: {
       readState: () => state,
-      readSchedule: () => schedule,
+      readSchedule: (_notesSeq: number) => schedule,
     },
   }
   ;(globalThis as { window?: unknown }).window = win
