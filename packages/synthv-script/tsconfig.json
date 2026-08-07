@@ -13,5 +13,6 @@
     "luaBundleEntry": "src/lua/overlay-bridge.ts",
     "sourceMapTraceback": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
 }
