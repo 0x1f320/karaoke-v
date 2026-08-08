@@ -17,4 +17,5 @@ export function bridgeDirectory(): string {
 }
 
 export const CHANNEL_STATE = "state"
+export const CHANNEL_SCROLL = "scroll"
 export const CHANNEL_NOTES = "notes"

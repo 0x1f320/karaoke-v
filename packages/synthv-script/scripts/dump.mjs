@@ -10,8 +10,8 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 
 const MAGIC = "VPB1"
-const LAYOUT = 3
-const CHANNEL = { STATE: 1, NOTES: 2 }
+const LAYOUT = 4
+const CHANNEL = { STATE: 1, NOTES: 2, SCROLL: 3 }
 const STATUS = ["stopped", "playing", "looping"]
 
 function defaultDirectory() {
@@ -105,6 +105,7 @@ function decodeState(buffer) {
   }
   const seq = cursor.u32()
   const notesSeq = cursor.u32()
+  const scrollSeq = cursor.u32()
   const status = STATUS[cursor.u8()] ?? "?"
   const hasLoop = (cursor.u8() & 1) === 1
   const at = cursor.f64()
@@ -113,16 +114,28 @@ function decodeState(buffer) {
   return {
     seq,
     notesSeq,
+    scrollSeq,
     status,
     at,
     loop: hasLoop ? { start: loopStart, end: loopEnd } : null,
+    rev: cursor.str(),
+  }
+}
+
+function decodeScroll(buffer) {
+  const cursor = new Cursor(buffer)
+  const { channel } = readHeader(cursor)
+  if (channel !== CHANNEL.SCROLL) {
+    throw new Error(`expected the scroll channel, got ${channel}`)
+  }
+  return {
+    scrollSeq: cursor.u32(),
     perBlick: cursor.f64(),
     perSemitone: cursor.f64(),
     viewLeft: cursor.f64(),
     viewRight: cursor.f64(),
     viewTop: cursor.f64(),
     viewBottom: cursor.f64(),
-    rev: cursor.str(),
   }
 }
 
@@ -165,6 +178,12 @@ try {
   console.log("\nstate:", decodeState(readChannel("state")))
 } catch (error) {
   console.log(`\nstate: ${error.message}`)
+}
+
+try {
+  console.log("\nscroll:", decodeScroll(readChannel("scroll")))
+} catch (error) {
+  console.log(`\nscroll: ${error.message}`)
 }
 
 try {

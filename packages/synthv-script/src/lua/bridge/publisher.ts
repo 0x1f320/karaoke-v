@@ -2,17 +2,14 @@
  * The contract between the script and the app: which channels exist, what each
  * one carries, and how a reader pairs them up.
  *
- * Splitting the payload by how often it changes is the point — the view
- * transform moves 60 times a second while the note schedule moves when the user
- * edits, and publishing them together meant re-serialising every note to move a
- * scroll position. What it costs is that a reader can now see a schedule from
- * one generation and a transform from the next, so **every channel carries the
- * same `rev`** and the reader pairs on it.
+ * Splitting the payload by how often it changes is the point: transport changes
+ * every tick, the view transform changes while scrolling or zooming, and the
+ * note schedule changes after edits.
  *
- * The hot channel doubles as the index: it names the sequence number of each
- * cold channel, so a reader that already polls it once a frame learns that the
- * schedule moved without opening anything else. That is also why there is no
- * notification of any kind here — a watcher cannot beat "the app already looks
+ * The state channel doubles as the index: it names the sequence number of each
+ * slower channel, so a reader that already polls it learns that a transform or
+ * schedule moved without opening either while unchanged. That is also why there
+ * is no notification of any kind here — a watcher cannot beat "the app already looks
  * every frame", and measured, its tail latency is far worse.
  *
  * `session.json` is the exception that stays JSON and stays padded rather than
@@ -23,7 +20,7 @@
 
 import { encodeJson } from "../json"
 import { type Channel, coldChannel, hotChannel } from "./channels"
-import { encodeNotes, encodeState, LAYOUT, type NoteRecord } from "./codec"
+import { encodeNotes, encodeScroll, encodeState, LAYOUT, type NoteRecord } from "./codec"
 import { bridgeDirectory } from "./paths"
 
 const PROTOCOL = 1
@@ -33,6 +30,7 @@ const PROTOCOL = 1
  * can produce. Publishing fails rather than truncating if it ever does not.
  */
 const STATE_WIDTH = 256
+const SCROLL_WIDTH = 64
 
 const SESSION_WIDTH = 1024
 
@@ -47,6 +45,15 @@ export interface StateValue {
   viewTop: number
   viewBottom: number
   rev: string
+}
+
+interface ScrollValue {
+  perBlick: number
+  perSemitone: number
+  viewLeft: number
+  viewRight: number
+  viewTop: number
+  viewBottom: number
 }
 
 export interface Publisher {
@@ -65,6 +72,7 @@ export function createPublisher(): Publisher {
 
   const session = hotChannel(directory, "session.json", SESSION_WIDTH)
   const state = hotChannel(directory, "state", STATE_WIDTH)
+  const scroll = hotChannel(directory, "scroll", SCROLL_WIDTH)
   const notes = coldChannel(directory, "notes")
 
   const host = SV.getHostInfo()
@@ -81,6 +89,7 @@ export function createPublisher(): Publisher {
       },
       channels: [
         { name: "state", kind: "hot", encoding: "binary", width: STATE_WIDTH },
+        { name: "scroll", kind: "hot", encoding: "binary", width: SCROLL_WIDTH },
         { name: "notes", kind: "cold", encoding: "binary" },
       ],
     }),
@@ -88,32 +97,41 @@ export function createPublisher(): Publisher {
   if (!announced) {
     // Nothing else can work either, and saying so once is more useful than
     // failing silently sixty times a second.
-    closeAll([session, state, notes])
+    closeAll([session, state, scroll, notes])
     return unavailable(`cannot write to ${directory}`)
   }
 
   let seq = 0
   let notesSeq = 0
+  let scrollSeq = 0
+  let lastScroll: ScrollValue | null = null
   let lastError = "none"
 
   return {
     ready: true,
 
     publishState(value) {
+      const nextScroll = scrollValue(value)
+      if (lastScroll === null || !sameScroll(lastScroll, nextScroll)) {
+        const nextScrollSeq = scrollSeq + 1
+        const ok = scroll.publish(encodeScroll({ scrollSeq: nextScrollSeq, ...nextScroll }))
+        if (ok) {
+          scrollSeq = nextScrollSeq
+          lastScroll = nextScroll
+        } else {
+          lastError = "scroll write failed"
+        }
+      }
+
       seq = seq + 1
       const ok = state.publish(
         encodeState({
           seq,
           notesSeq,
+          scrollSeq,
           at: value.at,
           status: value.status,
           loop: value.loop,
-          perBlick: value.perBlick,
-          perSemitone: value.perSemitone,
-          viewLeft: value.viewLeft,
-          viewRight: value.viewRight,
-          viewTop: value.viewTop,
-          viewBottom: value.viewBottom,
           rev: value.rev,
         }),
       )
@@ -131,13 +149,35 @@ export function createPublisher(): Publisher {
     },
 
     describe() {
-      return `${directory} (seq ${seq}, notes ${notesSeq}, last error: ${lastError})`
+      return `${directory} (seq ${seq}, scroll ${scrollSeq}, notes ${notesSeq}, last error: ${lastError})`
     },
 
     close() {
-      closeAll([session, state, notes])
+      closeAll([session, state, scroll, notes])
     },
   }
+}
+
+function scrollValue(value: StateValue): ScrollValue {
+  return {
+    perBlick: value.perBlick,
+    perSemitone: value.perSemitone,
+    viewLeft: value.viewLeft,
+    viewRight: value.viewRight,
+    viewTop: value.viewTop,
+    viewBottom: value.viewBottom,
+  }
+}
+
+function sameScroll(left: ScrollValue, right: ScrollValue): boolean {
+  return (
+    left.perBlick === right.perBlick &&
+    left.perSemitone === right.perSemitone &&
+    left.viewLeft === right.viewLeft &&
+    left.viewRight === right.viewRight &&
+    left.viewTop === right.viewTop &&
+    left.viewBottom === right.viewBottom
+  )
 }
 
 function closeAll(channels: Channel[]): void {

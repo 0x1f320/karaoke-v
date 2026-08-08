@@ -29,12 +29,13 @@ Lua에 `mkdir`이 없으므로 **디렉터리는 앱이 만든다**. 거기에 �
 | 파일 | 종류 | 주기 | 내용 |
 | --- | --- | --- | --- |
 | `session.json` | hot, 1 KB, JSON | 시작 시 1회 | protocol과 layout 버전, host 정보, 다른 channel이 무엇인지 |
-| `state` | hot, 256 B, binary | 4 ms마다 | playhead, transport 상태, loop 힌트, view transform, `rev`, sequence 번호 |
+| `state` | hot, 256 B, binary | 4 ms마다 | playhead, transport 상태, loop 힌트, `rev`, channel generation |
+| `scroll` | hot, 64 B, binary | 바뀔 때 | 완전한 view transform과 그 generation |
 | `notes` | cold, 가변 | 편집 시 / 재생 시작 시 | pitch curve를 포함한 note schedule 전체 |
 
-**얼마나 자주 바뀌는가로** 나눈 것이다. view transform은 초당 60번 움직이고 schedule은
-사용자가 타이핑할 때 움직인다. 같이 publish하면 scroll 위치 하나 옮기려고 모든 note를 다시
-직렬화해야 했다.
+**얼마나 자주 바뀌는가로** 나눈 것이다. transport는 매 tick sample되고, view transform은
+사용자가 scroll하거나 zoom할 때 움직이며, schedule은 사용자가 타이핑할 때 움직인다. 바뀌지
+않은 view는 `scroll` write를 만들지 않는다.
 
 `session.json`이 JSON으로, 그리고 framing 대신 padding으로 남은 것은 의도적이다: binary
 channel이 무엇인지 알려주는 문서이므로 `cat`으로 읽혀서 살아남아야 한다.
@@ -48,19 +49,21 @@ latency가 훨씬 나쁘다).
 
 ## Pairing the channels
 
-channel을 나눴다는 것은 reader가 한 generation의 schedule과 그다음 generation의 view transform을
-볼 수 있다는 뜻이다. 두 장치가 그것을 다룬다:
+channel을 나눴다는 것은 다른 record가 교체되는 동안 reader가 state를 볼 수 있다는 뜻이다.
+세 필드가 그것을 다룬다:
 
 - **`notesSeq`.** state record가 `notes` channel의 generation을 나르므로, 프레임마다 state만
   poll하는 reader가 다른 파일을 열지 않고도 schedule이 움직였음을 안다. hot channel이 곧
   index다.
+- **`scrollSeq`.** state는 `scroll` channel의 generation을 나른다. script는 완전한 transform을
+  먼저 쓰고 그 write가 성공한 뒤에만 `scrollSeq`를 올린다. worker는 광고된 generation이
+  바뀔 때만 `scroll`을 열고 record 자신의 sequence가 일치할 때만 받아들인다.
 - **`rev`.** 현재 group의 note 지문(onset·end·pitch·lyric에 대한 FNV-1a, 여기에 group의 time
-  offset과 note 수)이고 **두 channel 모두** 나른다. `rev`가 바뀌었다는 것은 들고 있던 schedule이
-  낡았다는 뜻이다. **레코드 자신의 `rev`가 우선한다** — state channel이 읽힐 때 나르고 있던
-  것보다.
+  offset과 note 수)이고 **state와 notes**가 나른다. `rev`가 바뀌었다는 것은 들고 있던 schedule이
+  낡았다는 뜻이다. **notes record 자신의 `rev`가 우선한다** — state가 읽힐 때 나르고 있던 것보다.
 
-script는 그것을 index하는 state record보다 schedule을 *먼저* publish한다. 그래서 `rev`와
-`notesSeq`는 이전 tick이 아니라 읽히는 그 tick을 묘사한다.
+script는 바뀐 scroll과 schedule record를 그것을 index하는 state record보다 *먼저* publish한다.
+indexed-channel write 실패는 state가 광고하는 generation을 전진시키지 않는다.
 
 `rev`는 tick마다가 아니라 자기 주기(500 ms)로 다시 계산한다: 지문 계산은 모든 note를 훑고
 note마다 host를 호출하므로, 여기서 프로젝트 크기에 비례해 커지는 유일한 것이다.
@@ -70,6 +73,7 @@ sequenceDiagram
     autonumber
     actor U as 사용자
     participant S as bridge script
+    participant R as scroll channel
     participant N as notes channel
     participant T as state channel
     participant W as preload Web Worker
@@ -77,7 +81,11 @@ sequenceDiagram
     participant A as renderer
 
     loop 4 ms마다
-        S->>T: state publish — seq+1, playhead, status, view transform, rev
+        S->>S: view transform sample
+        opt transform이 바뀜
+            S->>R: 64 B transform publish, scrollSeq+1
+        end
+        S->>T: state publish — seq+1, playhead, status, scrollSeq, rev
     end
 
     U->>S: note를 편집
@@ -90,7 +98,13 @@ sequenceDiagram
 
     loop rAF와 독립적으로 4 ms마다
         W->>T: 256 B pread
-        W->>M: 정상 state를 transfer하고 decode
+        alt scrollSeq가 바뀜
+            W->>R: 64 B pread
+            W->>M: 일치하는 transform 유지
+        else 그대로
+            W-->>W: scroll file I/O 없음
+        end
+        W->>M: 정상 state를 transfer하고 조합
         alt notesSeq가 바뀜
             W->>N: schedule 전체를 읽음
             W->>M: notesSeq별로 유지
@@ -132,8 +146,8 @@ sequenceDiagram
 | 필드 | 타입 | 값 |
 | --- | --- | --- |
 | magic | 4 bytes | `VPB1` |
-| layout | u16 | `3` |
-| channel | u16 | 1 = state, 2 = notes |
+| layout | u16 | `4` |
+| channel | u16 | 1 = state, 2 = notes, 3 = scroll |
 | length | u32 | 뒤따르는 payload 바이트 수 |
 
 **`state`** payload — 고정 크기, 그다음 256바이트까지 공백으로 padding:
@@ -142,14 +156,21 @@ sequenceDiagram
 | --- | --- | --- |
 | `seq` | u32 | 매 tick 증가. 멈춘 `seq`는 script가 사라졌다는 뜻 |
 | `notesSeq` | u32 | `notes` channel의 generation |
+| `scrollSeq` | u32 | `scroll` channel의 generation |
 | `status` | u8 | 0 stopped, 1 playing, 2 looping |
 | flags | u8 | bit 0: loop 경계가 있음 |
 | `at` | f64 | playhead, 초 |
 | loop start, loop end | f64 × 2 | flag가 없으면 무의미 |
+| `rev` | u16 길이 + UTF-8 | Lua의 `s2` |
+
+**`scroll`** payload — header를 포함해 정확히 64바이트:
+
+| 필드 | 타입 | 비고 |
+| --- | --- | --- |
+| `scrollSeq` | u32 | 검증을 위해 반복되는 generation |
 | `perBlick`, `perSemitone` | f64 × 2 | view 스케일 |
 | `viewLeft`, `viewRight` | f64 × 2 | 보이는 blick 범위 |
 | `viewTop`, `viewBottom` | f64 × 2 | 보이는 value 범위 |
-| `rev` | u16 길이 + UTF-8 | Lua의 `s2` |
 
 **`notes`** payload: `rev`(`s2`), note 수(u32), 그다음 note마다:
 
@@ -180,7 +201,8 @@ JSON은 필드가 생기거나 타입이 바뀌는 것을 견딘다. 고정 layo
 > magic과 layout 버전 **둘 다** 알아보지 못하는 reader는 레코드를 해석하지 말고 **거부해야
 > 한다.**
 
-layout 3이 존재하는 이유는 bend가 note 양쪽에 고정 padding을 갖게 되었기 때문이다. padding된
+layout 4는 완전한 view transform을 generation-indexed `scroll` channel로 옮겼다. layout 3이
+존재한 이유는 bend가 note 양쪽에 고정 padding을 갖게 되었기 때문이다. padding된
 배열은 padding 없는 것과 정확히 같아 보인다 — 같은 타입, 그럴듯한 값 — 그래서 padding을 가정한
 reader는 curve의 엉뚱한 부분을 index하며 미묘하게 틀린 것을 그렸을 것이다. 버전 번호가 막으려는
 실패 방식이 바로 그것이다.
@@ -203,13 +225,18 @@ reader는 curve의 엉뚱한 부분을 index하며 미묘하게 틀린 것을 �
 - state `pread`는 하나의 256 B 버퍼를 재사용한다. 검증이 끝나면 worker가 record 사본을
   preload로 transfer하고, preload는 한 번 decode해 최신 state object를 교체한다. renderer의
   프레임별 호출은 그 object만 반환하며 file I/O도 Electron IPC도 하지 않는다.
+- worker는 `scroll`에 64 B 버퍼 하나를 재사용하지만, sampled state의 `scrollSeq`가 받아들인
+  generation과 다를 때만 읽는다. record 자신의 sequence를 검증하고 state보다 먼저 scroll을
+  transfer하며, preload runtime은 여섯 값을 renderer가 보는 `state.px`로 다시 조합한다.
+  viewport가 그대로면 양쪽 모두 scroll-channel file I/O를 하지 않는다.
 - worker는 sampled state의 `notesSeq`가 전진할 때만 `notes`를 열고 검증한다. 그 record는
   preload cache로 한 번 transfer되고, cache가 정확한 generation을 decode해 유지한다. renderer의
   `readSchedule(notesSeq)`는 그다음부터 in-memory lookup이다.
 - worker는 schedule 자체의 `rev`가 그것을 요청한 state와 같은지 검증한다. 어긋나거나 완성되지
   않은 pair는 노출하지 않고 나중 sample에서 다시 시도한다.
-- preload runtime이 `notesSeq` key schedule cache다. renderer transport는 받아들인 cold
-  record를 재사용하면서 hot state와 최신 canvas snapshot으로 note geometry를 다시 계산한다.
+- preload runtime은 `scrollSeq` key transform cache이자 `notesSeq` key schedule cache다.
+  renderer transport는 받아들인 record를 재사용하면서 state와 최신 canvas snapshot으로 note
+  geometry를 다시 계산한다.
 - **아무것도 throw하지 않는다.** 짧은 읽기, 찢어진 레코드, 모르는 layout, 없는 파일 — 전부
   `null`, 즉 "마지막 정상 cache entry를 유지"다. writer는 언제든 재시작할 수 있는 별개
   프로세스이고, SynthV가 없는 것이 overlay를 깨뜨릴 수는 없다.
@@ -228,9 +255,9 @@ channel만 script가 사라졌다는 뜻이다: 외삽을 멈춘다.
 pnpm --filter @voxpane/synthv-script dump
 ```
 
-`session.json`, 디코드된 state 레코드, 그리고 처음 8개 note를 bend 범위와 함께 출력한다.
+`session.json`, decode된 state와 scroll record, 그리고 처음 8개 note를 bend 범위와 함께 출력한다.
 선택 인자로 디렉터리를 줄 수 있다.
 
-아무것도 안 돌고 있으면 `ENOENT`가 셋 나오는데, 그 자체가 "여기에 script가 한 번이라도
+아무것도 안 돌고 있으면 `ENOENT`가 넷 나오는데, 그 자체가 "여기에 script가 한 번이라도
 publish한 적이 있는가"에 대한 답이다. 정상적인 dump가 어떻게 생겼고 어떻게 읽는지는
 [debugging](debugging.ko.md#3-read-the-live-state).

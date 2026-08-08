@@ -1,21 +1,21 @@
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs"
 import { join } from "node:path"
-import { STATE_BYTES } from "../shared/bridgeChannels"
+import { SCROLL_BYTES, STATE_BYTES } from "../shared/bridgeChannels"
 import type { BridgeFileDiagnostics, BridgeRecordRead } from "../shared/bridgeDiagnostics"
-import { bridgeDirectory, CHANNEL_NOTES, CHANNEL_STATE } from "../shared/bridgePath"
+import { bridgeDirectory, CHANNEL_NOTES, CHANNEL_SCROLL, CHANNEL_STATE } from "../shared/bridgePath"
 
 // Reads the bridge channels inside the Node-enabled Web Worker. The state read
 // is a `pread` into a buffer allocated once; the renderer never waits for it.
 //
-// The schedule is read only when the state record says its generation changed,
-// so the expensive channel is touched a handful of times per session rather than
-// on every state sample.
+// Scroll and schedule are read only when state says their generations changed,
+// so unchanged channels are not touched on every state sample.
 //
 // Nothing here throws. The writer is SynthV, which may not be running, may have
 // been restarted, or may be replacing a record at the moment of the read; all of
 // those are "no data this sample".
 
 const stateBuffer = Buffer.allocUnsafe(STATE_BYTES)
+const scrollBuffer = Buffer.allocUnsafe(SCROLL_BYTES)
 
 class Channel {
   private readonly path: string
@@ -84,10 +84,15 @@ class Channel {
 }
 
 const state = new Channel(CHANNEL_STATE)
+const scroll = new Channel(CHANNEL_SCROLL)
 const notes = new Channel(CHANNEL_NOTES)
 
 export function readStateRecord(diagnostics = false): BridgeRecordRead | null {
   return state.read(stateBuffer, STATE_BYTES, diagnostics)
+}
+
+export function readScrollRecord(diagnostics = false): BridgeRecordRead | null {
+  return scroll.read(scrollBuffer, SCROLL_BYTES, diagnostics)
 }
 
 export function readScheduleRecord(diagnostics = false): BridgeRecordRead | null {

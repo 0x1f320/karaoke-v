@@ -42,14 +42,16 @@ real channels. Run it after touching the toolchain.
 
 ## Channels
 
-The script does not send one payload. Values do not change together — the view transform
-moves sixty times a second, the schedule moves when the user edits — so each cadence is its
-own file in `<app data>/voxpane/bridge/`, which **the app creates** (Lua has no mkdir).
+The script does not send one payload. Values do not change together: transport is sampled
+every tick, the view transform changes while scrolling or zooming, and the schedule changes
+when the user edits. Each cadence has its own file in `<app data>/voxpane/bridge/`, which
+**the app creates** (Lua has no mkdir).
 
 | Channel | Cadence | Written |
 | --- | --- | --- |
 | `session.json` | once at start | JSON, padded to a fixed width. The contract: protocol and layout version, and what the other channels are. |
 | `state` | every tick | Binary, fixed width, rewritten in place. |
+| `scroll` | when changed | Binary, 64 bytes, rewritten only after one of the six transform values changes. |
 | `notes` | on edit | Binary, whole record in one write. |
 
 Two rules make this safe without `os.rename`: **a record is always exactly one `write` call**
@@ -57,8 +59,9 @@ Two rules make this safe without `os.rename`: **a record is always exactly one `
 **a record carries its own length**, because an in-place write shorter than the last one
 leaves the old tail behind.
 
-The hot channel is also the index: it carries each cold channel's sequence number, so a
-reader polling it once a frame learns the schedule moved without opening anything else.
+The state channel is also the index: it carries the scroll and notes sequence numbers, so a
+reader polling it once a frame learns which additional record moved without opening it
+while unchanged.
 That is why nothing here notifies anyone — a watcher cannot beat a reader that already
 looks every frame, and measured, `fs.watch` matches a 1 ms poll at the median and trails it
 by 287 ms at the tail.
@@ -79,4 +82,3 @@ This copies everything built into SynthV's scripts directory (macOS
 `~/Library/Application Support/Dreamtonics/…`, Windows `Documents\Dreamtonics\…`). Set
 `SYNTHV_SCRIPTS_DIR` to override. SynthV picks the scripts up from **Scripts → Rescan**;
 the bridge then appears as an *Overlay Bridge* side panel section.
-

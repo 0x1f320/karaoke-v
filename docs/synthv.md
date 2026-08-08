@@ -104,6 +104,9 @@ These absences shape the whole bridge design:
   DAW to create one folder. So **the app creates the bridge directory**, and the script
   simply fails to open until it exists.
 - **No sockets, no threads.**
+- **No viewport-change callback.** The script has to sample navigation every tick to notice
+  the next scroll or zoom. It suppresses the `scroll` channel write when all six values are
+  unchanged, but it cannot suspend the host getters without adding detection latency.
 - **No scheduler but `SV.setTimeout`.** The bridge is a `setTimeout` loop that reschedules
   itself in a `finally` — a throw anywhere in a tick would otherwise end the loop for the
   session while the panel went on showing its last state.
@@ -161,11 +164,12 @@ Four things about it are measured, not documented, and each one caused a visible
 All of it is **canvas-local**. Nothing here says where the canvas is on screen, which is
 precisely the gap the native helpers fill.
 
-Both edges of each range are published, not just the near one, because Windows identifies
-the piano-roll element by the pixel size those ranges imply — see
-[geometry](geometry.md#two-platforms-two-strategies).
+Both edges of each range are published in one 64-byte `scroll` record, not just the near
+one, because Windows identifies the piano-roll element by the pixel size those ranges imply
+— see [geometry](geometry.md#two-platforms-two-strategies). The record is written only
+after one of the six values changes.
 
-Note the sign convention: `getValueViewRange()` returns bottom first, and the state record
+Note the sign convention: `getValueViewRange()` returns bottom first, and the scroll record
 stores `viewTop` = `range[1]`, `viewBottom` = `range[0]`.
 
 One more measured detail: **`v2y` centres a lane on its value** rather than starting at it,

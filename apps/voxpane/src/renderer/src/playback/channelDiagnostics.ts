@@ -3,6 +3,7 @@ import type { Rect, Viewport } from "../../../shared/geometry"
 
 export interface BridgeDiagnosticsLabels {
   state: string
+  scroll: string
   notes: string
   age: string
   size: string
@@ -13,10 +14,14 @@ export interface BridgeDiagnosticsLabels {
   read: string
   seq: string
   notesSeq: string
+  scrollSeq: string
   rev: string
   failures: string
   stateMissing: string
   stateInvalid: string
+  scrollMissing: string
+  scrollInvalid: string
+  scrollSeqMismatch: string
   notesMissing: string
   notesInvalid: string
   revMismatch: string
@@ -100,6 +105,7 @@ export function formatBridgeDiagnostics(
   const { labels } = options
   return [
     formatChannel("state", labels.state, diagnostics, options),
+    formatChannel("scroll", labels.scroll, diagnostics, options),
     formatChannel("notes", labels.notes, diagnostics, options),
     formatFailures(diagnostics, labels),
     `${labels.scrollApplied} ${labels.current}=${formatCost(options.scrollAppliedMs, labels.missing)} ${formatStats(options.stats.scroll, labels)}`,
@@ -165,10 +171,10 @@ export class BridgeScrollLatency {
       return 0
     }
     this.signature = signature
-    if (!diagnostics.state) {
+    if (!diagnostics.scroll) {
       return null
     }
-    return Math.max(0, nowMonotonicMs - diagnostics.state.acceptedAtMs)
+    return Math.max(0, nowMonotonicMs - diagnostics.scroll.acceptedAtMs)
   }
 
   reset(): void {
@@ -390,7 +396,7 @@ function drawLegend(
 }
 
 function formatChannel(
-  channel: "state" | "notes",
+  channel: "state" | "scroll" | "notes",
   name: string,
   diagnostics: BridgeDiagnostics,
   options: {
@@ -402,13 +408,24 @@ function formatChannel(
 ): string {
   const { labels } = options
   const channelDiagnostics = diagnostics[channel]
-  const stats = options.stats[channel]
-  const record = channel === "state" ? diagnostics.stateRecord : diagnostics.notesRecord
-  const cost = channel === "state" ? diagnostics.costs.stateReadMs : diagnostics.costs.notesReadMs
-  const prefix =
-    channel === "state"
-      ? `${labels.seq}=${record && "seq" in record ? record.seq : labels.missing} ${labels.notesSeq}=${record?.notesSeq ?? labels.missing} ${labels.rev}=${formatRev(record?.rev ?? null, labels.missing)}`
-      : `${labels.notesSeq}=${record?.notesSeq ?? labels.missing} ${labels.rev}=${formatRev(record?.rev ?? null, labels.missing)}`
+  let stats: BridgeDiagnosticsStatValues | null
+  let cost: number | null
+  let prefix: string
+  if (channel === "state") {
+    const record = diagnostics.stateRecord
+    stats = options.stats.state
+    cost = diagnostics.costs.stateReadMs
+    prefix = `${labels.seq}=${record?.seq ?? labels.missing} ${labels.notesSeq}=${record?.notesSeq ?? labels.missing} ${labels.scrollSeq}=${record?.scrollSeq ?? labels.missing} ${labels.rev}=${formatRev(record?.rev ?? null, labels.missing)}`
+  } else if (channel === "scroll") {
+    stats = null
+    cost = diagnostics.costs.scrollReadMs
+    prefix = `${labels.scrollSeq}=${diagnostics.scrollRecord?.scrollSeq ?? labels.missing}`
+  } else {
+    const record = diagnostics.notesRecord
+    stats = options.stats.notes
+    cost = diagnostics.costs.notesReadMs
+    prefix = `${labels.notesSeq}=${record?.notesSeq ?? labels.missing} ${labels.rev}=${formatRev(record?.rev ?? null, labels.missing)}`
+  }
   if (!channelDiagnostics) {
     return `${name} ${prefix} ${labels.age}=${labels.missing} ${labels.size}=${labels.missing} ${labels.read}=${formatCost(cost, labels.missing)} ${labels.applied}=${labels.missing} ${formatStats(stats, labels)}`
   }
@@ -417,7 +434,7 @@ function formatChannel(
 
 function formatFailures(diagnostics: BridgeDiagnostics, labels: BridgeDiagnosticsLabels): string {
   const { counters } = diagnostics
-  return `${labels.failures} ${labels.stateMissing}=${counters.stateMissing} ${labels.stateInvalid}=${counters.stateInvalid} ${labels.notesMissing}=${counters.notesMissing} ${labels.notesInvalid}=${counters.notesInvalid} ${labels.revMismatch}=${counters.revMismatch}`
+  return `${labels.failures} ${labels.stateMissing}=${counters.stateMissing} ${labels.stateInvalid}=${counters.stateInvalid} ${labels.scrollMissing}=${counters.scrollMissing} ${labels.scrollInvalid}=${counters.scrollInvalid} ${labels.scrollSeqMismatch}=${counters.scrollSeqMismatch} ${labels.notesMissing}=${counters.notesMissing} ${labels.notesInvalid}=${counters.notesInvalid} ${labels.revMismatch}=${counters.revMismatch}`
 }
 
 export class BridgeDiagnosticsStats {

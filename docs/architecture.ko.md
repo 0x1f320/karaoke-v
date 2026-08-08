@@ -24,11 +24,11 @@ voxpane은 Synthesizer V Studio 2의 piano roll 위에 effect를 그린다. 프�
 ```mermaid
 flowchart TD
     subgraph SV["Synthesizer V Studio 2"]
-        script["<b>overlay-bridge.lua</b><br/>packages/synthv-script (TS → Lua)<br/>4 ms마다 — playhead, status, view transform<br/>편집 시 — note schedule + pitch curve"]
+        script["<b>overlay-bridge.lua</b><br/>packages/synthv-script (TS → Lua)<br/>4 ms마다 — playhead, status, view sample<br/>변경 시 — view transform 또는 note schedule"]
     end
 
     subgraph CH["the bridge directory"]
-        files["<b>session.json · state · notes</b><br/>각각 레코드 하나,<br/>제자리에서 교체"]
+        files["<b>session.json · state · scroll · notes</b><br/>각각 레코드 하나,<br/>제자리에서 교체"]
     end
 
     subgraph NAT["native helper — packages/macos-helper · packages/windows-helper"]
@@ -37,8 +37,8 @@ flowchart TD
     end
 
     subgraph REN["overlay renderer"]
-        worker["<b>bridge Web Worker</b><br/>4 ms마다 파일 poll<br/>검증된 record를 transfer"]
-        preload["<b>preload cache</b><br/>최신 decoded state<br/>generation별 schedule"]
+        worker["<b>bridge Web Worker</b><br/>4 ms마다 state poll<br/>변경 시 indexed channel 읽기"]
+        preload["<b>preload cache</b><br/>최신 decoded state<br/>generation별 transform + schedule"]
         transport["<b>Transport</b><br/>playhead, schedule"]
         match["<b>note matching</b><br/>어느 rect이 이 note인가?"]
         pixi["<b>PixiJS effects</b>"]
@@ -90,9 +90,10 @@ SynthV의 scripts 디렉터리에 설치하고, preferences를 소유하며 변�
 **Preload** (`src/preload`)가 hot input cache를 소유한다. 이례적이고, 의도적이다.
 `sandbox: false`로 돌고 overlay가 전용 Web Worker의 Node integration을 켜므로, 그 worker가
 main이나 renderer frame loop를 거치지 않고 bridge 파일을 계속 열어 두고 sample할 수 있다.
-검증된 record는 preload로 transfer된다. state는 하나의 최신 object로 decode되고, schedule은
-`notesSeq`별로 유지된다. renderer는 그 memory cache만 읽는다. 프레임마다 main을 왕복하거나
-파일을 읽는 것, 그게 이 배치가 없애려고 존재하는 바로 그것이다.
+검증된 record는 preload로 transfer된다. view transform은 `scrollSeq`별로, schedule은
+`notesSeq`별로 유지되고, 일치하는 record가 하나의 최신 state object로 조합된다. renderer는
+그 memory cache만 읽는다. 프레임마다 main을 왕복하거나 불필요하게 파일을 읽는 것, 그게 이
+배치가 없애려고 존재하는 바로 그것이다.
 
 **Renderer** (`src/renderer`)는 하나의 번들이 네 개의 view를 담당하고, `App.tsx`에서
 `window.location.hash`로 고른다: hash 없음이 overlay, `#toolbar`·`#settings`·`#permissions`
@@ -109,8 +110,8 @@ main이나 renderer frame loop를 거치지 않고 bridge 파일을 계속 열�
 
 1. **최신 bridge snapshot을 잡는다.** `transport.poll()`이 preload memory에 있는 최신 정상
    decoded state object를 읽는다. bridge worker가 rAF와 독립적으로 4 ms마다 파일을 sample하므로,
-   frame이 늦어져도 acquisition까지 늦어지지 않는다. 바뀐 `notesSeq`는 preload cache가 이미
-   유지 중인 schedule을 선택한다.
+   frame이 늦어져도 acquisition까지 늦어지지 않는다. 바뀐 `scrollSeq`와 `notesSeq`는 preload
+   cache가 이미 유지 중인 transform과 schedule을 선택한다.
 2. **최신 native canvas anchor를 잡는다.** `CanvasManager`가 draw call 밖에서 canvas와 window
    origin만 ~250 ms마다 갱신한다. 그런 다음 scroll, zoom, vertical reference는 1단계의 in-memory
    bridge state로 즉시 다시 계산하므로, 느린 AX 응답은 canvas anchor를 낡게 만들 수는 있어도
@@ -121,8 +122,8 @@ main이나 renderer frame loop를 거치지 않고 bridge 파일을 계속 열�
 5. **이 순간의 sung pitch를 샘플링한다**(`playback/pitch.ts`). 발사점을 note 자신의 lane
    밖으로 옮기고, effect 강도를 몰 수도 있다.
 6. **그린다.** Pixi scene에 transform 한 번. base note geometry는 schedule generation이나
-   native canvas가 바뀔 때만 다시 만들고, scroll만 바뀐 state는 같은 geometry를 재사용해 scene
-   transform만 갱신한다.
+   native canvas가 바뀔 때만 다시 만들고, 바뀐 scroll generation은 같은 geometry를 재사용해
+   scene transform만 갱신한다.
 
 note pump는 없다. `Transport`가 schedule, native canvas snapshot, 유도된 piano-roll set을 함께
 소유한다. 이로써 중복된 30 ms geometry loop와 그 loop가 일으키던 bridge/native 경쟁 read가
@@ -132,14 +133,14 @@ note pump는 없다. `Transport`가 schedule, native canvas snapshot, 유도된 
 
 | Clock | 주기 | 나르는 것 |
 | --- | --- | --- |
-| script의 tick | 4 ms | playhead, transport status, view transform |
-| bridge worker | ~4 ms + file read 시간 | 최신 정상 state, 바뀐 schedule generation |
+| script의 tick | 4 ms | playhead와 transport status, view sample과 변경 시에만 write |
+| bridge worker | ~4 ms + file read 시간 | 최신 정상 state, 바뀐 scroll과 schedule generation |
 | canvas manager | ~250 ms + native 응답 시간 | canvas와 window origin |
 | frame loop | 디스플레이 주사율 | in-memory snapshot 소비, geometry transform, 그리기 |
 
 넷은 동기화되어 있지 않고, 그럴 의도도 없다. native anchor는 조금 낡을 수 있지만, scroll과
-zoom은 그리기 전에 현재 bridge record로 다시 계산하므로, 소비자는 신선함을 기다리는 대신 나이를
-스스로 보정한다.
+zoom은 그리기 전에 현재 cached transform으로 다시 계산하므로, 소비자는 신선함을 기다리는 대신
+나이를 스스로 보정한다.
 
 ## Why the transport is so small
 

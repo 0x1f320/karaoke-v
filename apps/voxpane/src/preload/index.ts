@@ -35,12 +35,19 @@ interface ScheduleMessage {
   diagnostics: BridgeFileDiagnostics | null
 }
 
+interface ScrollMessage {
+  type: "scroll"
+  scrollSeq: number
+  bytes: ArrayBuffer
+  diagnostics: BridgeFileDiagnostics | null
+}
+
 interface DiagnosticsMessage {
   type: "diagnostics"
   diagnostics: BridgeSamplerDiagnostics
 }
 
-type BridgeWorkerMessage = StateMessage | ScheduleMessage | DiagnosticsMessage
+type BridgeWorkerMessage = StateMessage | ScrollMessage | ScheduleMessage | DiagnosticsMessage
 
 interface BrowserWorker {
   onmessage: ((event: { data: BridgeWorkerMessage }) => void) | null
@@ -68,6 +75,12 @@ function cachedBridge(): BridgeRuntime {
   worker.onmessage = ({ data }) => {
     if (data.type === "state") {
       runtime.acceptState(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
+    } else if (data.type === "scroll") {
+      runtime.acceptScroll(
+        data.scrollSeq,
+        new Uint8Array(data.bytes),
+        acceptDiagnostics(data.diagnostics),
+      )
     } else if (data.type === "schedule") {
       runtime.acceptSchedule(
         data.notesSeq,

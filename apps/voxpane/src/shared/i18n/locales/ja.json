@@ -29,6 +29,7 @@
   "debug": {
     "channels": {
       "state": "state",
+      "scroll": "scroll",
       "notes": "notes",
       "age": "age",
       "size": "size",
@@ -39,10 +40,14 @@
       "read": "read",
       "seq": "seq",
       "notesSeq": "notesSeq",
+      "scrollSeq": "scrollSeq",
       "rev": "rev",
       "failures": "fail",
       "stateMissing": "stateMissing",
       "stateInvalid": "stateInvalid",
+      "scrollMissing": "scrollMissing",
+      "scrollInvalid": "scrollInvalid",
+      "scrollSeqMismatch": "scrollSeqMismatch",
       "notesMissing": "notesMissing",
       "notesInvalid": "notesInvalid",
       "revMismatch": "revMismatch",

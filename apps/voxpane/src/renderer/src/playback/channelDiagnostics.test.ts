@@ -16,6 +16,7 @@ import {
 
 const LABELS = {
   state: "state",
+  scroll: "scroll",
   notes: "notes",
   age: "age",
   size: "size",
@@ -26,10 +27,14 @@ const LABELS = {
   read: "read",
   seq: "seq",
   notesSeq: "notesSeq",
+  scrollSeq: "scrollSeq",
   rev: "rev",
   failures: "fail",
   stateMissing: "stateMissing",
   stateInvalid: "stateInvalid",
+  scrollMissing: "scrollMissing",
+  scrollInvalid: "scrollInvalid",
+  scrollSeqMismatch: "scrollSeqMismatch",
   notesMissing: "notesMissing",
   notesInvalid: "notesInvalid",
   revMismatch: "revMismatch",
@@ -94,6 +99,11 @@ describe("formatBridgeDiagnostics", () => {
         sizeBytes: 256,
         acceptedAtMs: 60,
       },
+      scroll: {
+        modifiedAtMs: 1_500,
+        sizeBytes: 64,
+        acceptedAtMs: 70,
+      },
       notes: {
         modifiedAtMs: 1_800,
         sizeBytes: 4_096,
@@ -102,7 +112,11 @@ describe("formatBridgeDiagnostics", () => {
       stateRecord: {
         seq: 12,
         notesSeq: 7,
+        scrollSeq: 4,
         rev: "abcdef123456",
+      },
+      scrollRecord: {
+        scrollSeq: 4,
       },
       notesRecord: {
         notesSeq: 7,
@@ -111,12 +125,16 @@ describe("formatBridgeDiagnostics", () => {
       counters: {
         stateMissing: 1,
         stateInvalid: 2,
-        notesMissing: 3,
-        notesInvalid: 4,
-        revMismatch: 5,
+        scrollMissing: 3,
+        scrollInvalid: 4,
+        scrollSeqMismatch: 5,
+        notesMissing: 6,
+        notesInvalid: 7,
+        revMismatch: 8,
       },
       costs: {
         stateReadMs: 0.75,
+        scrollReadMs: 0.25,
         notesReadMs: 8.25,
       },
     }
@@ -134,9 +152,10 @@ describe("formatBridgeDiagnostics", () => {
         labels: LABELS,
       }),
     ).toEqual([
-      "state seq=12 notesSeq=7 rev=abcdef age=1000.0ms size=256 B read=0.8ms applied=40.0ms avg=30.0ms min=10.0ms max=50.0ms p95=50.0ms p99=50.0ms",
+      "state seq=12 notesSeq=7 scrollSeq=4 rev=abcdef age=1000.0ms size=256 B read=0.8ms applied=40.0ms avg=30.0ms min=10.0ms max=50.0ms p95=50.0ms p99=50.0ms",
+      "scroll scrollSeq=4 age=500.0ms size=64 B read=0.3ms applied=30.0ms avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
       "notes notesSeq=7 rev=abcdef age=200.0ms size=4.0 KiB read=8.3ms applied=10.0ms avg=12.5ms min=5.0ms max=20.0ms p95=20.0ms p99=20.0ms",
-      "fail stateMissing=1 stateInvalid=2 notesMissing=3 notesInvalid=4 revMismatch=5",
+      "fail stateMissing=1 stateInvalid=2 scrollMissing=3 scrollInvalid=4 scrollSeqMismatch=5 notesMissing=6 notesInvalid=7 revMismatch=8",
       "scroll applied current=70.0ms avg=70.0ms min=70.0ms max=70.0ms p95=70.0ms p99=70.0ms",
     ])
   })
@@ -146,18 +165,24 @@ describe("formatBridgeDiagnostics", () => {
       formatBridgeDiagnostics(
         {
           state: null,
+          scroll: null,
           notes: null,
           stateRecord: null,
+          scrollRecord: null,
           notesRecord: null,
           counters: {
             stateMissing: 0,
             stateInvalid: 0,
+            scrollMissing: 0,
+            scrollInvalid: 0,
+            scrollSeqMismatch: 0,
             notesMissing: 0,
             notesInvalid: 0,
             revMismatch: 0,
           },
           costs: {
             stateReadMs: null,
+            scrollReadMs: null,
             notesReadMs: null,
           },
         },
@@ -170,9 +195,10 @@ describe("formatBridgeDiagnostics", () => {
         },
       ),
     ).toEqual([
-      "state seq=n/a notesSeq=n/a rev=n/a age=n/a size=n/a read=n/a applied=n/a avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
+      "state seq=n/a notesSeq=n/a scrollSeq=n/a rev=n/a age=n/a size=n/a read=n/a applied=n/a avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
+      "scroll scrollSeq=n/a age=n/a size=n/a read=n/a applied=n/a avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
       "notes notesSeq=n/a rev=n/a age=n/a size=n/a read=n/a applied=n/a avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
-      "fail stateMissing=0 stateInvalid=0 notesMissing=0 notesInvalid=0 revMismatch=0",
+      "fail stateMissing=0 stateInvalid=0 scrollMissing=0 scrollInvalid=0 scrollSeqMismatch=0 notesMissing=0 notesInvalid=0 revMismatch=0",
       "scroll applied current=n/a avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
     ])
   })
@@ -183,18 +209,24 @@ describe("BridgeDiagnosticsStats", () => {
     const stats = new BridgeDiagnosticsStats()
     const first: BridgeDiagnostics = {
       state: { modifiedAtMs: 1_000, sizeBytes: 256, acceptedAtMs: 60 },
+      scroll: null,
       notes: { modifiedAtMs: 1_000, sizeBytes: 512, acceptedAtMs: 90 },
       stateRecord: null,
+      scrollRecord: null,
       notesRecord: null,
       counters: {
         stateMissing: 0,
         stateInvalid: 0,
+        scrollMissing: 0,
+        scrollInvalid: 0,
+        scrollSeqMismatch: 0,
         notesMissing: 0,
         notesInvalid: 0,
         revMismatch: 0,
       },
       costs: {
         stateReadMs: null,
+        scrollReadMs: null,
         notesReadMs: null,
       },
     }
@@ -229,18 +261,24 @@ describe("BridgeDiagnosticsStats", () => {
     const stats = new BridgeDiagnosticsStats()
     const empty: BridgeDiagnostics = {
       state: null,
+      scroll: null,
       notes: null,
       stateRecord: null,
+      scrollRecord: null,
       notesRecord: null,
       counters: {
         stateMissing: 0,
         stateInvalid: 0,
+        scrollMissing: 0,
+        scrollInvalid: 0,
+        scrollSeqMismatch: 0,
         notesMissing: 0,
         notesInvalid: 0,
         revMismatch: 0,
       },
       costs: {
         stateReadMs: null,
+        scrollReadMs: null,
         notesReadMs: null,
       },
     }
@@ -274,18 +312,24 @@ describe("diagnosticsGraphSample", () => {
   it("extracts applied and read timings while preserving missing values", () => {
     const diagnostics: BridgeDiagnostics = {
       state: { modifiedAtMs: 1_000, sizeBytes: 256, acceptedAtMs: 60 },
+      scroll: null,
       notes: null,
       stateRecord: null,
+      scrollRecord: null,
       notesRecord: null,
       counters: {
         stateMissing: 0,
         stateInvalid: 0,
+        scrollMissing: 0,
+        scrollInvalid: 0,
+        scrollSeqMismatch: 0,
         notesMissing: 0,
         notesInvalid: 0,
         revMismatch: 0,
       },
       costs: {
         stateReadMs: 0.75,
+        scrollReadMs: null,
         notesReadMs: null,
       },
     }
@@ -305,18 +349,24 @@ describe("BridgeScrollLatency", () => {
     const latency = new BridgeScrollLatency()
     const diagnostics: BridgeDiagnostics = {
       state: { modifiedAtMs: 1_000, sizeBytes: 256, acceptedAtMs: 60 },
+      scroll: { modifiedAtMs: 1_000, sizeBytes: 64, acceptedAtMs: 60 },
       notes: null,
       stateRecord: null,
+      scrollRecord: null,
       notesRecord: null,
       counters: {
         stateMissing: 0,
         stateInvalid: 0,
+        scrollMissing: 0,
+        scrollInvalid: 0,
+        scrollSeqMismatch: 0,
         notesMissing: 0,
         notesInvalid: 0,
         revMismatch: 0,
       },
       costs: {
         stateReadMs: null,
+        scrollReadMs: null,
         notesReadMs: null,
       },
     }
@@ -350,18 +400,24 @@ describe("BridgeScrollLatency", () => {
     const latency = new BridgeScrollLatency()
     const diagnostics: BridgeDiagnostics = {
       state: { modifiedAtMs: 1_000, sizeBytes: 256, acceptedAtMs: 60 },
+      scroll: { modifiedAtMs: 1_000, sizeBytes: 64, acceptedAtMs: 60 },
       notes: null,
       stateRecord: null,
+      scrollRecord: null,
       notesRecord: null,
       counters: {
         stateMissing: 0,
         stateInvalid: 0,
+        scrollMissing: 0,
+        scrollInvalid: 0,
+        scrollSeqMismatch: 0,
         notesMissing: 0,
         notesInvalid: 0,
         revMismatch: 0,
       },
       costs: {
         stateReadMs: null,
+        scrollReadMs: null,
         notesReadMs: null,
       },
     }

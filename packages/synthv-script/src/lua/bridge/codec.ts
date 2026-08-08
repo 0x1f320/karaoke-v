@@ -18,11 +18,12 @@
 
 const MAGIC = "VPB1"
 
-/** 3: bends carry BEND_PAD samples on each side of their note. */
-export const LAYOUT = 3
+/** 4: the view transform moved from state into the scroll channel. */
+export const LAYOUT = 4
 
 export const CHANNEL_STATE = 1
 export const CHANNEL_NOTES = 2
+export const CHANNEL_SCROLL = 3
 
 const HEADER = "<c4I2I2I4"
 
@@ -39,18 +40,10 @@ function record(channel: number, payload: string): string {
 export interface StateRecord {
   seq: number
   notesSeq: number
+  scrollSeq: number
   at: number
   status: string
   loop: { start: number; end: number } | null
-  perBlick: number
-  perSemitone: number
-  /** Both edges of each view range, not just the near one: Windows identifies
-   * the piano-roll element by the size the ranges imply, having no accessibility
-   * tree to find it in. */
-  viewLeft: number
-  viewRight: number
-  viewTop: number
-  viewBottom: number
   rev: string
 }
 
@@ -62,27 +55,44 @@ export function encodeState(state: StateRecord): string {
   // the two out of step is not a compile error and not a wrong number either:
   // `string.pack` reads the next argument as whatever the next letter says, so
   // one `d` too many consumed `rev` and raised — which the tick then swallowed.
-  const doubles = [
-    state.at,
-    loop !== null ? loop.start : 0,
-    loop !== null ? loop.end : 0,
-    state.perBlick,
-    state.perSemitone,
-    state.viewLeft,
-    state.viewRight,
-    state.viewTop,
-    state.viewBottom,
-  ]
+  const doubles = [state.at, loop !== null ? loop.start : 0, loop !== null ? loop.end : 0]
   return record(
     CHANNEL_STATE,
     string.pack(
-      `<I4I4BB${string.rep("d", doubles.length)}s2`,
+      `<I4I4I4BB${string.rep("d", doubles.length)}s2`,
       state.seq,
       state.notesSeq,
+      state.scrollSeq,
       STATUS_CODES[state.status] ?? 0,
       loop !== null ? HAS_LOOP : 0,
       ...doubles,
       state.rev,
+    ),
+  )
+}
+
+export interface ScrollRecord {
+  scrollSeq: number
+  perBlick: number
+  perSemitone: number
+  viewLeft: number
+  viewRight: number
+  viewTop: number
+  viewBottom: number
+}
+
+export function encodeScroll(scroll: ScrollRecord): string {
+  return record(
+    CHANNEL_SCROLL,
+    string.pack(
+      "<I4dddddd",
+      scroll.scrollSeq,
+      scroll.perBlick,
+      scroll.perSemitone,
+      scroll.viewLeft,
+      scroll.viewRight,
+      scroll.viewTop,
+      scroll.viewBottom,
     ),
   )
 }
