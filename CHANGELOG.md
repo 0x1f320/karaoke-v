@@ -1,3 +1,9 @@
+## [1.0.0-dev.5](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.4...v1.0.0-dev.5) (2026-08-08)
+
+### ✨ Features
+
+* **overlay:** add debug timing diagnostics ([e44e68b](https://github.com/0x1f320/voxpane/commit/e44e68bf61c47390774743911f822c3f8dc7ab27))
+
 ## [1.0.0-dev.4](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.3...v1.0.0-dev.4) (2026-08-07)
 
 ### ⚡ Performance Improvements
