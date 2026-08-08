@@ -14,6 +14,11 @@ import {
 const MAGIC = 0x31425056
 const SESSION = "app-session-1"
 const SCROLL_RECORD_BYTES = 64
+const NOTES_METADATA_BYTES = 12
+const NOTE_FIXED_PREFIX_BYTES = 34
+const NOTE_TEXT_PREFIX_BYTES = 2
+const NOTE_TEXT_BYTES = 3
+const BEND_COUNT_BYTES = 2
 const STATUS_CODES: Record<BridgeStatus, number> = { stopped: 0, playing: 1, looping: 2 }
 
 class Writer {
@@ -166,6 +171,15 @@ function concat(head: Uint8Array, body: Uint8Array, padding: number): Uint8Array
   return out
 }
 
+function withDeclaredPayloadLength(record: Uint8Array, length: number): Uint8Array {
+  const out = Uint8Array.from(record)
+  out[8] = length & 0xff
+  out[9] = (length >>> 8) & 0xff
+  out[10] = (length >>> 16) & 0xff
+  out[11] = (length >>> 24) & 0xff
+  return out
+}
+
 describe("decodeState", () => {
   it("reads a record the script wrote", () => {
     const state = decodeState(stateRecord({ seq: 7, notesSeq: 3, scrollSeq: 5, at: 91.646 }))
@@ -206,6 +220,13 @@ describe("decodeState", () => {
   it("refuses the notes channel read as state", () => {
     expect(decodeState(notesRecord([{}]))).toBeNull()
   })
+
+  it("refuses a layout 5 record with an undersized declared payload", () => {
+    const record = withDeclaredPayloadLength(stateRecord(), 1)
+
+    expect(() => decodeState(record)).not.toThrow()
+    expect(decodeState(record)).toBeNull()
+  })
 })
 
 describe("decodeScroll", () => {
@@ -229,6 +250,13 @@ describe("decodeScroll", () => {
     expect(decodeScroll(scrollRecord({ layout: 3 }))).toBeNull()
     expect(decodeScroll(scrollRecord({ channel: 1 }))).toBeNull()
     expect(decodeScroll(scrollRecord().slice(0, SCROLL_RECORD_BYTES - 1))).toBeNull()
+  })
+
+  it("refuses a layout 5 record with an undersized declared payload", () => {
+    const record = withDeclaredPayloadLength(scrollRecord(), 4)
+
+    expect(() => decodeScroll(record)).not.toThrow()
+    expect(decodeScroll(record)).toBeNull()
   })
 })
 
@@ -285,5 +313,16 @@ describe("decodeNotes", () => {
   it("refuses a bend array the record is too short to hold", () => {
     const record = notesRecord([{ bend: [1, 2, 3, 4, 5] }])
     expect(decodeNotes(record.slice(0, record.length - 4))).toBeNull()
+  })
+
+  it.each([
+    ["fixed prefix", NOTES_METADATA_BYTES + NOTE_FIXED_PREFIX_BYTES - 1],
+    ["lyric text", NOTES_METADATA_BYTES + NOTE_FIXED_PREFIX_BYTES + NOTE_TEXT_PREFIX_BYTES],
+    ["bend", NOTES_METADATA_BYTES + NOTE_FIXED_PREFIX_BYTES + NOTE_TEXT_BYTES + BEND_COUNT_BYTES],
+  ] as const)("refuses a note truncated at its %s", (_part, length) => {
+    const record = withDeclaredPayloadLength(notesRecord([{ lyric: "a", bend: [1] }]), length)
+
+    expect(() => decodeNotes(record)).not.toThrow()
+    expect(decodeNotes(record)).toBeNull()
   })
 })

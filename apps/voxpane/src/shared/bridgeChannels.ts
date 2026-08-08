@@ -99,41 +99,61 @@ class Cursor {
   private readonly view: DataView
   private readonly bytes: Uint8Array
   private offset = 0
+  private end: number
 
   constructor(bytes: Uint8Array) {
     this.bytes = bytes
     this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    this.end = bytes.byteLength
   }
 
   get remaining(): number {
-    return this.bytes.byteLength - this.offset
+    return this.end - this.offset
+  }
+
+  limit(count: number): void {
+    if (count < 0 || count > this.remaining) {
+      throw new RangeError("payload exceeds record")
+    }
+    this.end = this.offset + count
+  }
+
+  private require(count: number): void {
+    if (count < 0 || count > this.remaining) {
+      throw new RangeError("read exceeds payload")
+    }
   }
 
   u8(): number {
+    this.require(1)
     const value = this.view.getUint8(this.offset)
     this.offset += 1
     return value
   }
 
   u16(): number {
+    this.require(2)
     const value = this.view.getUint16(this.offset, true)
     this.offset += 2
     return value
   }
 
   i16(): number {
+    this.require(2)
     const value = this.view.getInt16(this.offset, true)
     this.offset += 2
     return value
   }
 
   u32(): number {
+    this.require(4)
     const value = this.view.getUint32(this.offset, true)
     this.offset += 4
     return value
   }
 
   f64(): number {
+    this.require(8)
     const value = this.view.getFloat64(this.offset, true)
     this.offset += 8
     return value
@@ -142,18 +162,21 @@ class Cursor {
   /** Length-prefixed UTF-8 — `string.pack`'s `s2`. */
   text(): string {
     const length = this.u16()
+    this.require(length)
     const value = TEXT.decode(this.bytes.subarray(this.offset, this.offset + length))
     this.offset += length
     return value
   }
 
   take(count: number): Uint8Array {
+    this.require(count)
     const value = this.bytes.subarray(this.offset, this.offset + count)
     this.offset += count
     return value
   }
 
   i16s(count: number): Int16Array {
+    this.require(count * 2)
     const values = new Int16Array(count)
     for (let i = 0; i < count; i++) {
       values[i] = this.i16()
@@ -177,80 +200,96 @@ function header(cursor: Cursor, channel: number): number | null {
     return null
   }
   const length = cursor.u32()
-  return length <= cursor.remaining ? length : null
+  if (length > cursor.remaining) {
+    return null
+  }
+  cursor.limit(length)
+  return length
 }
 
 export function decodeState(bytes: Uint8Array): BridgeStateRecord | null {
-  const cursor = new Cursor(bytes)
-  if (header(cursor, BRIDGE_CHANNEL_STATE) === null) {
+  try {
+    const cursor = new Cursor(bytes)
+    if (header(cursor, BRIDGE_CHANNEL_STATE) === null) {
+      return null
+    }
+    const seq = cursor.u32()
+    const notesSeq = cursor.u32()
+    const scrollSeq = cursor.u32()
+    const status = STATUSES[cursor.u8()]
+    const hasLoop = (cursor.u8() & 1) === 1
+    const at = cursor.f64()
+    const loopStart = cursor.f64()
+    const loopEnd = cursor.f64()
+    if (status === undefined) {
+      return null
+    }
+    return {
+      seq,
+      notesSeq,
+      scrollSeq,
+      at,
+      status,
+      loop: hasLoop ? { start: loopStart, end: loopEnd } : null,
+      rev: cursor.text(),
+    }
+  } catch {
     return null
-  }
-  const seq = cursor.u32()
-  const notesSeq = cursor.u32()
-  const scrollSeq = cursor.u32()
-  const status = STATUSES[cursor.u8()]
-  const hasLoop = (cursor.u8() & 1) === 1
-  const at = cursor.f64()
-  const loopStart = cursor.f64()
-  const loopEnd = cursor.f64()
-  if (status === undefined) {
-    return null
-  }
-  return {
-    seq,
-    notesSeq,
-    scrollSeq,
-    at,
-    status,
-    loop: hasLoop ? { start: loopStart, end: loopEnd } : null,
-    rev: cursor.text(),
   }
 }
 
 export function decodeScroll(bytes: Uint8Array): BridgeScrollRecord | null {
-  const cursor = new Cursor(bytes)
-  if (header(cursor, BRIDGE_CHANNEL_SCROLL) === null) {
+  try {
+    const cursor = new Cursor(bytes)
+    if (header(cursor, BRIDGE_CHANNEL_SCROLL) === null) {
+      return null
+    }
+    return {
+      scrollSeq: cursor.u32(),
+      perBlick: cursor.f64(),
+      perSemitone: cursor.f64(),
+      viewLeft: cursor.f64(),
+      viewRight: cursor.f64(),
+      viewTop: cursor.f64(),
+      viewBottom: cursor.f64(),
+    }
+  } catch {
     return null
-  }
-  return {
-    scrollSeq: cursor.u32(),
-    perBlick: cursor.f64(),
-    perSemitone: cursor.f64(),
-    viewLeft: cursor.f64(),
-    viewRight: cursor.f64(),
-    viewTop: cursor.f64(),
-    viewBottom: cursor.f64(),
   }
 }
 
 export function decodeNotes(bytes: Uint8Array): BridgeSchedule | null {
-  const cursor = new Cursor(bytes)
-  if (header(cursor, BRIDGE_CHANNEL_NOTES) === null) {
+  try {
+    const cursor = new Cursor(bytes)
+    if (header(cursor, BRIDGE_CHANNEL_NOTES) === null) {
+      return null
+    }
+    const notesSeq = cursor.u32()
+    const rev = cursor.text()
+    const count = cursor.u32()
+    const notes: BridgeNote[] = []
+    for (let i = 0; i < count; i++) {
+      // A record shorter than its own count means the writer is mid-replacement
+      // or the file was truncated; either way this frame has no schedule.
+      if (cursor.remaining < 38) {
+        return null
+      }
+      const onB = cursor.f64()
+      const offB = cursor.f64()
+      const onS = cursor.f64()
+      const offS = cursor.f64()
+      const pitch = cursor.i16()
+      const lyric = cursor.text()
+      const bendCount = cursor.u16()
+      if (cursor.remaining < bendCount * 2) {
+        return null
+      }
+      notes.push({ onB, offB, onS, offS, pitch, lyric, bend: cursor.i16s(bendCount) })
+    }
+    return { notesSeq, rev, notes }
+  } catch {
     return null
   }
-  const notesSeq = cursor.u32()
-  const rev = cursor.text()
-  const count = cursor.u32()
-  const notes: BridgeNote[] = []
-  for (let i = 0; i < count; i++) {
-    // A record shorter than its own count means the writer is mid-replacement
-    // or the file was truncated; either way this frame has no schedule.
-    if (cursor.remaining < 36) {
-      return null
-    }
-    const onB = cursor.f64()
-    const offB = cursor.f64()
-    const onS = cursor.f64()
-    const offS = cursor.f64()
-    const pitch = cursor.i16()
-    const lyric = cursor.text()
-    const bendCount = cursor.u16()
-    if (cursor.remaining < bendCount * 2) {
-      return null
-    }
-    notes.push({ onB, offB, onS, offS, pitch, lyric, bend: cursor.i16s(bendCount) })
-  }
-  return { notesSeq, rev, notes }
 }
 
 export function decodeSession(bytes: Uint8Array): BridgeSession | null {
