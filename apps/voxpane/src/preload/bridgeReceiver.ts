@@ -60,7 +60,12 @@ export interface BridgeReceiverFileSystem {
   lstat(path: string): Promise<BridgeReceiverStat>
   unlink(path: string): Promise<void>
   read(path: string): Promise<Uint8Array | null>
-  writeRendezvous(path: string, bytes: Uint8Array, create: boolean): Promise<void>
+  writeRendezvous(
+    path: string,
+    bytes: Uint8Array,
+    create: boolean,
+    isCancelled: () => boolean,
+  ): Promise<void>
 }
 
 export interface BridgeReceiverTimers {
@@ -90,8 +95,10 @@ export interface BridgeReceiverDependencies {
 
 interface SessionResources {
   session: string
-  endpoints: Readonly<Record<PipeChannel, PipeEndpointServer>>
+  endpoints: Partial<Record<PipeChannel, PipeEndpointServer>>
   parsers: Readonly<Record<PipeChannel, BridgeFrameParser>>
+  cancelled: boolean
+  rendezvousWrites: Set<Promise<void>>
   teardownPromise: Promise<void> | null
 }
 
@@ -109,17 +116,28 @@ const REAL_FILES: BridgeReceiverFileSystem = {
       throw error
     }
   },
-  writeRendezvous: async (path, bytes, create) => {
+  writeRendezvous: async (path, bytes, create, isCancelled) => {
+    if (isCancelled()) {
+      return
+    }
     let handle: Awaited<ReturnType<typeof open>>
+    let openedWithCreate = create
     try {
       handle = await open(path, create ? "w" : "r+")
     } catch (error) {
       if (create || (error as NodeJS.ErrnoException).code !== "ENOENT") {
         throw error
       }
+      if (isCancelled()) {
+        return
+      }
+      openedWithCreate = true
       handle = await open(path, "w")
     }
     try {
+      if (isCancelled() && !openedWithCreate) {
+        return
+      }
       const result = await handle.write(bytes, 0, bytes.length, 0)
       if (result.bytesWritten !== bytes.length) {
         throw new Error(`Short rendezvous write: ${result.bytesWritten}/${bytes.length}`)
@@ -157,6 +175,8 @@ export class BridgeReceiver {
   private recoveryDelayResolve: (() => void) | null = null
   private recoveryRequested = false
   private recoveryPromise: Promise<void> | null = null
+  private cyclePromise: Promise<void> | null = null
+  private cycleRestartRequested = false
   private stopPromise: Promise<void> | null = null
   private readyPromise: Promise<void> | null = null
   private resolveReady: (() => void) | null = null
@@ -186,7 +206,7 @@ export class BridgeReceiver {
     this.readyPromise = new Promise((resolve) => {
       this.resolveReady = resolve
     })
-    void this.startSession()
+    this.launchSessionCycle()
     return this.readyPromise
   }
 
@@ -201,78 +221,114 @@ export class BridgeReceiver {
     this.diagnosticsEnabled = enabled
   }
 
-  private async startSession(): Promise<void> {
+  private launchSessionCycle(): void {
+    if (this.stopped) {
+      return
+    }
+    if (this.cyclePromise) {
+      this.cycleRestartRequested = true
+      return
+    }
+
+    const cycle = Promise.resolve()
+      .then(() => this.startSessionCycle())
+      .catch(() => {
+        this.transport.endpointFailures += 1
+        this.requestRecovery(this.current, this.current?.session ?? null)
+      })
+    this.cyclePromise = cycle
+    void cycle.then(() => {
+      if (this.cyclePromise !== cycle) {
+        return
+      }
+      this.cyclePromise = null
+      if (this.cycleRestartRequested) {
+        this.cycleRestartRequested = false
+        this.launchSessionCycle()
+      }
+    })
+  }
+
+  private async startSessionCycle(): Promise<void> {
     if (this.stopped) {
       return
     }
 
-    const session = this.createSession()
-    this.publishTransport("starting", session)
-    await this.pruneStaleFifos()
-    if (this.stopped) {
-      return
-    }
+    let session: string | null = null
+    let resources: SessionResources | null = null
+    try {
+      session = this.createSession()
+      this.publishTransport("starting", session)
+      await this.pruneStaleFifos()
+      if (this.stopped) {
+        return
+      }
 
-    const parsers = Object.fromEntries(
-      PIPE_CHANNELS.map((channel) => [channel, new BridgeFrameParser(FRAME_POLICIES[channel])]),
-    ) as unknown as Record<PipeChannel, BridgeFrameParser>
-    const endpoints = Object.fromEntries(
-      PIPE_CHANNELS.map((channel) => [
-        channel,
-        this.endpointFactory({
+      const parsers = Object.fromEntries(
+        PIPE_CHANNELS.map((channel) => [channel, new BridgeFrameParser(FRAME_POLICIES[channel])]),
+      ) as unknown as Record<PipeChannel, BridgeFrameParser>
+      const createdResources: SessionResources = {
+        session,
+        endpoints: {},
+        parsers,
+        cancelled: false,
+        rendezvousWrites: new Set(),
+        teardownPromise: null,
+      }
+      resources = createdResources
+      this.current = createdResources
+
+      for (const channel of PIPE_CHANNELS) {
+        createdResources.endpoints[channel] = this.endpointFactory({
           platform: this.platform,
           path: pipeEndpoint(this.platform, this.directory, session, channel),
           channel,
-        }),
-      ]),
-    ) as unknown as Record<PipeChannel, PipeEndpointServer>
-    const resources: SessionResources = {
-      session,
-      endpoints,
-      parsers,
-      teardownPromise: null,
-    }
-    this.current = resources
+        })
+      }
 
-    const results = await Promise.allSettled(
-      PIPE_CHANNELS.map((channel) =>
-        endpoints[channel].start(
-          (chunk) => this.receive(resources, channel, chunk),
-          () => this.disconnected(resources, channel),
-          () => this.endpointFailed(resources),
+      const results = await Promise.allSettled(
+        PIPE_CHANNELS.map((channel) =>
+          Promise.resolve().then(() => {
+            const endpoint = createdResources.endpoints[channel]
+            if (!endpoint) {
+              throw new Error(`Missing ${channel} pipe endpoint`)
+            }
+            return endpoint.start(
+              (chunk) => this.receive(createdResources, channel, chunk),
+              () => this.disconnected(createdResources, channel),
+              () => this.endpointFailed(createdResources),
+            )
+          }),
         ),
-      ),
-    )
-    if (this.stopped || this.current !== resources || this.recoveryRequested) {
-      return
-    }
+      )
+      if (this.stopped || this.current !== createdResources || this.recoveryRequested) {
+        return
+      }
 
-    const failures = results.filter((result) => result.status === "rejected").length
-    if (failures > 0) {
-      this.transport.endpointFailures += failures
-      this.requestRecovery(resources)
-      return
-    }
+      const failures = results.filter((result) => result.status === "rejected").length
+      if (failures > 0) {
+        this.transport.endpointFailures += failures
+        this.requestRecovery(createdResources, session)
+        return
+      }
 
-    try {
-      await this.writeHeartbeat(resources, true)
+      await this.writeHeartbeat(createdResources, true)
+      if (this.stopped || this.current !== createdResources || this.recoveryRequested) {
+        return
+      }
+
+      await this.cleanupLegacyFiles()
+      if (this.stopped || this.current !== createdResources || this.recoveryRequested) {
+        return
+      }
+      this.publishTransport("ready", session)
+      this.scheduleHeartbeat(createdResources)
+      this.resolveReady?.()
+      this.resolveReady = null
     } catch {
       this.transport.endpointFailures += 1
-      this.requestRecovery(resources)
-      return
+      this.requestRecovery(resources, session)
     }
-    if (this.stopped || this.current !== resources || this.recoveryRequested) {
-      return
-    }
-
-    await this.cleanupLegacyFiles()
-    if (this.stopped || this.current !== resources || this.recoveryRequested) {
-      return
-    }
-    this.publishTransport("ready", session)
-    this.scheduleHeartbeat(resources)
-    this.resolveReady?.()
-    this.resolveReady = null
   }
 
   private receive(resources: SessionResources, channel: PipeChannel, chunk: Uint8Array): void {
@@ -282,7 +338,7 @@ export class BridgeReceiver {
     const frames = resources.parsers[channel].push(chunk)
     if (frames === null) {
       this.transport.malformedFrames += 1
-      this.requestRecovery(resources)
+      this.requestRecovery(resources, resources.session)
       return
     }
     for (const frame of frames) {
@@ -316,7 +372,7 @@ export class BridgeReceiver {
     }
     resources.parsers[channel].reset()
     this.transport.disconnects[channel] += 1
-    this.publishTransport("ready", resources.session)
+    this.tryPublishTransport("ready", resources.session)
   }
 
   private endpointFailed(resources: SessionResources): void {
@@ -324,34 +380,40 @@ export class BridgeReceiver {
       return
     }
     this.transport.endpointFailures += 1
-    this.requestRecovery(resources)
+    this.requestRecovery(resources, resources.session)
   }
 
-  private requestRecovery(resources: SessionResources): void {
+  private requestRecovery(resources: SessionResources | null, session: string | null): void {
     if (
       this.stopped ||
-      this.current !== resources ||
+      (resources ? this.current !== resources : this.current !== null) ||
       this.recoveryRequested ||
       this.recoveryPromise
     ) {
       return
     }
     this.recoveryRequested = true
-    this.publishTransport("error", resources.session)
-    this.recoveryPromise = this.recover(resources)
+    this.tryPublishTransport("error", session)
+    this.recoveryPromise = this.recover(resources).catch(() => {})
   }
 
-  private async recover(resources: SessionResources): Promise<void> {
-    await this.teardown(resources)
-    if (this.current === resources) {
-      this.current = null
+  private async recover(resources: SessionResources | null): Promise<void> {
+    try {
+      if (resources) {
+        await this.teardown(resources)
+        if (this.current === resources) {
+          this.current = null
+        }
+      }
+      this.transport.recoveries += 1
+      await this.waitForRecoveryDelay()
+    } catch {
+      this.transport.endpointFailures += 1
     }
-    this.transport.recoveries += 1
-    await this.waitForRecoveryDelay()
     this.recoveryRequested = false
     this.recoveryPromise = null
     if (!this.stopped) {
-      void this.startSession()
+      this.launchSessionCycle()
     }
   }
 
@@ -369,32 +431,68 @@ export class BridgeReceiver {
     }
     try {
       await this.writeHeartbeat(resources, false)
+      if (!this.stopped && this.current === resources && !this.recoveryRequested) {
+        this.scheduleHeartbeat(resources)
+      }
     } catch {
       this.transport.endpointFailures += 1
-      this.requestRecovery(resources)
-      return
-    }
-    if (!this.stopped && this.current === resources && !this.recoveryRequested) {
-      this.scheduleHeartbeat(resources)
+      this.requestRecovery(resources, resources.session)
     }
   }
 
-  private writeHeartbeat(resources: SessionResources, create: boolean): Promise<void> {
+  private async writeHeartbeat(resources: SessionResources, create: boolean): Promise<void> {
+    if (resources.cancelled) {
+      return
+    }
     const bytes = encodeRendezvous({
       heartbeatSeconds: Math.floor(this.nowMs() / 1_000),
       session: resources.session,
     })
-    return this.files.writeRendezvous(rendezvousPath(this.directory), bytes, create)
+    const write = Promise.resolve().then(() =>
+      this.files.writeRendezvous(
+        rendezvousPath(this.directory),
+        bytes,
+        create,
+        () => resources.cancelled,
+      ),
+    )
+    resources.rendezvousWrites.add(write)
+    try {
+      await write
+    } finally {
+      resources.rendezvousWrites.delete(write)
+    }
   }
 
   private waitForRecoveryDelay(): Promise<void> {
+    if (this.stopped) {
+      return Promise.resolve()
+    }
     return new Promise((resolve) => {
-      this.recoveryDelayResolve = resolve
-      this.recoveryTimer = this.timers.setTimeout(() => {
+      let settled = false
+      const finish = (): void => {
+        if (settled) {
+          return
+        }
+        settled = true
         this.recoveryTimer = null
         this.recoveryDelayResolve = null
         resolve()
-      }, RECOVERY_DELAY_MS)
+      }
+      this.recoveryDelayResolve = finish
+      if (this.stopped) {
+        finish()
+        return
+      }
+      const timer = this.timers.setTimeout(finish, RECOVERY_DELAY_MS)
+      if (settled) {
+        this.timers.clearTimeout(timer)
+        return
+      }
+      this.recoveryTimer = timer
+      if (this.stopped) {
+        this.cancelRecoveryDelay()
+      }
     })
   }
 
@@ -407,23 +505,26 @@ export class BridgeReceiver {
     if (resources) {
       await this.teardown(resources)
     }
-    try {
-      await this.recoveryPromise
-    } catch {}
+    await this.cyclePromise
+    await this.recoveryPromise
     this.resolveReady?.()
     this.resolveReady = null
     if (this.started) {
-      this.publishTransport("stopped", null)
+      this.tryPublishTransport("stopped", null)
     }
   }
 
   private teardown(resources: SessionResources): Promise<void> {
     if (!resources.teardownPromise) {
       resources.teardownPromise = (async () => {
+        resources.cancelled = true
         this.clearHeartbeat()
         await Promise.allSettled(
-          PIPE_CHANNELS.map((channel) => resources.endpoints[channel].stop()),
+          Object.values(resources.endpoints).map((endpoint) =>
+            Promise.resolve().then(() => endpoint.stop()),
+          ),
         )
+        await Promise.allSettled([...resources.rendezvousWrites])
         await this.removeOwnedRendezvous(resources.session)
       })()
     }
@@ -502,6 +603,15 @@ export class BridgeReceiver {
       },
       [],
     )
+  }
+
+  private tryPublishTransport(
+    status: BridgeTransportDiagnostics["status"],
+    session: string | null,
+  ): void {
+    try {
+      this.publishTransport(status, session)
+    } catch {}
   }
 
   private clearHeartbeat(): void {

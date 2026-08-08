@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { lstatSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { lstatSync, mkdtempSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs"
 import { createConnection } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -161,5 +161,29 @@ describe.skipIf(process.platform !== "darwin")("macOS FIFO endpoint", () => {
 
     await server.stop()
     expect(() => lstatSync(path)).toThrow()
+  })
+
+  it("preserves a FIFO that replaces the endpoint path before stop", async () => {
+    const directory = temporaryDirectory("voxpane-fifo-replaced-")
+    const path = join(directory, "state")
+    const replacementPath = join(directory, "replacement")
+    const server = createPipeEndpointServer({ platform: "darwin", path, channel: "state" })
+
+    await server.start(
+      () => {},
+      () => {},
+      () => {},
+    )
+    const ownedInode = lstatSync(path).ino
+    await execFileAsync("/usr/bin/mkfifo", [replacementPath])
+    const replacementInode = lstatSync(replacementPath).ino
+    unlinkSync(path)
+    renameSync(replacementPath, path)
+
+    expect(replacementInode).not.toBe(ownedInode)
+    await server.stop()
+
+    expect(lstatSync(path).isFIFO()).toBe(true)
+    expect(lstatSync(path).ino).toBe(replacementInode)
   })
 })

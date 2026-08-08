@@ -96,6 +96,7 @@ class MemoryFileSystem implements BridgeReceiverFileSystem {
   readonly writes: { path: string; bytes: Uint8Array; create: boolean }[] = []
   readonly unlinks: string[] = []
   readonly reads: string[] = []
+  readonly writeGates = new Map<number, Deferred<void>>()
 
   async list(directory: string): Promise<string[]> {
     const prefix = `${directory}/`
@@ -124,9 +125,16 @@ class MemoryFileSystem implements BridgeReceiverFileSystem {
     return entry ? Uint8Array.from(entry.bytes) : null
   }
 
-  async writeRendezvous(path: string, bytes: Uint8Array, create: boolean): Promise<void> {
+  async writeRendezvous(
+    path: string,
+    bytes: Uint8Array,
+    create: boolean,
+    _isCancelled?: () => boolean,
+  ): Promise<void> {
     const copy = Uint8Array.from(bytes)
+    const index = this.writes.length
     this.writes.push({ path, bytes: copy, create })
+    await this.writeGates.get(index)?.promise
     this.entries.set(path, { kind: "file", bytes: copy })
   }
 
@@ -139,12 +147,14 @@ class FakeEndpoint implements PipeEndpointServer {
   started = false
   stopped = false
   startFailure: Error | null = null
+  synchronousStartFailure: Error | null = null
   startGate: Deferred<void> | null = null
+  stopGate: Deferred<void> | null = null
   private onData: ((chunk: Uint8Array) => void) | null = null
   private onDisconnect: (() => void) | null = null
   private onFatal: ((error: Error) => void) | null = null
 
-  async start(
+  start(
     onData: (chunk: Uint8Array) => void,
     onDisconnect: () => void,
     onFatal: (error: Error) => void,
@@ -152,6 +162,11 @@ class FakeEndpoint implements PipeEndpointServer {
     this.onData = onData
     this.onDisconnect = onDisconnect
     this.onFatal = onFatal
+    if (this.synchronousStartFailure) throw this.synchronousStartFailure
+    return this.startInternal()
+  }
+
+  private async startInternal(): Promise<void> {
     if (this.startFailure) throw this.startFailure
     if (this.startGate) await this.startGate.promise
     this.started = true
@@ -160,6 +175,7 @@ class FakeEndpoint implements PipeEndpointServer {
   async stop(): Promise<void> {
     this.stopped = true
     this.startGate?.reject(new Error("stopped"))
+    await this.stopGate?.promise
   }
 
   emitData(bytes: Uint8Array): void {
@@ -221,30 +237,44 @@ function harness(
   options: {
     sessions?: string[]
     platform?: NodeJS.Platform
+    files?: MemoryFileSystem
+    createSession?: () => string
+    beforeEndpointFactory?: (index: number) => void
     configureEndpoint?: (server: FakeEndpoint, index: number) => void
+    beforePublish?: (message: BridgeReceiverMessage, index: number) => void
   } = {},
 ): Harness {
-  const files = new MemoryFileSystem()
+  const files = options.files ?? new MemoryFileSystem()
   const timers = new ManualTimers()
   const messages: BridgeReceiverMessage[] = []
   const endpoints = new Map<string, FakeEndpoint>()
   const created: FakeEndpoint[] = []
   const sessions = [...(options.sessions ?? [FIRST_SESSION, SECOND_SESSION])]
+  let factoryCalls = 0
+  let publishCalls = 0
   const receiver = new BridgeReceiver({
     directory: "/bridge",
     platform: options.platform ?? "darwin",
     files,
     timers,
     nowMs: () => START_MS + timers.now,
-    createSession: () => sessions.shift() ?? OTHER_SESSION,
+    createSession: options.createSession ?? (() => sessions.shift() ?? OTHER_SESSION),
     endpointFactory: ({ path }) => {
+      const callIndex = factoryCalls
+      factoryCalls += 1
+      options.beforeEndpointFactory?.(callIndex)
       const endpoint = new FakeEndpoint()
       options.configureEndpoint?.(endpoint, created.length)
       endpoints.set(path, endpoint)
       created.push(endpoint)
       return endpoint
     },
-    publish: (message) => messages.push(message),
+    publish: (message) => {
+      const callIndex = publishCalls
+      publishCalls += 1
+      options.beforePublish?.(message, callIndex)
+      messages.push(message)
+    },
   })
   return { receiver, files, timers, messages, endpoints, created }
 }
@@ -255,9 +285,9 @@ function endpoint(values: Harness, session: string, channel: PipeChannel): FakeE
   return value
 }
 
-function rendezvous(files: MemoryFileSystem) {
+function rendezvous(files: MemoryFileSystem, nowMs = START_MS) {
   const bytes = files.entries.get("/bridge/pipe-session")?.bytes
-  return bytes ? decodeRendezvous(bytes, Math.floor(START_MS / 1_000)) : null
+  return bytes ? decodeRendezvous(bytes, Math.floor(nowMs / 1_000)) : null
 }
 
 afterEach(() => {
@@ -292,6 +322,141 @@ describe("BridgeReceiver", () => {
     expect(rendezvous(values.files)?.session).toBe(FIRST_SESSION)
   })
 
+  it("supervises a createSession throw and eventually resolves the original start", async () => {
+    let calls = 0
+    const values = harness({
+      createSession: () => {
+        calls += 1
+        if (calls === 1) throw new Error("random source failed")
+        return SECOND_SESSION
+      },
+    })
+
+    let ready = false
+    const starting = values.receiver.start().then(() => {
+      ready = true
+    })
+    await flush()
+
+    expect(calls).toBe(1)
+    expect(values.created).toHaveLength(0)
+
+    await values.timers.advanceBy(250)
+    await flush()
+
+    expect(ready).toBe(true)
+    await starting
+    expect(calls).toBe(2)
+    expect(values.created).toHaveLength(3)
+    expect(rendezvous(values.files)?.session).toBe(SECOND_SESSION)
+    await values.receiver.stop()
+  })
+
+  it.each([0, 1])(
+    "cleans partial resources when endpoint factory call %i throws",
+    async (throwAt) => {
+      let thrown = false
+      const values = harness({
+        beforeEndpointFactory: (index) => {
+          if (!thrown && index === throwAt) {
+            thrown = true
+            throw new Error("endpoint factory failed")
+          }
+        },
+      })
+
+      let ready = false
+      const starting = values.receiver.start().then(() => {
+        ready = true
+      })
+      await flush()
+
+      expect(values.created).toHaveLength(throwAt)
+      expect(values.created.every((server) => server.stopped)).toBe(true)
+
+      await values.timers.advanceBy(250)
+      await flush()
+
+      expect(ready).toBe(true)
+      await starting
+      expect(values.created).toHaveLength(throwAt + 3)
+      expect(rendezvous(values.files)?.session).toBe(SECOND_SESSION)
+      expect(
+        values.messages.filter(
+          (message) => message.type === "transport" && message.status === "error",
+        ),
+      ).toHaveLength(1)
+      await values.receiver.stop()
+    },
+  )
+
+  it.each(["starting", "ready"] as const)(
+    "remains supervised when publishing %s transport status throws",
+    async (status) => {
+      let statusThrown = false
+      let errorReportThrown = false
+      const values = harness({
+        beforePublish: (message) => {
+          if (message.type !== "transport") {
+            return
+          }
+          if (!statusThrown && message.status === status) {
+            statusThrown = true
+            throw new Error("status publish failed")
+          }
+          if (statusThrown && !errorReportThrown && message.status === "error") {
+            errorReportThrown = true
+            throw new Error("error publish failed")
+          }
+        },
+      })
+
+      let ready = false
+      const starting = values.receiver.start().then(() => {
+        ready = true
+      })
+      await flush()
+
+      expect(values.created).toHaveLength(status === "starting" ? 0 : 3)
+      expect(values.created.every((server) => server.stopped)).toBe(true)
+
+      await values.timers.advanceBy(250)
+      await flush()
+
+      expect(ready).toBe(true)
+      await starting
+      expect(errorReportThrown).toBe(true)
+      expect(rendezvous(values.files)?.session).toBe(SECOND_SESSION)
+      await values.receiver.stop()
+    },
+  )
+
+  it("captures a synchronous endpoint start throw and recovers all endpoints", async () => {
+    const values = harness({
+      configureEndpoint: (server, index) => {
+        if (index === 1) server.synchronousStartFailure = new Error("sync listen failed")
+      },
+    })
+
+    let ready = false
+    const starting = values.receiver.start().then(() => {
+      ready = true
+    })
+    await flush()
+
+    expect(values.created).toHaveLength(3)
+    expect(values.created.every((server) => server.stopped)).toBe(true)
+
+    await values.timers.advanceBy(250)
+    await flush()
+
+    expect(ready).toBe(true)
+    await starting
+    expect(values.created).toHaveLength(6)
+    expect(rendezvous(values.files)?.session).toBe(SECOND_SESSION)
+    await values.receiver.stop()
+  })
+
   it("writes one exact 128-byte record per heartbeat update", async () => {
     const values = harness()
     await values.receiver.start()
@@ -311,6 +476,79 @@ describe("BridgeReceiver", () => {
       session: FIRST_SESSION,
     })
 
+    await values.receiver.stop()
+  })
+
+  it("joins an in-flight initial rendezvous write before stop cleanup", async () => {
+    const files = new MemoryFileSystem()
+    const writeGate = deferred<void>()
+    files.writeGates.set(0, writeGate)
+    const values = harness({ files })
+
+    const starting = values.receiver.start()
+    await flush()
+    expect(files.writes).toHaveLength(1)
+
+    let stopped = false
+    const stopping = values.receiver.stop().then(() => {
+      stopped = true
+    })
+    await flush()
+    const joinedBeforeRelease = !stopped
+
+    writeGate.resolve()
+    await Promise.all([starting, stopping])
+
+    expect(joinedBeforeRelease).toBe(true)
+    expect(files.entries.has("/bridge/pipe-session")).toBe(false)
+  })
+
+  it("joins an in-flight heartbeat refresh before stop cleanup", async () => {
+    const files = new MemoryFileSystem()
+    const writeGate = deferred<void>()
+    files.writeGates.set(1, writeGate)
+    const values = harness({ files })
+    await values.receiver.start()
+
+    await values.timers.advanceBy(500)
+    expect(files.writes).toHaveLength(2)
+
+    let stopped = false
+    const stopping = values.receiver.stop().then(() => {
+      stopped = true
+    })
+    await flush()
+    const joinedBeforeRelease = !stopped
+
+    writeGate.resolve()
+    await stopping
+    await flush()
+
+    expect(joinedBeforeRelease).toBe(true)
+    expect(files.entries.has("/bridge/pipe-session")).toBe(false)
+  })
+
+  it("does not let an old in-flight heartbeat overwrite a recovered session", async () => {
+    const files = new MemoryFileSystem()
+    const writeGate = deferred<void>()
+    files.writeGates.set(1, writeGate)
+    const values = harness({ files })
+    await values.receiver.start()
+
+    await values.timers.advanceBy(500)
+    endpoint(values, FIRST_SESSION, "state").emitFatal()
+    await flush()
+    await values.timers.advanceBy(250)
+    const sessionsBeforeOldWriteCompletes = values.created.length
+
+    writeGate.resolve()
+    await flush()
+    await values.timers.advanceBy(250)
+    await flush()
+
+    expect(sessionsBeforeOldWriteCompletes).toBe(3)
+    expect(values.created).toHaveLength(6)
+    expect(rendezvous(files, START_MS + values.timers.now)?.session).toBe(SECOND_SESSION)
     await values.receiver.stop()
   })
 
@@ -457,6 +695,36 @@ describe("BridgeReceiver", () => {
     await values.receiver.stop()
     await values.timers.advanceBy(1_000)
 
+    expect(values.created).toHaveLength(3)
+    expect(values.files.entries.has("/bridge/pipe-session")).toBe(false)
+  })
+
+  it("cancels recovery when stop wins before the delay is registered", async () => {
+    const teardownGate = deferred<void>()
+    const values = harness({
+      configureEndpoint: (server, index) => {
+        if (index === 0) server.stopGate = teardownGate
+      },
+    })
+    await values.receiver.start()
+
+    endpoint(values, FIRST_SESSION, "state").emitFatal()
+    await flush()
+
+    let stopped = false
+    const stopping = values.receiver.stop().then(() => {
+      stopped = true
+    })
+    await flush()
+    teardownGate.resolve()
+    await flush()
+    await flush()
+    const resolvedWithoutAdvancingTimers = stopped
+
+    await values.timers.advanceBy(250)
+    await stopping
+
+    expect(resolvedWithoutAdvancingTimers).toBe(true)
     expect(values.created).toHaveLength(3)
     expect(values.files.entries.has("/bridge/pipe-session")).toBe(false)
   })
