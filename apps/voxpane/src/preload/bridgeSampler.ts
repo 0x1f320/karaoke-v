@@ -1,4 +1,4 @@
-import { decodeNotes, decodeState } from "../shared/bridgeChannels"
+import { decodeNotes, decodeScroll, decodeState } from "../shared/bridgeChannels"
 import type {
   BridgeDiagnosticsCounters,
   BridgeReadCosts,
@@ -9,8 +9,10 @@ import type {
 export interface BridgeSamplerDependencies {
   now(): number
   readState(diagnostics: boolean): BridgeRecordRead | null
+  readScroll(diagnostics: boolean): BridgeRecordRead | null
   readSchedule(diagnostics: boolean): BridgeRecordRead | null
   publishState(record: BridgeRecordRead): void
+  publishScroll(scrollSeq: number, record: BridgeRecordRead): void
   publishSchedule(notesSeq: number, record: BridgeRecordRead): void
   publishDiagnostics(event: BridgeSamplerDiagnostics): void
 }
@@ -19,6 +21,9 @@ function zeroCounters(): BridgeDiagnosticsCounters {
   return {
     stateMissing: 0,
     stateInvalid: 0,
+    scrollMissing: 0,
+    scrollInvalid: 0,
+    scrollSeqMismatch: 0,
     notesMissing: 0,
     notesInvalid: 0,
     revMismatch: 0,
@@ -26,13 +31,18 @@ function zeroCounters(): BridgeDiagnosticsCounters {
 }
 
 export class BridgeSampler {
+  private scrollSeq = 0
   private notesSeq = 0
   private readonly counters = zeroCounters()
 
   constructor(private readonly dependencies: BridgeSamplerDependencies) {}
 
   sample(diagnostics = false): void {
-    const costs: BridgeReadCosts = { stateReadMs: null, notesReadMs: null }
+    const costs: BridgeReadCosts = {
+      stateReadMs: null,
+      scrollReadMs: null,
+      notesReadMs: null,
+    }
     const finish = (): void => {
       if (diagnostics) {
         this.dependencies.publishDiagnostics({
@@ -65,6 +75,47 @@ export class BridgeSampler {
       finish()
       return
     }
+    if (state.scrollSeq === 0) {
+      if (diagnostics) {
+        this.counters.scrollMissing += 1
+      }
+      finish()
+      return
+    }
+    if (state.scrollSeq !== this.scrollSeq) {
+      const scrollRecord = this.measuredRead(
+        () => this.dependencies.readScroll(diagnostics),
+        diagnostics,
+        (ms) => {
+          costs.scrollReadMs = ms
+        },
+      )
+      if (!scrollRecord) {
+        if (diagnostics) {
+          this.counters.scrollMissing += 1
+        }
+        finish()
+        return
+      }
+      const scroll = decodeScroll(scrollRecord.bytes)
+      if (!scroll) {
+        if (diagnostics) {
+          this.counters.scrollInvalid += 1
+        }
+        finish()
+        return
+      }
+      if (scroll.scrollSeq !== state.scrollSeq) {
+        if (diagnostics) {
+          this.counters.scrollSeqMismatch += 1
+        }
+        finish()
+        return
+      }
+      this.dependencies.publishScroll(state.scrollSeq, scrollRecord)
+      this.scrollSeq = state.scrollSeq
+    }
+
     this.dependencies.publishState(stateRecord)
 
     if (state.notesSeq === 0 || state.notesSeq === this.notesSeq) {

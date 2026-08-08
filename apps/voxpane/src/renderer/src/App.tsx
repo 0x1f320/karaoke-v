@@ -128,6 +128,7 @@ function Overlay() {
     const renderer = new NoteRenderer(host)
     const diagnosticsLabels = {
       state: t("debug.channels.state"),
+      scroll: t("debug.channels.scroll"),
       notes: t("debug.channels.notes"),
       age: t("debug.channels.age"),
       size: t("debug.channels.size"),
@@ -138,10 +139,14 @@ function Overlay() {
       read: t("debug.channels.read"),
       seq: t("debug.channels.seq"),
       notesSeq: t("debug.channels.notesSeq"),
+      scrollSeq: t("debug.channels.scrollSeq"),
       rev: t("debug.channels.rev"),
       failures: t("debug.channels.failures"),
       stateMissing: t("debug.channels.stateMissing"),
       stateInvalid: t("debug.channels.stateInvalid"),
+      scrollMissing: t("debug.channels.scrollMissing"),
+      scrollInvalid: t("debug.channels.scrollInvalid"),
+      scrollSeqMismatch: t("debug.channels.scrollSeqMismatch"),
       notesMissing: t("debug.channels.notesMissing"),
       notesInvalid: t("debug.channels.notesInvalid"),
       revMismatch: t("debug.channels.revMismatch"),

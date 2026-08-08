@@ -11,6 +11,7 @@ function state(overrides: Partial<BridgeState["px"]> = {}): BridgeState {
   return {
     seq: 1,
     notesSeq: 1,
+    scrollSeq: 1,
     at: 0,
     status: "playing",
     loop: null,

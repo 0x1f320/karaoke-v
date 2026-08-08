@@ -27,11 +27,11 @@ renderer:
 ```mermaid
 flowchart TD
     subgraph SV["Synthesizer V Studio 2"]
-        script["<b>overlay-bridge.lua</b><br/>packages/synthv-script (TS → Lua)<br/>every 4 ms — playhead, status, view transform<br/>on edit — note schedule + pitch curves"]
+        script["<b>overlay-bridge.lua</b><br/>packages/synthv-script (TS → Lua)<br/>every 4 ms — playhead, status, sample view<br/>on change — view transform or note schedule"]
     end
 
     subgraph CH["the bridge directory"]
-        files["<b>session.json · state · notes</b><br/>one whole record each,<br/>replaced in place"]
+        files["<b>session.json · state · scroll · notes</b><br/>one whole record each,<br/>replaced in place"]
     end
 
     subgraph NAT["native helper — packages/macos-helper · packages/windows-helper"]
@@ -40,8 +40,8 @@ flowchart TD
     end
 
     subgraph REN["overlay renderer"]
-        worker["<b>bridge Web Worker</b><br/>polls files every 4 ms<br/>transfers validated records"]
-        preload["<b>preload cache</b><br/>latest decoded state<br/>schedule by generation"]
+        worker["<b>bridge Web Worker</b><br/>polls state every 4 ms<br/>reads indexed channels on change"]
+        preload["<b>preload cache</b><br/>latest decoded state<br/>transform + schedule by generation"]
         transport["<b>Transport</b><br/>playhead, schedule"]
         match["<b>note matching</b><br/>which rect is this note?"]
         pixi["<b>PixiJS effects</b>"]
@@ -93,10 +93,11 @@ happens per frame.
 **Preload** (`src/preload`) owns the hot input cache, which is unusual and deliberate. It
 runs with `sandbox: false` and the overlay enables Node integration in a dedicated Web
 Worker, so that worker can keep the bridge files open and sample them without involving
-either main or the renderer frame loop. Valid records are transferred to preload; state is
-decoded into one latest object and schedules are retained by `notesSeq`. The renderer only
-reads that memory cache. A per-frame round trip to main, or a per-frame file read, is what
-this arrangement exists to avoid.
+either main or the renderer frame loop. Valid records are transferred to preload; the view
+transform is retained by `scrollSeq`, schedules by `notesSeq`, and matching records are
+composed into one latest state object. The renderer only reads that memory cache. A
+per-frame round trip to main, or an unnecessary per-frame file read, is what this
+arrangement exists to avoid.
 
 **Renderer** (`src/renderer`) is one bundle serving four views, selected by
 `window.location.hash` in `App.tsx`: no hash is the overlay, `#toolbar`, `#settings`,
@@ -115,8 +116,8 @@ order:
 
 1. **Take the latest bridge snapshot.** `transport.poll()` reads the newest valid decoded
    state object from preload memory. The bridge worker samples the file every 4 ms
-   independently of rAF, so a late frame does not delay acquisition. A changed `notesSeq`
-   selects the schedule already retained in the preload cache.
+   independently of rAF, so a late frame does not delay acquisition. Changed `scrollSeq`
+   and `notesSeq` values select the transform and schedule already retained in preload.
 2. **Take the latest native canvas anchor.** `CanvasManager` refreshes only the canvas and
    window origin every ~250 ms, outside the draw call. Scroll, zoom and the vertical
    reference are recomputed immediately from the in-memory bridge state in step 1, so a
@@ -127,8 +128,8 @@ order:
 5. **Sample the sung pitch** at this instant (`playback/pitch.ts`), which moves the
    emission point off the note's own lane and can drive effect intensity.
 6. **Draw.** One transform update on the Pixi scene. Base note geometry is rebuilt only
-   when the schedule generation or native canvas changes; scroll-only state changes reuse
-   it and update the scene transform.
+   when the schedule generation or native canvas changes; a changed scroll generation
+   reuses it and updates the scene transform.
 
 There is no note pump. `Transport` owns the schedule, native canvas snapshot and derived
 piano-roll set together. This removes the redundant 30 ms geometry loop and its competing
@@ -138,14 +139,14 @@ So there are **four clocks**, and confusing them is the source of most timing bu
 
 | Clock | Rate | Carries |
 | --- | --- | --- |
-| the script's tick | 4 ms | playhead, transport status, view transform |
-| the bridge worker | ~4 ms + file-read time | latest valid state; changed schedule generations |
+| the script's tick | 4 ms | playhead and transport status; view sampling, with writes only on change |
+| the bridge worker | ~4 ms + file-read time | latest valid state; changed scroll and schedule generations |
 | the canvas manager | ~250 ms + native response time | canvas and window origin |
 | the frame loop | display refresh | in-memory snapshot consumption, geometry transform and drawing |
 
 They are not synchronised and are not meant to be. Native anchors may be slightly stale, but
-scroll and zoom are recomputed from the current bridge record before drawing, so the consumer
-corrects for age rather than waiting for freshness.
+scroll and zoom are recomputed from the current cached transform before drawing, so the
+consumer corrects for age rather than waiting for freshness.
 
 ## Why the transport is so small
 

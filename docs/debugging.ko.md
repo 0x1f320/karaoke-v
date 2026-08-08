@@ -99,10 +99,11 @@ directory: /Users/you/Library/Application Support/voxpane/bridge
 
 session.json: ENOENT: no such file or directory, ...
 state: ENOENT: ...
+scroll: ENOENT: ...
 notes: ENOENT: ...
 ```
 
-`ENOENT` 셋이 "여기에 script가 한 번이라도 publish한 적이 있는가"에 답한다 — 없다.
+`ENOENT` 넷이 "여기에 script가 한 번이라도 publish한 적이 있는가"에 답한다 — 없다.
 
 실제로 출력될 때 볼 것:
 
@@ -111,6 +112,9 @@ notes: ENOENT: ...
   `host`도 실려 있어서, 사용자가 실제로 돌리는 editor 버전과 OS를 확인하는 가장 빠른 길이다.
 - **`seq`** — `dump`를 1초 간격으로 두 번 돌린다. 안 움직이면 script가 tick하지 않는 것이다.
 - **`status`**와 **`at`** — playhead가 SynthV가 보여주는 것과 맞는가?
+- **`scrollSeq` / `scroll`** — scroll하거나 zoom한 뒤 다시 dump한다. `scrollSeq`와 일치하는
+  record가 바뀌어야 한다. viewport가 그대로면 반복 dump에서도 `scrollSeq`가 같고, script가
+  scroll write를 하지 않으므로 파일 `mtime`도 그대로여야 한다.
 - **`rev` / `notesSeq`** — SynthV에서 note를 편집하고 다시 dump한다. 둘 다 바뀌어야 한다.
   `rev`는 움직였는데 `notesSeq`가 그대로면 schedule 발행이 실패한 것이다.
 - **`notes`** — note 수와 각 note의 `bend`. 모든 note가 `bend none`이면 engine이 그 group의
@@ -134,16 +138,17 @@ notes: ENOENT: ...
 - **reach band** — 보이는 각 note의 effect가 세로로 얼마나 갈 수 있는지. pitch following이
   켜져 있고 *또한* 그 mode가 effect의 위치를 움직일 때만(`intensity`가 아닌 경우) 그린다.
   piano roll 가장자리를 넘어가는 band는 mask에 잘려 사라져 보일 effect다.
-- **bridge channel diagnostics** — piano roll 우상단의 작은 panel에 `state`와 `notes` 각각 한 줄로
+- **bridge channel diagnostics** — piano roll 우상단의 작은 panel에 `state`, `scroll`, `notes` 각각 한 줄로
   표시한다. channel file의 filesystem `mtime` 기준 age, 마지막 size, accepted record가 현재
-  draw까지 기다린 시간, 최신 read cost, accepted `seq` / `notesSeq` / `rev`를 보여준다. 각 channel
-  line은 debug collection이 켜진 뒤 서로 다른 accepted record들의 accepted-to-draw `avg`, `min`,
-  `max`, `p95`, `p99` 통계를 포함한다. `fail` line은 missing file, 거부된 record, `rev` mismatch를
-  세고, `scroll` line은 현재 scroll timing과 scroll spike의 `avg`, `min`, `max`, `p95`, `p99`를
-  보여준다. `n/a`는 그 channel의 유효 record가 아직 overlay cache에 도달하지 않았다는 뜻이다.
+  draw까지 기다린 시간, 최신 read cost, accepted `seq` / `notesSeq` / `scrollSeq` / `rev`를 보여준다.
+  state와 notes line은 debug collection이 켜진 뒤 서로 다른 accepted record들의 accepted-to-draw
+  `avg`, `min`, `max`, `p95`, `p99` 통계를 포함한다. `fail` line은 missing file, 거부된 record,
+  generation mismatch, `rev` mismatch를 세고, 마지막 `scroll applied` line은 현재 viewport 적용
+  timing과 scroll spike의 `avg`, `min`, `max`, `p95`, `p99`를 보여준다. `n/a`는 그 channel의 유효
+  record가 아직 overlay cache에 도달하지 않았다는 뜻이다.
 - **bridge timing graph** — piano roll 좌상단의 작은 graph에 최근 `state applied`, `state read`,
   `scroll applied` timing을 그린다. note timing은 text panel에만 남기고 graph에는 그리지 않는다.
-  `scroll applied`는 bridge-derived viewport가 바뀐 때만 sample을 찍고, 그 state record가 overlay
+  `scroll applied`는 bridge-derived viewport가 바뀐 때만 sample을 찍고, 그 scroll record가 overlay
   cache에 도달한 시점부터 그것을 사용하는 draw까지를 잰다. graph는 viewport가 바뀌지 않는 동안
   `scroll applied`를 `0`으로 그리므로, 실제로 새 scroll position을 적용한 frame만 spike로 보인다.
   graph의 max scale은 한번 커지면 그 spike가 visible window 밖으로 지나간 뒤에도 debug collection이
@@ -177,7 +182,7 @@ pnpm --filter @voxpane/synthv-script deploy   # SynthV의 scripts 디렉터리�
 
 > **`deploy`는 `out/`의 모든 `.lua`를 복사한다.** bridge *와* Lua smoke script 둘 다다. smoke
 > script는 자기 16 ms loop로 **같은 channel에** 발행하는 두 번째 side panel section이라, 둘 다
-> 로드되면 두 writer가 `state`와 `notes`를 두고 싸우고 앱은 뒤섞인 것을 본다. panel에
+> 로드되면 두 writer가 `state`, `scroll`, `notes`를 두고 싸우고 앱은 뒤섞인 것을 본다. panel에
 > *voxpane Lua smoke*가 bridge와 나란히 보이면, scripts 디렉터리에서 `voxpane-lua-smoke.lua`를
 > 지우고 rescan할 것. 앱 자신의 설치기는 `overlay-bridge.lua`만 쓰므로, 이건 로컬 deploy에서만
 > 생기는 위험이다.

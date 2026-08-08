@@ -65,6 +65,7 @@ function harness(options: { viewport?: Viewport | null } = {}) {
       state = {
         seq,
         notesSeq: schedule === null ? 0 : 1,
+        scrollSeq: 1,
         at: 0,
         status: "playing",
         loop: null,

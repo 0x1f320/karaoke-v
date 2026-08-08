@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { type BridgeStatus, decodeNotes, decodeState } from "./bridgeChannels"
+import {
+  type BridgeStatus,
+  decodeNotes,
+  decodeScroll,
+  decodeState,
+  SCROLL_BYTES,
+} from "./bridgeChannels"
 
 // The writer is Lua's string.pack in packages/synthv-script. These builders are
 // the same layout written by hand, so a change on either side has to be made on
@@ -40,7 +46,7 @@ class Writer {
     }
     return this
   }
-  header(channel: number, length: number, layout = 3, magic = MAGIC): this {
+  header(channel: number, length: number, layout = 4, magic = MAGIC): this {
     return this.u32(magic).u16(layout).u16(channel).u32(length)
   }
 
@@ -52,6 +58,7 @@ class Writer {
 interface StateFields {
   seq?: number
   notesSeq?: number
+  scrollSeq?: number
   status?: BridgeStatus
   at?: number
   loop?: { start: number; end: number } | null
@@ -65,22 +72,38 @@ function stateRecord(fields: StateFields = {}): Uint8Array {
   const body = new Writer()
     .u32(fields.seq ?? 1)
     .u32(fields.notesSeq ?? 0)
+    .u32(fields.scrollSeq ?? 1)
     .u8(STATUS_CODES[fields.status ?? "playing"])
     .u8(loop ? 1 : 0)
     .f64(fields.at ?? 12.5)
     .f64(loop?.start ?? 0)
     .f64(loop?.end ?? 0)
+    .text(fields.rev ?? "91595700000:70:3183490408")
+    .done()
+
+  const record = new Writer().header(1, body.length, fields.layout, fields.magic).done()
+  return concat(record, body, 256 - record.length - body.length)
+}
+
+interface ScrollFields {
+  scrollSeq?: number
+  layout?: number
+  channel?: number
+}
+
+function scrollRecord(fields: ScrollFields = {}): Uint8Array {
+  const body = new Writer()
+    .u32(fields.scrollSeq ?? 1)
     .f64(2.13e-7)
     .f64(24)
     .f64(88355201996.439)
     .f64(97030858275.339)
     .f64(88.6875)
     .f64(60.5)
-    .text(fields.rev ?? "91595700000:70:3183490408")
     .done()
 
-  const record = new Writer().header(1, body.length, fields.layout, fields.magic).done()
-  return concat(record, body, 256 - record.length - body.length)
+  const record = new Writer().header(fields.channel ?? 3, body.length, fields.layout).done()
+  return concat(record, body, SCROLL_BYTES - record.length - body.length)
 }
 
 interface NoteFields {
@@ -122,27 +145,16 @@ function concat(head: Uint8Array, body: Uint8Array, padding: number): Uint8Array
 
 describe("decodeState", () => {
   it("reads a record the script wrote", () => {
-    const state = decodeState(stateRecord({ seq: 7, notesSeq: 3, at: 91.646 }))
+    const state = decodeState(stateRecord({ seq: 7, notesSeq: 3, scrollSeq: 5, at: 91.646 }))
     expect(state).toEqual({
       seq: 7,
       notesSeq: 3,
+      scrollSeq: 5,
       at: 91.646,
       status: "playing",
       loop: null,
-      px: {
-        perBlick: 2.13e-7,
-        perSemitone: 24,
-        viewLeft: 88355201996.439,
-        viewRight: 97030858275.339,
-        viewTop: 88.6875,
-        viewBottom: 60.5,
-      },
       rev: "91595700000:70:3183490408",
     })
-  })
-
-  it("keeps blicks exact past the precision a float32 would give", () => {
-    expect(decodeState(stateRecord())?.px.viewLeft).toBe(88355201996.439)
   })
 
   it("reads loop bounds only when the record says it has them", () => {
@@ -158,8 +170,8 @@ describe("decodeState", () => {
   })
 
   it("refuses a record from a layout it does not know", () => {
-    expect(decodeState(stateRecord({ layout: 2 }))).toBeNull()
-    expect(decodeState(stateRecord({ layout: 4 }))).toBeNull()
+    expect(decodeState(stateRecord({ layout: 3 }))).toBeNull()
+    expect(decodeState(stateRecord({ layout: 5 }))).toBeNull()
   })
 
   it("refuses bytes that are not a record at all", () => {
@@ -170,6 +182,30 @@ describe("decodeState", () => {
 
   it("refuses the notes channel read as state", () => {
     expect(decodeState(notesRecord([{}]))).toBeNull()
+  })
+})
+
+describe("decodeScroll", () => {
+  it("reads the complete view transform", () => {
+    expect(decodeScroll(scrollRecord({ scrollSeq: 5 }))).toEqual({
+      scrollSeq: 5,
+      perBlick: 2.13e-7,
+      perSemitone: 24,
+      viewLeft: 88355201996.439,
+      viewRight: 97030858275.339,
+      viewTop: 88.6875,
+      viewBottom: 60.5,
+    })
+  })
+
+  it("keeps blicks exact past the precision a float32 would give", () => {
+    expect(decodeScroll(scrollRecord())?.viewLeft).toBe(88355201996.439)
+  })
+
+  it("refuses the wrong layout, channel, and a truncated record", () => {
+    expect(decodeScroll(scrollRecord({ layout: 3 }))).toBeNull()
+    expect(decodeScroll(scrollRecord({ channel: 1 }))).toBeNull()
+    expect(decodeScroll(scrollRecord().slice(0, SCROLL_BYTES - 1))).toBeNull()
   })
 })
 

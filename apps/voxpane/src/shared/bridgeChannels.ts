@@ -2,12 +2,12 @@
 // (packages/synthv-script/src/lua/bridge/codec.ts is the writer, and
 // packages/synthv-script/scripts/dump.mjs the reference decoder).
 //
-// The script publishes state — playhead, transport, view transform — on every
-// tick, and the note schedule only when it changes. Nothing is streamed and
+// The script publishes state on every tick, and the view transform and note
+// schedule only when they change. Nothing is streamed and
 // nothing is queued: each channel holds one whole record that the writer
 // replaces in place, so a reader that misses a generation has missed nothing it
-// needed. Pairing across channels is by `rev`, and the record's own `rev` wins
-// over the one the state channel was carrying when it was read.
+// needed. Scroll pairs by `scrollSeq`; notes pair by both `notesSeq` and `rev`,
+// and the notes record's own `rev` wins over the state value read beside it.
 //
 // Every decode returns null rather than throwing. A short read, a torn record
 // or a layout this build does not know are all "skip this frame", never a
@@ -15,18 +15,17 @@
 // time.
 
 const MAGIC = 0x31425056 // "VPB1", little-endian
-// 3: bends gained the fixed padding on each side of their note. The samples
-// look identical to an unpadded array, so a reader that assumed the padding
-// would silently index into the wrong part of the curve — which is exactly the
-// case the version exists to refuse.
-const LAYOUT = 3
+// 4: the view transform moved from state into the scroll channel.
+const LAYOUT = 4
 const HEADER_BYTES = 12
 
 const CHANNEL_STATE = 1
 const CHANNEL_NOTES = 2
+const CHANNEL_SCROLL = 3
 
 /** The state record is padded to this, so a reader asks for exactly this much. */
 export const STATE_BYTES = 256
+export const SCROLL_BYTES = 64
 
 const STATUSES = ["stopped", "playing", "looping"] as const
 
@@ -47,19 +46,28 @@ export interface BridgeViewMapping {
   viewBottom: number
 }
 
-export interface BridgeState {
+export interface BridgeStateRecord {
   /** Advances every tick; stops advancing when the script is gone. */
   seq: number
   /** Generation of the notes channel, so it is read only when it changes. */
   notesSeq: number
+  /** Generation of the scroll channel, so it is read only when it changes. */
+  scrollSeq: number
   /** Playhead in seconds when the script read it. */
   at: number
   status: BridgeStatus
   /** Learned from the first loop wrap, so null until one happens. A hint only. */
   loop: { start: number; end: number } | null
-  px: BridgeViewMapping
   /** Note-set fingerprint; a change means any held schedule went stale. */
   rev: string
+}
+
+export interface BridgeScrollRecord extends BridgeViewMapping {
+  scrollSeq: number
+}
+
+export interface BridgeState extends BridgeStateRecord {
+  px: BridgeViewMapping
 }
 
 export interface BridgeNote {
@@ -162,13 +170,14 @@ function header(cursor: Cursor, channel: number): boolean {
   return cursor.u32() <= cursor.remaining
 }
 
-export function decodeState(bytes: Uint8Array): BridgeState | null {
+export function decodeState(bytes: Uint8Array): BridgeStateRecord | null {
   const cursor = new Cursor(bytes)
   if (!header(cursor, CHANNEL_STATE)) {
     return null
   }
   const seq = cursor.u32()
   const notesSeq = cursor.u32()
+  const scrollSeq = cursor.u32()
   const status = STATUSES[cursor.u8()]
   const hasLoop = (cursor.u8() & 1) === 1
   const at = cursor.f64()
@@ -180,18 +189,27 @@ export function decodeState(bytes: Uint8Array): BridgeState | null {
   return {
     seq,
     notesSeq,
+    scrollSeq,
     at,
     status,
     loop: hasLoop ? { start: loopStart, end: loopEnd } : null,
-    px: {
-      perBlick: cursor.f64(),
-      perSemitone: cursor.f64(),
-      viewLeft: cursor.f64(),
-      viewRight: cursor.f64(),
-      viewTop: cursor.f64(),
-      viewBottom: cursor.f64(),
-    },
     rev: cursor.text(),
+  }
+}
+
+export function decodeScroll(bytes: Uint8Array): BridgeScrollRecord | null {
+  const cursor = new Cursor(bytes)
+  if (!header(cursor, CHANNEL_SCROLL)) {
+    return null
+  }
+  return {
+    scrollSeq: cursor.u32(),
+    perBlick: cursor.f64(),
+    perSemitone: cursor.f64(),
+    viewLeft: cursor.f64(),
+    viewRight: cursor.f64(),
+    viewTop: cursor.f64(),
+    viewBottom: cursor.f64(),
   }
 }
 

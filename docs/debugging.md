@@ -105,10 +105,11 @@ directory: /Users/you/Library/Application Support/voxpane/bridge
 
 session.json: ENOENT: no such file or directory, ...
 state: ENOENT: ...
+scroll: ENOENT: ...
 notes: ENOENT: ...
 ```
 
-Three `ENOENT`s answer "has the script ever published here?" — no.
+Four `ENOENT`s answer "has the script ever published here?" — no.
 
 What to look at when it does print:
 
@@ -118,6 +119,10 @@ What to look at when it does print:
   which is the fastest way to confirm the editor version and OS a user is actually running.
 - **`seq`** — run `dump` twice a second apart. Not moving = the script is not ticking.
 - **`status`** and **`at`** — does the playhead match what SynthV shows?
+- **`scrollSeq` / `scroll`** — scroll or zoom and dump again. `scrollSeq` and the matching
+  record should change. With a stationary viewport, repeated dumps should show the same
+  `scrollSeq` and the file's `mtime` should stay still because the script performs no
+  scroll write.
 - **`rev` / `notesSeq`** — edit a note in SynthV and dump again. Both should change. If
   `rev` moves and `notesSeq` does not, the schedule failed to publish.
 - **`notes`** — the note count, and each note's `bend`. `bend none` on every note means the
@@ -146,19 +151,20 @@ Settings ▸ General ▸ **Enable debug mode**. It draws, on the overlay itself:
   `intensity`). A band running past the piano roll's edge is an effect that will be masked
   away and appear to vanish.
 - **bridge channel diagnostics** — a small panel in the piano roll's upper-right corner,
-  with one line each for `state` and `notes`, showing the channel file's age from
+  with one line each for `state`, `scroll` and `notes`, showing the channel file's age from
   filesystem `mtime`, its last size, the latest read cost, accepted `seq` / `notesSeq` /
-  `rev`, and how long the accepted record has been waiting before the current draw. Each
-  channel line includes accepted-to-draw `avg`, `min`, `max`, `p95` and `p99` stats for
-  distinct accepted records since debug collection was enabled. A `fail` line counts
-  missing files, refused records and `rev` mismatches, and a `scroll` line shows the
-  current scroll timing plus `avg`, `min`, `max`, `p95` and `p99` for scroll spikes.
+  `scrollSeq` / `rev`, and how long the accepted record has been waiting before the current
+  draw. State and notes lines include accepted-to-draw `avg`, `min`, `max`, `p95` and `p99`
+  stats for distinct accepted records since debug collection was enabled. A `fail` line
+  counts missing files, refused records, generation mismatches and `rev` mismatches, and a
+  final `scroll applied` line shows the current viewport-application timing plus `avg`,
+  `min`, `max`, `p95` and `p99` for scroll spikes.
   `n/a` means no valid record for that channel has reached the overlay cache since debug
   collection was enabled.
 - **bridge timing graph** — a small graph in the piano roll's upper-left corner, plotting
   recent `state applied`, `state read` and `scroll applied` timings. Note timings stay in
   the text panel and are not plotted. `scroll applied` samples only when the bridge-derived
-  viewport changes, and measures from that state record reaching the overlay cache to the
+  viewport changes, and measures from that scroll record reaching the overlay cache to the
   draw that uses it. The graph draws `scroll applied` as `0` while the viewport is
   unchanged, so spikes mark frames that actually applied a new scroll position. Once the
   graph's max scale grows, it stays there until debug collection resets, even after the
@@ -196,8 +202,8 @@ about what you just ran.
 
 > **`deploy` copies every `.lua` in `out/`**, which is the bridge *and* the Lua smoke
 > script. The smoke script is a second side panel section that publishes to **the same
-> channels** on its own 16 ms loop, so with both loaded two writers fight over `state` and
-> `notes` and the app sees an incoherent mixture. If the panel shows *voxpane Lua smoke*
+> channels** on its own 16 ms loop, so with both loaded two writers fight over `state`,
+> `scroll` and `notes` and the app sees an incoherent mixture. If the panel shows *voxpane Lua smoke*
 > alongside the bridge, delete `voxpane-lua-smoke.lua` from the scripts directory and
 > rescan. The app's own installer only ever writes `overlay-bridge.lua`, so this is a
 > hazard of local deploys only.

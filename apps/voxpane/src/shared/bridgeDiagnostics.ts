@@ -10,6 +10,9 @@ export interface BridgeChannelDiagnostics extends BridgeFileDiagnostics {
 export interface BridgeDiagnosticsCounters {
   stateMissing: number
   stateInvalid: number
+  scrollMissing: number
+  scrollInvalid: number
+  scrollSeqMismatch: number
   notesMissing: number
   notesInvalid: number
   revMismatch: number
@@ -17,6 +20,7 @@ export interface BridgeDiagnosticsCounters {
 
 export interface BridgeReadCosts {
   stateReadMs: number | null
+  scrollReadMs: number | null
   notesReadMs: number | null
 }
 
@@ -32,8 +36,10 @@ export interface BridgeRecordRead {
 
 export interface BridgeDiagnostics {
   state: BridgeChannelDiagnostics | null
+  scroll: BridgeChannelDiagnostics | null
   notes: BridgeChannelDiagnostics | null
-  stateRecord: { seq: number; notesSeq: number; rev: string } | null
+  stateRecord: { seq: number; notesSeq: number; scrollSeq: number; rev: string } | null
+  scrollRecord: { scrollSeq: number } | null
   notesRecord: { notesSeq: number; rev: string } | null
   counters: BridgeDiagnosticsCounters
   costs: BridgeReadCosts

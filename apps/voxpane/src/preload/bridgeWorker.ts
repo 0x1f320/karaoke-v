@@ -3,7 +3,7 @@ import type {
   BridgeRecordRead,
   BridgeSamplerDiagnostics,
 } from "../shared/bridgeDiagnostics"
-import { readScheduleRecord, readStateRecord } from "./bridgeReader"
+import { readScheduleRecord, readScrollRecord, readStateRecord } from "./bridgeReader"
 import { BridgeSampler } from "./bridgeSampler"
 
 interface WorkerScope {
@@ -30,10 +30,15 @@ function transferRecord(record: BridgeRecordRead): {
 const sampler = new BridgeSampler({
   now: () => performance.now(),
   readState: readStateRecord,
+  readScroll: readScrollRecord,
   readSchedule: readScheduleRecord,
   publishState: (record) => {
     const message = transferRecord(record)
     scope.postMessage({ type: "state", ...message }, [message.bytes])
+  },
+  publishScroll: (scrollSeq, record) => {
+    const message = transferRecord(record)
+    scope.postMessage({ type: "scroll", scrollSeq, ...message }, [message.bytes])
   },
   publishSchedule: (notesSeq, record) => {
     const message = transferRecord(record)

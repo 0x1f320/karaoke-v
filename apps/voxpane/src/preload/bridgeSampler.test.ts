@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { STATE_BYTES } from "../shared/bridgeChannels"
+import { SCROLL_BYTES, STATE_BYTES } from "../shared/bridgeChannels"
 import type { BridgeRecordRead } from "../shared/bridgeDiagnostics"
 import { BridgeSampler } from "./bridgeSampler"
 
@@ -45,8 +45,8 @@ class Writer {
 }
 
 function record(channel: number, body: Uint8Array, padded = false): Uint8Array {
-  const head = new Writer().u32(MAGIC).u16(3).u16(channel).u32(body.length).done()
-  const size = padded ? STATE_BYTES : head.length + body.length
+  const head = new Writer().u32(MAGIC).u16(4).u16(channel).u32(body.length).done()
+  const size = padded ? (channel === 1 ? STATE_BYTES : SCROLL_BYTES) : head.length + body.length
   const out = new Uint8Array(size)
   out.set(head)
   out.set(body, head.length)
@@ -54,24 +54,27 @@ function record(channel: number, body: Uint8Array, padded = false): Uint8Array {
   return out
 }
 
-function state(notesSeq: number, rev: string, seq = 1): Uint8Array {
+function state(notesSeq: number, rev: string, seq = 1, scrollSeq = 1): Uint8Array {
   const body = new Writer()
     .u32(seq)
     .u32(notesSeq)
+    .u32(scrollSeq)
     .u8(1)
     .u8(0)
     .f64(0)
     .f64(0)
     .f64(0)
-    .f64(1)
-    .f64(12)
-    .f64(0)
-    .f64(100)
-    .f64(80)
-    .f64(40)
     .text(rev)
     .done()
   return record(1, body, true)
+}
+
+function scroll(scrollSeq: number): Uint8Array {
+  return record(
+    3,
+    new Writer().u32(scrollSeq).f64(1).f64(12).f64(0).f64(100).f64(80).f64(40).done(),
+    true,
+  )
 }
 
 function notes(rev: string): Uint8Array {
@@ -82,20 +85,38 @@ function readable(bytes: Uint8Array | null | undefined): BridgeRecordRead | null
   return bytes ? { bytes, diagnostics: null } : null
 }
 
-function harness(states: Array<Uint8Array | null>, schedules: Array<Uint8Array | null> = []) {
+function harness(
+  states: Array<Uint8Array | null>,
+  schedules: Array<Uint8Array | null> = [],
+  scrolls: Array<Uint8Array | null> = [scroll(1)],
+) {
   const publishedStates: Uint8Array[] = []
+  const publishedScrolls: Array<{ scrollSeq: number; bytes: Uint8Array }> = []
   const publishedSchedules: Array<{ notesSeq: number; bytes: Uint8Array }> = []
   const diagnostics: unknown[] = []
+  const publishOrder: string[] = []
+  let scrollReads = 0
   let scheduleReads = 0
   let now = 0
   const sampler = new BridgeSampler({
     now: () => now++,
     readState: () => readable(states.shift()),
+    readScroll: () => {
+      scrollReads += 1
+      return readable(scrolls.shift())
+    },
     readSchedule: () => {
       scheduleReads += 1
       return readable(schedules.shift())
     },
-    publishState: (record) => publishedStates.push(Uint8Array.from(record.bytes)),
+    publishState: (record) => {
+      publishOrder.push("state")
+      publishedStates.push(Uint8Array.from(record.bytes))
+    },
+    publishScroll: (scrollSeq, record) => {
+      publishOrder.push(`scroll:${scrollSeq}`)
+      publishedScrolls.push({ scrollSeq, bytes: Uint8Array.from(record.bytes) })
+    },
     publishSchedule: (notesSeq, record) =>
       publishedSchedules.push({ notesSeq, bytes: Uint8Array.from(record.bytes) }),
     publishDiagnostics: (event) => diagnostics.push(event),
@@ -103,8 +124,11 @@ function harness(states: Array<Uint8Array | null>, schedules: Array<Uint8Array |
   return {
     sampler,
     publishedStates,
+    publishedScrolls,
     publishedSchedules,
+    publishOrder,
     diagnostics,
+    scrollReads: () => scrollReads,
     scheduleReads: () => scheduleReads,
   }
 }
@@ -118,6 +142,50 @@ describe("BridgeSampler", () => {
     sampler.sample()
 
     expect(publishedStates).toEqual([valid])
+  })
+
+  it("reads scroll only when its advertised generation changes", () => {
+    const first = scroll(1)
+    const second = scroll(2)
+    const { sampler, publishedScrolls, scrollReads } = harness(
+      [state(0, "r", 1, 1), state(0, "r", 2, 1), state(0, "r", 3, 2)],
+      [],
+      [first, second],
+    )
+
+    sampler.sample()
+    sampler.sample()
+    sampler.sample()
+
+    expect(scrollReads()).toBe(2)
+    expect(publishedScrolls).toEqual([
+      { scrollSeq: 1, bytes: first },
+      { scrollSeq: 2, bytes: second },
+    ])
+  })
+
+  it("publishes a matching scroll before its state", () => {
+    const { sampler, publishOrder } = harness([state(0, "r")])
+
+    sampler.sample()
+
+    expect(publishOrder).toEqual(["scroll:1", "state"])
+  })
+
+  it("retries a mismatched scroll without publishing the dependent state", () => {
+    const matching = scroll(1)
+    const { sampler, publishedStates, publishedScrolls, scrollReads } = harness(
+      [state(0, "r", 1), state(0, "r", 2)],
+      [],
+      [scroll(2), matching],
+    )
+
+    sampler.sample()
+    sampler.sample()
+
+    expect(scrollReads()).toBe(2)
+    expect(publishedStates).toEqual([state(0, "r", 2)])
+    expect(publishedScrolls).toEqual([{ scrollSeq: 1, bytes: matching }])
   })
 
   it("does not read notes before a schedule generation exists", () => {
@@ -171,25 +239,37 @@ describe("BridgeSampler", () => {
 
   it("reports debug failure counters and recent read costs", () => {
     const { sampler, diagnostics } = harness(
-      [null, new Uint8Array(STATE_BYTES), state(1, "r1"), state(2, "new")],
+      [
+        null,
+        new Uint8Array(STATE_BYTES),
+        state(0, "", 1, 1),
+        state(0, "", 2, 1),
+        state(0, "", 3, 2),
+        state(1, "r1", 4, 1),
+        state(2, "new", 5, 1),
+      ],
       [new Uint8Array(4), notes("old")],
+      [null, new Uint8Array(4), scroll(1), scroll(1)],
     )
 
-    sampler.sample(true)
-    sampler.sample(true)
-    sampler.sample(true)
-    sampler.sample(true)
+    for (let sample = 0; sample < 7; sample += 1) {
+      sampler.sample(true)
+    }
 
     expect(diagnostics.at(-1)).toEqual({
       counters: {
         stateMissing: 1,
         stateInvalid: 1,
+        scrollMissing: 1,
+        scrollInvalid: 1,
+        scrollSeqMismatch: 1,
         notesMissing: 0,
         notesInvalid: 1,
         revMismatch: 1,
       },
       costs: {
         stateReadMs: 1,
+        scrollReadMs: null,
         notesReadMs: 1,
       },
     })

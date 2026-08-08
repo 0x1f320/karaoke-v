@@ -115,6 +115,7 @@ describe("toDipState", () => {
     const state = {
       seq: 1,
       notesSeq: 2,
+      scrollSeq: 1,
       at: 3,
       status: "playing" as const,
       loop: null,

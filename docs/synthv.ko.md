@@ -98,6 +98,9 @@ script는 TypeScript로 쓰고 `typescript-to-lua`로 컴파일한다. 그건 �
   것이다. 그래서 **bridge 디렉터리는 앱이 만들고**, script는 그것이 생기기 전까지 그냥 열기에
   실패한다.
 - **socket도 thread도 없다.**
+- **viewport-change callback이 없다.** 다음 scroll이나 zoom을 알아내려면 script가 매 tick
+  navigation을 sample해야 한다. 여섯 값이 그대로면 `scroll` channel write를 생략하지만, 감지
+  latency를 늘리지 않고 host getter 자체를 멈출 수는 없다.
 - **`SV.setTimeout` 외에 scheduler가 없다.** bridge는 `finally`에서 자기를 다시 예약하는
   `setTimeout` loop다 — 그렇게 하지 않으면 tick 어딘가의 throw 하나가 세션 내내 loop를
   끝내버리고, 그동안 side panel은 마지막 상태를 계속 보여준다.
@@ -151,11 +154,12 @@ pitch를 group 전체에 대해 buffer 하나로, MIDI note number 단위로 반
 전부 **canvas-local**이다. canvas가 화면 어디 있는지는 아무것도 말하지 않고, 그 공백이 바로
 native helper가 메우는 것이다.
 
-각 range의 가까운 쪽만이 아니라 **양쪽 끝**을 다 publish하는데, Windows가 그 range들이 함의하는
-픽셀 크기로 piano roll element를 식별하기 때문이다 —
-[geometry](geometry.ko.md#two-platforms-two-strategies) 참조.
+각 range의 가까운 쪽만이 아니라 **양쪽 끝**을 하나의 64바이트 `scroll` record로 publish하는데,
+Windows가 그 range들이 함의하는 픽셀 크기로 piano roll element를 식별하기 때문이다 —
+[geometry](geometry.ko.md#two-platforms-two-strategies) 참조. 여섯 값 중 하나가 바뀐 뒤에만
+record를 쓴다.
 
-부호 규약에 주의: `getValueViewRange()`는 bottom을 먼저 반환하고, state record는
+부호 규약에 주의: `getValueViewRange()`는 bottom을 먼저 반환하고, scroll record는
 `viewTop` = `range[1]`, `viewBottom` = `range[0]`으로 저장한다.
 
 측정된 것 하나 더: **`v2y`는 lane을 값 위에서 시작시키는 게 아니라 값에 중심을 맞춘다.**
