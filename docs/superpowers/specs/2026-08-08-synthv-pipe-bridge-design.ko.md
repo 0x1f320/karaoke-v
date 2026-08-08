@@ -137,12 +137,17 @@ worker에 receiver stop을 요청하고 acknowledgement를 기다린다. Receive
 rendezvous와 macOS FIFO pathname을 withdraw하고, 이미 open된 writer를 300 ms 동안 계속 drain한
 다음 reader를 닫는다. 그러면 block된 `O_WRONLY` writer는 `EPIPE`로 실패한다. Worker나 window를
 사용할 수 없거나 bounded quit timeout 안에 acknowledgement가 없으면 main은 먼저 overlay 재생성을
-막고 owner window를 follow callback에서 분리한 뒤 renderer와 worker를 destroy하고 두 번째 짧은
-bound 안에서 destruction을 기다린다. 그 다음 quit을 재개하기 직전 마지막 동작으로 checksum-valid
-regular rendezvous와 그 session에서 도출한 FIFO endpoint만 동기적으로 제거한다. Regular endpoint와
-symbolic-link endpoint path는 절대 제거하지 않는다. Renderer destruction이 reject되거나 bound를
-넘겨도 main은 이 final withdrawal을 수행한다. Force-kill은 handshake와 owner-quiescence fallback을
-모두 건너뛸 수 있으므로 crash recovery는 계속 heartbeat expiry와 unique session path에 의존한다.
+막고 owner window를 follow callback에서 분리한 뒤 BrowserWindow destruction을 시도한다. 짧은 내부
+bound 안에 `closed` 또는 WebContents `destroyed`가 확인되지 않으면 captured WebContents에
+`forcefullyCrashRenderer()`를 호출하고 window destruction을 재시도한 뒤 두 번째 bound 안에서
+`render-process-gone`, `destroyed`, 또는 `closed`를 기다린다. Owner 또는 renderer destruction이
+확인된 경우에만 main은 quit을 재개하기 직전 마지막 동작으로 checksum-valid regular rendezvous와
+그 session에서 도출한 FIFO endpoint를 동기적으로 제거한다. Regular endpoint와 symbolic-link
+endpoint path는 절대 제거하지 않는다. Bound 경과는 quiescence의 증명이 아니라 escalation 또는
+rejection을 일으킨다. Forceful destruction을 확인할 수 없으면 live worker가 readerless advertisement를
+다시 만드는 위험을 감수하는 대신 quit을 prevented 상태로 유지하고 error를 log한다. Force-kill은
+handshake와 owner-quiescence fallback을 모두 건너뛸 수 있으므로 crash recovery는 계속 heartbeat
+expiry와 unique session path에 의존한다.
 
 FIFO pathname withdrawal 이후 endpoint open이 도착하면 `wb`가 regular file을 만들 수 있다. 이
 드문 late-open artifact는 endpoint handle을 진짜 write-only로 유지하기 위해 감수하는 비용이다.

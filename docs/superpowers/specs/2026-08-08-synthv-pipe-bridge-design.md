@@ -143,12 +143,17 @@ rendezvous and macOS FIFO pathnames before closing readers, continues draining a
 writers for 300 ms, and then closes the readers. A blocked `O_WRONLY` writer then fails with
 `EPIPE`. If the worker or window is unavailable or does not acknowledge within the bounded quit
 timeout, main first prevents overlay recreation, detaches the owning window from follow callbacks,
-destroys its renderer and worker, and waits for destruction under a second short bound. It then
-synchronously removes only a checksum-valid regular rendezvous and FIFO endpoints derived from
-its session as the final operation before resuming quit; regular and symbolic-link endpoint paths
-are never removed. If renderer destruction rejects or exceeds its bound, main still performs that
-final withdrawal. A force-kill can bypass both the handshake and this owner-quiescence fallback,
-so crash recovery still relies on heartbeat expiry and unique session paths.
+and attempts to destroy its BrowserWindow. If `closed` or WebContents `destroyed` is not confirmed
+within a short internal bound, main invokes `forcefullyCrashRenderer()` on the captured WebContents,
+retries window destruction, and waits under a second bound for `render-process-gone`, `destroyed`,
+or `closed`. Only confirmed owner or renderer destruction permits main to synchronously remove the
+checksum-valid regular rendezvous and FIFO endpoints derived from its session as the final
+operation before resuming quit; regular and symbolic-link endpoint paths are never removed. An
+elapsed bound triggers escalation or rejection, never proof of quiescence. If forceful destruction
+cannot be confirmed, quit remains prevented and the error is logged rather than risking a live
+worker recreating a readerless advertisement. A force-kill can bypass both the handshake and this
+owner-quiescence fallback, so crash recovery still relies on heartbeat expiry and unique session
+paths.
 
 `wb` can create a regular file if an endpoint open lands after its FIFO pathname was withdrawn.
 That rare late-open artifact is the accepted cost of keeping endpoint handles genuinely

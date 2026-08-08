@@ -9,7 +9,7 @@ import { prepareBridgeDirectory } from "./bridge"
 import { installBridgeScript } from "./bridgeScript"
 import {
   BridgeQuitCoordinator,
-  destroyBridgeReceiverOwner,
+  quiesceBridgeReceiverOwner as quiesceBridgeReceiverOwnerProcess,
   requestBridgeReceiverStop as requestBridgeReceiverStopIpc,
   withdrawAdvertisedBridge,
 } from "./bridgeShutdown"
@@ -60,7 +60,6 @@ let overlayWin: BrowserWindow | null = null
 let toolbarWin: BrowserWindow | null = null
 let quitting = false
 const BRIDGE_SHUTDOWN_TIMEOUT_MS = 1_000
-const BRIDGE_QUIESCE_TIMEOUT_MS = 250
 
 function requestBridgeReceiverStop(): Promise<boolean> {
   const win = overlayWin
@@ -84,11 +83,11 @@ function quiesceBridgeReceiverOwner(): Promise<void> {
     clearTimeout(boundsSync)
     boundsSync = null
   }
-  native.unfollow?.()
-  if (!win || win.isDestroyed()) {
-    return Promise.resolve()
-  }
-  return destroyBridgeReceiverOwner(win)
+  return quiesceBridgeReceiverOwnerProcess(
+    win && !win.isDestroyed() ? win : null,
+    () => native.unfollow?.(),
+    (error) => console.error("failed to detach the native overlay follower:", error),
+  )
 }
 
 const bridgeQuit = new BridgeQuitCoordinator({
@@ -102,8 +101,10 @@ const bridgeQuit = new BridgeQuitCoordinator({
     native.stop()
     destroyTray()
   },
+  reportQuiesceFailure: (error) => {
+    console.error("failed to confirm bridge receiver shutdown; quit remains prevented:", error)
+  },
   timeoutMs: BRIDGE_SHUTDOWN_TIMEOUT_MS,
-  quiesceTimeoutMs: BRIDGE_QUIESCE_TIMEOUT_MS,
 })
 
 // Names the macOS app menu, the About panel and notification attribution, which

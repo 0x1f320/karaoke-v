@@ -3,6 +3,7 @@ import { encodeRendezvous, pipeEndpoint } from "../shared/bridgeRendezvous"
 import {
   BridgeQuitCoordinator,
   destroyBridgeReceiverOwner,
+  quiesceBridgeReceiverOwner,
   requestBridgeReceiverStop,
   withdrawAdvertisedBridge,
 } from "./bridgeShutdown"
@@ -43,8 +44,8 @@ describe("BridgeQuitCoordinator", () => {
       withdrawAdvertisement: () => events.push("withdraw"),
       resumeQuit: () => events.push("resume"),
       cleanup: () => events.push("cleanup"),
+      reportQuiesceFailure: () => events.push("quiesce-error"),
       timeoutMs: 1_000,
-      quiesceTimeoutMs: 100,
     })
     const first = quitEvent()
     const repeated = quitEvent()
@@ -78,8 +79,8 @@ describe("BridgeQuitCoordinator", () => {
         withdrawAdvertisement: () => events.push("withdraw"),
         resumeQuit: () => events.push("resume"),
         cleanup: () => events.push("cleanup"),
+        reportQuiesceFailure: () => events.push("quiesce-error"),
         timeoutMs: 1_000,
-        quiesceTimeoutMs: 100,
       })
 
       coordinator.beforeQuit(quitEvent())
@@ -98,8 +99,8 @@ describe("BridgeQuitCoordinator", () => {
       withdrawAdvertisement: () => events.push("withdraw"),
       resumeQuit: () => events.push("resume"),
       cleanup: () => events.push("cleanup"),
+      reportQuiesceFailure: () => events.push("quiesce-error"),
       timeoutMs: 50,
-      quiesceTimeoutMs: 20,
     })
 
     coordinator.beforeQuit(quitEvent())
@@ -109,7 +110,7 @@ describe("BridgeQuitCoordinator", () => {
     expect(events).toEqual(["quiesce", "withdraw", "resume"])
   })
 
-  it("waits for owner quiescence before final fallback withdrawal", async () => {
+  it("does not withdraw at any arbitrary time while owner quiescence is pending", async () => {
     vi.useFakeTimers()
     const quiesced = deferred<void>()
     const events: string[] = []
@@ -123,12 +124,14 @@ describe("BridgeQuitCoordinator", () => {
       withdrawAdvertisement: () => events.push("withdraw"),
       resumeQuit: () => events.push("resume"),
       cleanup: () => events.push("cleanup"),
+      reportQuiesceFailure: () => events.push("quiesce-error"),
       timeoutMs: 50,
-      quiesceTimeoutMs: 100,
     })
 
     coordinator.beforeQuit(quitEvent())
     await vi.advanceTimersByTimeAsync(50)
+    expect(events).toEqual(["quiesce:start"])
+    await vi.advanceTimersByTimeAsync(60_000)
     expect(events).toEqual(["quiesce:start"])
 
     quiesced.resolve()
@@ -137,31 +140,28 @@ describe("BridgeQuitCoordinator", () => {
     )
   })
 
-  it.each(["rejected", "timed out"] as const)(
-    "withdraws and resumes once when owner quiescence is %s",
-    async (outcome) => {
-      vi.useFakeTimers()
-      const events: string[] = []
-      const coordinator = new BridgeQuitCoordinator({
-        requestReceiverStop: () => Promise.resolve(false),
-        quiesceReceiverOwner: () =>
-          outcome === "rejected"
-            ? Promise.reject(new Error("destroy failed"))
-            : new Promise(() => {}),
-        withdrawAdvertisement: () => events.push("withdraw"),
-        resumeQuit: () => events.push("resume"),
-        cleanup: () => events.push("cleanup"),
-        timeoutMs: 50,
-        quiesceTimeoutMs: 20,
-      })
+  it("surfaces rejected quiescence and remains in the prevented-quit state", async () => {
+    const events: string[] = []
+    const coordinator = new BridgeQuitCoordinator({
+      requestReceiverStop: () => Promise.resolve(false),
+      quiesceReceiverOwner: () => Promise.reject(new Error("destroy unconfirmed")),
+      withdrawAdvertisement: () => events.push("withdraw"),
+      resumeQuit: () => events.push("resume"),
+      cleanup: () => events.push("cleanup"),
+      reportQuiesceFailure: (error) => events.push(`error:${String(error)}`),
+      timeoutMs: 50,
+    })
 
-      coordinator.beforeQuit(quitEvent())
-      coordinator.beforeQuit(quitEvent())
-      await vi.advanceTimersByTimeAsync(20)
+    const first = quitEvent()
+    coordinator.beforeQuit(first)
+    await vi.waitFor(() => expect(events).toEqual(["error:Error: destroy unconfirmed"]))
 
-      expect(events).toEqual(["withdraw", "resume"])
-    },
-  )
+    const repeated = quitEvent()
+    coordinator.beforeQuit(repeated)
+    expect(first.prevented).toBe(true)
+    expect(repeated.prevented).toBe(true)
+    expect(events).toEqual(["error:Error: destroy unconfirmed"])
+  })
 
   it("quiesces a recovering owner before the final withdrawal", async () => {
     vi.useFakeTimers()
@@ -189,8 +189,8 @@ describe("BridgeQuitCoordinator", () => {
       },
       resumeQuit: () => events.push("resume"),
       cleanup: () => {},
+      reportQuiesceFailure: () => events.push("quiesce-error"),
       timeoutMs: 50,
-      quiesceTimeoutMs: 100,
     })
 
     coordinator.beforeQuit(quitEvent())
@@ -300,22 +300,50 @@ describe("requestBridgeReceiverStop", () => {
   })
 })
 
+class FakeReceiverContents {
+  readonly destroyedListeners = new Set<() => void>()
+  readonly goneListeners = new Set<() => void>()
+  destroyed = false
+  rendererGone = false
+  forceCrashCalls = 0
+  forceCrashError: Error | null = null
+
+  isDestroyed(): boolean {
+    return this.destroyed
+  }
+
+  once(event: "destroyed" | "render-process-gone", listener: () => void): void {
+    const listeners = event === "destroyed" ? this.destroyedListeners : this.goneListeners
+    listeners.add(listener)
+  }
+
+  off(event: "destroyed" | "render-process-gone", listener: () => void): void {
+    const listeners = event === "destroyed" ? this.destroyedListeners : this.goneListeners
+    listeners.delete(listener)
+  }
+
+  forcefullyCrashRenderer(): void {
+    this.forceCrashCalls += 1
+    if (this.forceCrashError) throw this.forceCrashError
+  }
+
+  completeDestroy(): void {
+    this.destroyed = true
+    for (const listener of [...this.destroyedListeners]) listener()
+  }
+
+  completeRenderGone(): void {
+    this.rendererGone = true
+    for (const listener of [...this.goneListeners]) listener()
+  }
+}
+
 class FakeReceiverOwner {
   readonly closedListeners = new Set<() => void>()
-  readonly webContents = {
-    destroyed: false,
-    destroyedListeners: new Set<() => void>(),
-    isDestroyed: (): boolean => this.webContents.destroyed,
-    once: (_event: "destroyed", listener: () => void): void => {
-      this.webContents.destroyedListeners.add(listener)
-    },
-    off: (_event: "destroyed", listener: () => void): void => {
-      this.webContents.destroyedListeners.delete(listener)
-    },
-  }
+  readonly webContents = new FakeReceiverContents()
   destroyed = false
   destroyCalls = 0
-  destroyError: Error | null = null
+  destroyErrors: Array<Error | null> = []
 
   isDestroyed(): boolean {
     return this.destroyed
@@ -331,20 +359,28 @@ class FakeReceiverOwner {
 
   destroy(): void {
     this.destroyCalls += 1
-    if (this.destroyError) throw this.destroyError
+    const error = this.destroyErrors[this.destroyCalls - 1]
+    if (error) throw error
+  }
+
+  completeWindowClose(): void {
+    this.destroyed = true
+    for (const listener of [...this.closedListeners]) listener()
   }
 
   completeWebContentsDestroy(): void {
-    this.webContents.destroyed = true
-    for (const listener of [...this.webContents.destroyedListeners]) listener()
+    this.webContents.completeDestroy()
   }
 }
 
 describe("destroyBridgeReceiverOwner", () => {
-  it("waits for owner destruction and cleans both event listeners", async () => {
+  const bounds = { normalTimeoutMs: 20, forceTimeoutMs: 20 }
+
+  it("resolves after normal destroy confirmation and cleans listeners and timers", async () => {
+    vi.useFakeTimers()
     const owner = new FakeReceiverOwner()
     let completed = false
-    const quiescing = destroyBridgeReceiverOwner(owner).then(() => {
+    const quiescing = destroyBridgeReceiverOwner(owner, bounds).then(() => {
       completed = true
     })
 
@@ -359,15 +395,145 @@ describe("destroyBridgeReceiverOwner", () => {
     expect(completed).toBe(true)
     expect(owner.closedListeners.size).toBe(0)
     expect(owner.webContents.destroyedListeners.size).toBe(0)
+    expect(owner.webContents.goneListeners.size).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
   })
 
-  it("rejects a failed destroy and cleans both event listeners", async () => {
+  it("force-crashes after destroy throws and resolves on render-process-gone", async () => {
     const owner = new FakeReceiverOwner()
-    owner.destroyError = new Error("destroy failed")
+    owner.destroyErrors = [new Error("destroy failed"), null]
+    const quiescing = destroyBridgeReceiverOwner(owner, bounds).then(
+      () => true,
+      () => false,
+    )
 
-    await expect(destroyBridgeReceiverOwner(owner)).rejects.toThrow("destroy failed")
+    expect(owner.destroyCalls).toBe(2)
+    expect(owner.webContents.forceCrashCalls).toBe(1)
+    owner.webContents.completeRenderGone()
+
+    await expect(quiescing).resolves.toBe(true)
     expect(owner.closedListeners.size).toBe(0)
     expect(owner.webContents.destroyedListeners.size).toBe(0)
+    expect(owner.webContents.goneListeners.size).toBe(0)
+  })
+
+  it("force-crashes after normal destroy does not confirm within its bound", async () => {
+    vi.useFakeTimers()
+    const owner = new FakeReceiverOwner()
+    const quiescing = destroyBridgeReceiverOwner(owner, bounds)
+
+    await vi.advanceTimersByTimeAsync(20)
+    expect(owner.destroyCalls).toBe(2)
+    expect(owner.webContents.forceCrashCalls).toBe(1)
+
+    owner.webContents.completeRenderGone()
+    await expect(quiescing).resolves.toBeUndefined()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("rejects when force crash does not confirm destruction and cleans every resource", async () => {
+    vi.useFakeTimers()
+    const owner = new FakeReceiverOwner()
+    let result = "pending"
+    void destroyBridgeReceiverOwner(owner, bounds).then(
+      () => {
+        result = "resolved"
+      },
+      () => {
+        result = "rejected"
+      },
+    )
+
+    await vi.advanceTimersByTimeAsync(40)
+
+    expect(result).toBe("rejected")
+    expect(owner.destroyCalls).toBe(2)
+    expect(owner.webContents.forceCrashCalls).toBe(1)
+    expect(owner.closedListeners.size).toBe(0)
+    expect(owner.webContents.destroyedListeners.size).toBe(0)
+    expect(owner.webContents.goneListeners.size).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("does not withdraw or resume when forced destruction remains unconfirmed", async () => {
+    vi.useFakeTimers()
+    const owner = new FakeReceiverOwner()
+    const events: string[] = []
+    const coordinator = new BridgeQuitCoordinator({
+      requestReceiverStop: () => Promise.resolve(false),
+      quiesceReceiverOwner: () => destroyBridgeReceiverOwner(owner, bounds),
+      withdrawAdvertisement: () => events.push("withdraw"),
+      resumeQuit: () => events.push("resume"),
+      cleanup: () => events.push("cleanup"),
+      reportQuiesceFailure: (error) => events.push(`error:${String(error)}`),
+      timeoutMs: 50,
+    })
+
+    coordinator.beforeQuit(quitEvent())
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(40)
+
+    expect(events).toEqual(["error:Error: bridge receiver owner destruction was not confirmed"])
+    expect(owner.webContents.forceCrashCalls).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("still destroys the owner when native unfollow throws", async () => {
+    const owner = new FakeReceiverOwner()
+    const errors: unknown[] = []
+    const quiescing = quiesceBridgeReceiverOwner(
+      owner,
+      () => {
+        throw new Error("native detach failed")
+      },
+      (error) => errors.push(error),
+      bounds,
+    )
+
+    expect(owner.destroyCalls).toBe(1)
+    owner.completeWindowClose()
+
+    await expect(quiescing).resolves.toBeUndefined()
+    expect(errors.map(String)).toEqual(["Error: native detach failed"])
+  })
+
+  it("prevents a poised heartbeat after forced destruction and before withdrawal", async () => {
+    vi.useFakeTimers()
+    const owner = new FakeReceiverOwner()
+    const events: string[] = []
+    let advertised = true
+    const recoveryHeartbeat = (): void => {
+      if (!owner.destroyed && !owner.webContents.destroyed && !owner.webContents.rendererGone) {
+        advertised = true
+        events.push("heartbeat")
+      }
+    }
+    const coordinator = new BridgeQuitCoordinator({
+      requestReceiverStop: () => Promise.resolve(false),
+      quiesceReceiverOwner: () => destroyBridgeReceiverOwner(owner, bounds),
+      withdrawAdvertisement: () => {
+        recoveryHeartbeat()
+        advertised = false
+        events.push("withdraw")
+      },
+      resumeQuit: () => events.push("resume"),
+      cleanup: () => {},
+      reportQuiesceFailure: () => events.push("quiesce-error"),
+      timeoutMs: 50,
+    })
+
+    coordinator.beforeQuit(quitEvent())
+    await vi.advanceTimersByTimeAsync(0)
+    recoveryHeartbeat()
+    expect(events).toEqual(["heartbeat"])
+
+    await vi.advanceTimersByTimeAsync(20)
+    expect(owner.webContents.forceCrashCalls).toBe(1)
+    owner.webContents.completeRenderGone()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(advertised).toBe(false)
+    expect(events).toEqual(["heartbeat", "withdraw", "resume"])
   })
 })
 

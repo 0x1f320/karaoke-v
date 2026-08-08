@@ -12,8 +12,8 @@ interface BridgeQuitDependencies {
   withdrawAdvertisement(): void
   resumeQuit(): void
   cleanup(): void
+  reportQuiesceFailure(error: unknown): void
   timeoutMs: number
-  quiesceTimeoutMs: number
 }
 
 export class BridgeQuitCoordinator {
@@ -43,7 +43,14 @@ export class BridgeQuitCoordinator {
   private async finishShutdown(): Promise<void> {
     const receiverStopped = await this.waitForReceiver()
     if (!receiverStopped) {
-      await this.waitForOwnerQuiescence()
+      try {
+        await this.dependencies.quiesceReceiverOwner()
+      } catch (error) {
+        try {
+          this.dependencies.reportQuiesceFailure(error)
+        } catch {}
+        return
+      }
       this.resuming = true
       try {
         this.dependencies.withdrawAdvertisement()
@@ -63,22 +70,6 @@ export class BridgeQuitCoordinator {
           .catch(() => false),
         new Promise<boolean>((resolve) => {
           timer = setTimeout(() => resolve(false), this.dependencies.timeoutMs)
-        }),
-      ])
-    } finally {
-      if (timer) clearTimeout(timer)
-    }
-  }
-
-  private async waitForOwnerQuiescence(): Promise<void> {
-    let timer: ReturnType<typeof setTimeout> | null = null
-    try {
-      await Promise.race([
-        Promise.resolve()
-          .then(() => this.dependencies.quiesceReceiverOwner())
-          .catch(() => undefined),
-        new Promise<void>((resolve) => {
-          timer = setTimeout(resolve, this.dependencies.quiesceTimeoutMs)
         }),
       ])
     } finally {
@@ -145,7 +136,10 @@ export function requestBridgeReceiverStop(
 interface BridgeReceiverOwnerContents {
   isDestroyed(): boolean
   once(event: "destroyed", listener: () => void): void
+  once(event: "render-process-gone", listener: () => void): void
   off(event: "destroyed", listener: () => void): void
+  off(event: "render-process-gone", listener: () => void): void
+  forcefullyCrashRenderer(): void
 }
 
 export interface BridgeReceiverOwner {
@@ -156,35 +150,138 @@ export interface BridgeReceiverOwner {
   destroy(): void
 }
 
-export function destroyBridgeReceiverOwner(owner: BridgeReceiverOwner): Promise<void> {
-  if (owner.isDestroyed()) {
-    return Promise.resolve()
-  }
+export interface BridgeReceiverDestroyBounds {
+  normalTimeoutMs: number
+  forceTimeoutMs: number
+}
 
-  return new Promise((resolve, reject) => {
-    const contents = owner.webContents
+const DEFAULT_DESTROY_BOUNDS: BridgeReceiverDestroyBounds = {
+  normalTimeoutMs: 250,
+  forceTimeoutMs: 250,
+}
+
+interface DestructionConfirmation {
+  promise: Promise<boolean>
+  cancel(): void
+}
+
+function isOwnerDestroyed(
+  owner: BridgeReceiverOwner,
+  contents: BridgeReceiverOwnerContents,
+): boolean {
+  return owner.isDestroyed() || contents.isDestroyed()
+}
+
+function waitForDestruction(
+  owner: BridgeReceiverOwner,
+  contents: BridgeReceiverOwnerContents,
+  timeoutMs: number,
+  includeRendererGone: boolean,
+): DestructionConfirmation {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let finish!: (confirmed: boolean) => void
+  const promise = new Promise<boolean>((resolve) => {
     let settled = false
-    const finish = (error?: unknown): void => {
-      if (settled) return
-      settled = true
+    const cleanup = (): void => {
       owner.off("closed", closed)
       contents.off("destroyed", destroyed)
-      if (error) reject(error)
-      else resolve()
+      if (includeRendererGone) {
+        contents.off("render-process-gone", rendererGone)
+      }
+      if (timer) {
+        clearTimeout(timer)
+        timer = null
+      }
     }
-    const closed = (): void => finish()
-    const destroyed = (): void => finish()
+    finish = (confirmed) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(confirmed)
+    }
+    const closed = (): void => finish(true)
+    const destroyed = (): void => finish(true)
+    const rendererGone = (): void => finish(true)
+
     owner.once("closed", closed)
     contents.once("destroyed", destroyed)
-    try {
-      owner.destroy()
-      if (owner.isDestroyed() || contents.isDestroyed()) {
-        finish()
-      }
-    } catch (error) {
-      finish(error)
+    if (includeRendererGone) {
+      contents.once("render-process-gone", rendererGone)
+    }
+    timer = setTimeout(() => finish(isOwnerDestroyed(owner, contents)), timeoutMs)
+    if (isOwnerDestroyed(owner, contents)) {
+      finish(true)
     }
   })
+  return { promise, cancel: () => finish(false) }
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export async function destroyBridgeReceiverOwner(
+  owner: BridgeReceiverOwner,
+  bounds: BridgeReceiverDestroyBounds = DEFAULT_DESTROY_BOUNDS,
+): Promise<void> {
+  const contents = owner.webContents
+  if (isOwnerDestroyed(owner, contents)) {
+    return
+  }
+
+  const normal = waitForDestruction(owner, contents, bounds.normalTimeoutMs, false)
+  let normalError: unknown = null
+  try {
+    owner.destroy()
+  } catch (error) {
+    normalError = error
+    normal.cancel()
+  }
+  if (!normalError && (await normal.promise)) {
+    return
+  }
+
+  const forced = waitForDestruction(owner, contents, bounds.forceTimeoutMs, true)
+  let forceError: unknown = null
+  let retryError: unknown = null
+  try {
+    contents.forcefullyCrashRenderer()
+  } catch (error) {
+    forceError = error
+  }
+  try {
+    owner.destroy()
+  } catch (error) {
+    retryError = error
+  }
+  if (await forced.promise) {
+    return
+  }
+
+  const errors = [normalError, forceError, retryError]
+    .filter((error) => error !== null)
+    .map(errorText)
+  const detail = errors.length > 0 ? `: ${errors.join("; ")}` : ""
+  throw new Error(`bridge receiver owner destruction was not confirmed${detail}`)
+}
+
+export function quiesceBridgeReceiverOwner(
+  owner: BridgeReceiverOwner | null,
+  unfollow: () => void,
+  reportNativeFailure: (error: unknown) => void,
+  bounds: BridgeReceiverDestroyBounds = DEFAULT_DESTROY_BOUNDS,
+): Promise<void> {
+  let quiescing = Promise.resolve()
+  try {
+    unfollow()
+  } catch (error) {
+    try {
+      reportNativeFailure(error)
+    } catch {}
+  } finally {
+    quiescing = owner ? destroyBridgeReceiverOwner(owner, bounds) : Promise.resolve()
+  }
+  return quiescing
 }
 
 export interface BridgeShutdownStat {
