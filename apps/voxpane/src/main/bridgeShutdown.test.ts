@@ -44,7 +44,7 @@ describe("BridgeQuitCoordinator", () => {
       withdrawAdvertisement: () => events.push("withdraw"),
       resumeQuit: () => events.push("resume"),
       cleanup: () => events.push("cleanup"),
-      reportQuiesceFailure: () => events.push("quiesce-error"),
+      reportFailure: () => events.push("quiesce-error"),
       timeoutMs: 1_000,
     })
     const first = quitEvent()
@@ -79,7 +79,7 @@ describe("BridgeQuitCoordinator", () => {
         withdrawAdvertisement: () => events.push("withdraw"),
         resumeQuit: () => events.push("resume"),
         cleanup: () => events.push("cleanup"),
-        reportQuiesceFailure: () => events.push("quiesce-error"),
+        reportFailure: () => events.push("quiesce-error"),
         timeoutMs: 1_000,
       })
 
@@ -99,7 +99,7 @@ describe("BridgeQuitCoordinator", () => {
       withdrawAdvertisement: () => events.push("withdraw"),
       resumeQuit: () => events.push("resume"),
       cleanup: () => events.push("cleanup"),
-      reportQuiesceFailure: () => events.push("quiesce-error"),
+      reportFailure: () => events.push("quiesce-error"),
       timeoutMs: 50,
     })
 
@@ -124,7 +124,7 @@ describe("BridgeQuitCoordinator", () => {
       withdrawAdvertisement: () => events.push("withdraw"),
       resumeQuit: () => events.push("resume"),
       cleanup: () => events.push("cleanup"),
-      reportQuiesceFailure: () => events.push("quiesce-error"),
+      reportFailure: () => events.push("quiesce-error"),
       timeoutMs: 50,
     })
 
@@ -148,7 +148,7 @@ describe("BridgeQuitCoordinator", () => {
       withdrawAdvertisement: () => events.push("withdraw"),
       resumeQuit: () => events.push("resume"),
       cleanup: () => events.push("cleanup"),
-      reportQuiesceFailure: (error) => events.push(`error:${String(error)}`),
+      reportFailure: (error) => events.push(`error:${String(error)}`),
       timeoutMs: 50,
     })
 
@@ -189,7 +189,7 @@ describe("BridgeQuitCoordinator", () => {
       },
       resumeQuit: () => events.push("resume"),
       cleanup: () => {},
-      reportQuiesceFailure: () => events.push("quiesce-error"),
+      reportFailure: () => events.push("quiesce-error"),
       timeoutMs: 50,
     })
 
@@ -205,6 +205,90 @@ describe("BridgeQuitCoordinator", () => {
 
     expect(advertised).toBe(false)
     expect(events).toEqual(["quiesce:start", "heartbeat", "quiesce:done", "withdraw", "resume"])
+  })
+
+  it("reports a thrown resume without unhandled rejection or premature cleanup", async () => {
+    const events: string[] = []
+    const unhandled: unknown[] = []
+    const onUnhandled = (error: unknown): void => {
+      unhandled.push(error)
+    }
+    process.on("unhandledRejection", onUnhandled)
+    try {
+      const coordinator = new BridgeQuitCoordinator({
+        requestReceiverStop: () => Promise.resolve(false),
+        quiesceReceiverOwner: async () => {
+          events.push("quiesce")
+        },
+        withdrawAdvertisement: () => events.push("withdraw"),
+        resumeQuit: () => {
+          events.push("resume")
+          throw new Error("resume failed")
+        },
+        cleanup: () => events.push("cleanup"),
+        reportFailure: (error) => events.push(`error:${String(error)}`),
+        timeoutMs: 50,
+      })
+
+      const first = quitEvent()
+      coordinator.beforeQuit(first)
+      await vi.waitFor(() =>
+        expect(events).toEqual(["quiesce", "withdraw", "resume", "error:Error: resume failed"]),
+      )
+      await new Promise<void>((resolve) => setImmediate(resolve))
+
+      expect(first.prevented).toBe(true)
+      expect(unhandled).toEqual([])
+      expect(events).not.toContain("cleanup")
+
+      const later = quitEvent()
+      coordinator.beforeQuit(later)
+      expect(later.prevented).toBe(false)
+      expect(events).toEqual([
+        "quiesce",
+        "withdraw",
+        "resume",
+        "error:Error: resume failed",
+        "cleanup",
+      ])
+    } finally {
+      process.off("unhandledRejection", onUnhandled)
+    }
+  })
+
+  it("contains a reporter throw after resume failure", async () => {
+    const events: string[] = []
+    const unhandled: unknown[] = []
+    const onUnhandled = (error: unknown): void => {
+      unhandled.push(error)
+    }
+    process.on("unhandledRejection", onUnhandled)
+    try {
+      const coordinator = new BridgeQuitCoordinator({
+        requestReceiverStop: () => Promise.resolve(true),
+        quiesceReceiverOwner: () => Promise.resolve(),
+        withdrawAdvertisement: () => events.push("withdraw"),
+        resumeQuit: () => {
+          events.push("resume")
+          throw new Error("resume failed")
+        },
+        cleanup: () => events.push("cleanup"),
+        reportFailure: () => {
+          events.push("report")
+          throw new Error("report failed")
+        },
+        timeoutMs: 50,
+      })
+
+      coordinator.beforeQuit(quitEvent())
+      await vi.waitFor(() => expect(events).toEqual(["resume", "report"]))
+      await new Promise<void>((resolve) => setImmediate(resolve))
+
+      expect(unhandled).toEqual([])
+      expect(events).not.toContain("cleanup")
+    } finally {
+      process.off("unhandledRejection", onUnhandled)
+    }
   })
 })
 
@@ -465,7 +549,7 @@ describe("destroyBridgeReceiverOwner", () => {
       withdrawAdvertisement: () => events.push("withdraw"),
       resumeQuit: () => events.push("resume"),
       cleanup: () => events.push("cleanup"),
-      reportQuiesceFailure: (error) => events.push(`error:${String(error)}`),
+      reportFailure: (error) => events.push(`error:${String(error)}`),
       timeoutMs: 50,
     })
 
@@ -518,7 +602,7 @@ describe("destroyBridgeReceiverOwner", () => {
       },
       resumeQuit: () => events.push("resume"),
       cleanup: () => {},
-      reportQuiesceFailure: () => events.push("quiesce-error"),
+      reportFailure: () => events.push("quiesce-error"),
       timeoutMs: 50,
     })
 

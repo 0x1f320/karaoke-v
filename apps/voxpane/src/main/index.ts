@@ -101,8 +101,8 @@ const bridgeQuit = new BridgeQuitCoordinator({
     native.stop()
     destroyTray()
   },
-  reportQuiesceFailure: (error) => {
-    console.error("failed to confirm bridge receiver shutdown; quit remains prevented:", error)
+  reportFailure: (error) => {
+    console.error("bridge quit coordination failed:", error)
   },
   timeoutMs: BRIDGE_SHUTDOWN_TIMEOUT_MS,
 })

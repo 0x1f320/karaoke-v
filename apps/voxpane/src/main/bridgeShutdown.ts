@@ -12,7 +12,7 @@ interface BridgeQuitDependencies {
   withdrawAdvertisement(): void
   resumeQuit(): void
   cleanup(): void
-  reportQuiesceFailure(error: unknown): void
+  reportFailure(error: unknown): void
   timeoutMs: number
 }
 
@@ -37,7 +37,7 @@ export class BridgeQuitCoordinator {
       return
     }
     this.waiting = true
-    void this.finishShutdown()
+    void this.finishShutdown().catch((error) => this.reportFailure(error))
   }
 
   private async finishShutdown(): Promise<void> {
@@ -46,9 +46,7 @@ export class BridgeQuitCoordinator {
       try {
         await this.dependencies.quiesceReceiverOwner()
       } catch (error) {
-        try {
-          this.dependencies.reportQuiesceFailure(error)
-        } catch {}
+        this.reportFailure(error)
         return
       }
       this.resuming = true
@@ -58,7 +56,17 @@ export class BridgeQuitCoordinator {
     } else {
       this.resuming = true
     }
-    this.dependencies.resumeQuit()
+    try {
+      this.dependencies.resumeQuit()
+    } catch (error) {
+      this.reportFailure(error)
+    }
+  }
+
+  private reportFailure(error: unknown): void {
+    try {
+      this.dependencies.reportFailure(error)
+    } catch {}
   }
 
   private async waitForReceiver(): Promise<boolean> {
