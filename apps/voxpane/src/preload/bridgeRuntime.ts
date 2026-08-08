@@ -9,7 +9,7 @@ import { decodeNotes, decodeScroll, decodeSession, decodeState } from "../shared
 import type {
   BridgeChannelDiagnostics,
   BridgeDiagnostics,
-  BridgeSamplerDiagnostics,
+  BridgeTransportDiagnostics,
 } from "../shared/bridgeDiagnostics"
 
 export interface BridgeRuntimeDecoders {
@@ -25,7 +25,7 @@ interface Accepted<T> {
 }
 
 const DECODERS: BridgeRuntimeDecoders = { decodeSession, decodeState, decodeScroll, decodeNotes }
-const EMPTY_SAMPLER_DIAGNOSTICS: BridgeSamplerDiagnostics = {
+const EMPTY_READ_DIAGNOSTICS = {
   counters: {
     stateMissing: 0,
     stateInvalid: 0,
@@ -61,7 +61,6 @@ export class BridgeRuntime {
   private notesCandidate: Accepted<BridgeSchedule> | null = null
   private scheduleSeq = 0
   private schedule: BridgeSchedule | null = null
-  private samplerDiagnostics: BridgeSamplerDiagnostics = EMPTY_SAMPLER_DIAGNOSTICS
   private revisionMismatches = 0
   private lastRevisionMismatchKey: string | null = null
   private diagnostics: BridgeDiagnostics = {
@@ -71,7 +70,8 @@ export class BridgeRuntime {
     stateRecord: null,
     scrollRecord: null,
     notesRecord: null,
-    ...EMPTY_SAMPLER_DIAGNOSTICS,
+    transport: null,
+    ...EMPTY_READ_DIAGNOSTICS,
   }
 
   constructor(private readonly decoders: BridgeRuntimeDecoders = DECODERS) {}
@@ -112,23 +112,7 @@ export class BridgeRuntime {
     return this.state
   }
 
-  acceptScroll(bytes: Uint8Array, diagnostics?: BridgeChannelDiagnostics | null): void
-  acceptScroll(
-    _scrollSeq: number,
-    bytes: Uint8Array,
-    diagnostics?: BridgeChannelDiagnostics | null,
-  ): void
-  acceptScroll(
-    bytesOrScrollSeq: Uint8Array | number,
-    bytesOrDiagnostics: Uint8Array | BridgeChannelDiagnostics | null = null,
-    legacyDiagnostics: BridgeChannelDiagnostics | null = null,
-  ): void {
-    const bytes =
-      typeof bytesOrScrollSeq === "number" ? (bytesOrDiagnostics as Uint8Array) : bytesOrScrollSeq
-    const diagnostics =
-      typeof bytesOrScrollSeq === "number"
-        ? legacyDiagnostics
-        : (bytesOrDiagnostics as BridgeChannelDiagnostics | null)
+  acceptScroll(bytes: Uint8Array, diagnostics: BridgeChannelDiagnostics | null = null): void {
     const scroll = this.decoders.decodeScroll(bytes)
     if (!scroll) {
       return
@@ -137,23 +121,7 @@ export class BridgeRuntime {
     this.compose()
   }
 
-  acceptSchedule(bytes: Uint8Array, diagnostics?: BridgeChannelDiagnostics | null): void
-  acceptSchedule(
-    _notesSeq: number,
-    bytes: Uint8Array,
-    diagnostics?: BridgeChannelDiagnostics | null,
-  ): void
-  acceptSchedule(
-    bytesOrNotesSeq: Uint8Array | number,
-    bytesOrDiagnostics: Uint8Array | BridgeChannelDiagnostics | null = null,
-    legacyDiagnostics: BridgeChannelDiagnostics | null = null,
-  ): void {
-    const bytes =
-      typeof bytesOrNotesSeq === "number" ? (bytesOrDiagnostics as Uint8Array) : bytesOrNotesSeq
-    const diagnostics =
-      typeof bytesOrNotesSeq === "number"
-        ? legacyDiagnostics
-        : (bytesOrDiagnostics as BridgeChannelDiagnostics | null)
+  acceptSchedule(bytes: Uint8Array, diagnostics: BridgeChannelDiagnostics | null = null): void {
     const schedule = this.decoders.decodeNotes(bytes)
     if (!schedule) {
       return
@@ -170,15 +138,18 @@ export class BridgeRuntime {
     return {
       ...this.diagnostics,
       counters: {
-        ...this.samplerDiagnostics.counters,
-        revMismatch: this.samplerDiagnostics.counters.revMismatch + this.revisionMismatches,
+        ...EMPTY_READ_DIAGNOSTICS.counters,
+        revMismatch: this.revisionMismatches,
       },
-      costs: this.samplerDiagnostics.costs,
+      costs: EMPTY_READ_DIAGNOSTICS.costs,
     }
   }
 
-  acceptSamplerDiagnostics(diagnostics: BridgeSamplerDiagnostics): void {
-    this.samplerDiagnostics = diagnostics
+  acceptTransportDiagnostics(diagnostics: BridgeTransportDiagnostics): void {
+    this.diagnostics = {
+      ...this.diagnostics,
+      transport: { ...diagnostics, disconnects: { ...diagnostics.disconnects } },
+    }
   }
 
   private compose(): void {

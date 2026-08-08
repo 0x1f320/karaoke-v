@@ -2,6 +2,7 @@ import { posix, win32 } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import {
   decodeRendezvous,
+  decodeRendezvousRecord,
   encodeRendezvous,
   pipeEndpoint,
   RENDEZVOUS_BYTES,
@@ -49,6 +50,15 @@ describe("rendezvous record", () => {
 
     expect(decodeRendezvous(bytes, HEARTBEAT + 3)).toBeNull()
     expect(decodeRendezvous(bytes, HEARTBEAT - 1)).toBeNull()
+  })
+
+  it("decodes a checksum-valid stale record for ownership checks", () => {
+    const bytes = encodeRendezvous({ heartbeatSeconds: HEARTBEAT, session: SESSION })
+
+    expect(decodeRendezvousRecord(bytes)).toEqual({
+      heartbeatSeconds: HEARTBEAT,
+      session: SESSION,
+    })
   })
 
   it("rejects sessions that are not 32 lowercase hexadecimal characters", () => {

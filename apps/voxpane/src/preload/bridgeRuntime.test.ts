@@ -9,7 +9,7 @@ import type {
 } from "../shared/bridgeChannels"
 import type {
   BridgeChannelDiagnostics,
-  BridgeSamplerDiagnostics,
+  BridgeTransportDiagnostics,
 } from "../shared/bridgeDiagnostics"
 import { BridgeRuntime } from "./bridgeRuntime"
 
@@ -185,12 +185,12 @@ describe("BridgeRuntime", () => {
     expect(bridge.readDiagnostics().counters.revMismatch).toBe(1)
   })
 
-  it("matches decoded scroll and notes generations instead of legacy arguments", () => {
+  it("matches decoded scroll and notes generations without external sequence fields", () => {
     const bridge = runtime()
 
     bridge.acceptState(STATE_BYTES)
-    bridge.acceptScroll(999, SCROLL_BYTES)
-    bridge.acceptSchedule(999, NOTES_BYTES)
+    bridge.acceptScroll(SCROLL_BYTES)
+    bridge.acceptSchedule(NOTES_BYTES)
 
     expectSnapshot(bridge)
   })
@@ -267,28 +267,19 @@ describe("BridgeRuntime", () => {
     })
   })
 
-  it("retains sampler diagnostics", () => {
-    const samplerDiagnostics: BridgeSamplerDiagnostics = {
-      counters: {
-        stateMissing: 1,
-        stateInvalid: 2,
-        scrollMissing: 3,
-        scrollInvalid: 4,
-        scrollSeqMismatch: 5,
-        notesMissing: 6,
-        notesInvalid: 7,
-        revMismatch: 8,
-      },
-      costs: {
-        stateReadMs: 0.5,
-        scrollReadMs: 0.25,
-        notesReadMs: 8,
-      },
+  it("retains pipe transport diagnostics beside temporary file metrics", () => {
+    const transport: BridgeTransportDiagnostics = {
+      status: "ready",
+      session: "0123456789abcdef0123456789abcdef",
+      recoveries: 2,
+      malformedFrames: 1,
+      endpointFailures: 1,
+      disconnects: { state: 3, scroll: 4, notes: 5 },
     }
     const bridge = runtime()
 
-    bridge.acceptSamplerDiagnostics(samplerDiagnostics)
+    bridge.acceptTransportDiagnostics(transport)
 
-    expect(bridge.readDiagnostics()).toMatchObject(samplerDiagnostics)
+    expect(bridge.readDiagnostics().transport).toEqual(transport)
   })
 })

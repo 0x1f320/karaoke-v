@@ -2,17 +2,15 @@
 // (packages/synthv-script/src/lua/bridge/codec.ts is the writer, and
 // packages/synthv-script/scripts/dump.mjs the reference decoder).
 //
-// The script publishes state on every tick, and the view transform and note
-// schedule only when they change. Nothing is streamed and
-// nothing is queued: each channel holds one whole record that the writer
-// replaces in place, so a reader that misses a generation has missed nothing it
-// needed. Scroll pairs by `scrollSeq`; notes pair by both `notesSeq` and `rev`,
-// and the notes record's own `rev` wins over the state value read beside it.
+// The script sends whole framed records through app-owned state, scroll and
+// notes streams. Stream chunks may split or coalesce frames, but each decoder
+// receives one complete frame. Scroll pairs by `scrollSeq`; notes pair by both
+// `notesSeq` and `rev`, and the notes record's own `rev` wins over the state
+// value received beside it.
 //
-// Every decode returns null rather than throwing. A short read, a torn record
-// or a layout this build does not know are all "skip this frame", never a
-// crash: the writer is a different process that can restart under us at any
-// time.
+// Every decode returns null rather than throwing. A malformed or truncated
+// record, or a layout this build does not know, is "skip this frame", never a
+// crash: the writer is a different process that can restart at any time.
 
 const MAGIC = 0x31425056 // "VPB1", little-endian
 export const BRIDGE_LAYOUT = 5
@@ -44,9 +42,9 @@ export interface BridgeViewMapping {
 export interface BridgeStateRecord {
   /** Advances every tick; stops advancing when the script is gone. */
   seq: number
-  /** Generation of the notes channel, so it is read only when it changes. */
+  /** Generation of the notes channel. */
   notesSeq: number
-  /** Generation of the scroll channel, so it is read only when it changes. */
+  /** Generation of the scroll channel. */
   scrollSeq: number
   /** Playhead in seconds when the script read it. */
   at: number
@@ -269,8 +267,8 @@ export function decodeNotes(bytes: Uint8Array): BridgeSchedule | null {
     const count = cursor.u32()
     const notes: BridgeNote[] = []
     for (let i = 0; i < count; i++) {
-      // A record shorter than its own count means the writer is mid-replacement
-      // or the file was truncated; either way this frame has no schedule.
+      // A record shorter than its own count is malformed or truncated; either
+      // way this frame has no schedule.
       if (cursor.remaining < 38) {
         return null
       }

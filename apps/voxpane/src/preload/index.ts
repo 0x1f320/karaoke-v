@@ -3,8 +3,7 @@ import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron"
 import type { BridgeSchedule, BridgeState } from "../shared/bridgeChannels"
 import type {
   BridgeChannelDiagnostics,
-  BridgeFileDiagnostics,
-  BridgeSamplerDiagnostics,
+  BridgeReceiptDiagnostics,
 } from "../shared/bridgeDiagnostics"
 import {
   type CanvasSnapshot,
@@ -20,37 +19,11 @@ import {
 import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
 import { expectedCanvasSize } from "../shared/pianoRollGeometry"
 import type { Preferences, PreferencesPatch } from "../shared/preferences"
+import type { BridgeReceiverMessage } from "./bridgeReceiver"
 import { BridgeRuntime } from "./bridgeRuntime"
 
-interface StateMessage {
-  type: "state"
-  bytes: ArrayBuffer
-  diagnostics: BridgeFileDiagnostics | null
-}
-
-interface ScheduleMessage {
-  type: "schedule"
-  notesSeq: number
-  bytes: ArrayBuffer
-  diagnostics: BridgeFileDiagnostics | null
-}
-
-interface ScrollMessage {
-  type: "scroll"
-  scrollSeq: number
-  bytes: ArrayBuffer
-  diagnostics: BridgeFileDiagnostics | null
-}
-
-interface DiagnosticsMessage {
-  type: "diagnostics"
-  diagnostics: BridgeSamplerDiagnostics
-}
-
-type BridgeWorkerMessage = StateMessage | ScrollMessage | ScheduleMessage | DiagnosticsMessage
-
 interface BrowserWorker {
-  onmessage: ((event: { data: BridgeWorkerMessage }) => void) | null
+  onmessage: ((event: { data: BridgeReceiverMessage }) => void) | null
   postMessage(message: unknown): void
 }
 
@@ -73,22 +46,23 @@ function cachedBridge(): BridgeRuntime {
   const Worker = (globalThis as unknown as { Worker: BrowserWorkerConstructor }).Worker
   const worker = new Worker(workerUrl)
   worker.onmessage = ({ data }) => {
-    if (data.type === "state") {
+    if (data.type === "session") {
+      runtime.acceptSession(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
+    } else if (data.type === "state") {
       runtime.acceptState(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
     } else if (data.type === "scroll") {
-      runtime.acceptScroll(
-        data.scrollSeq,
-        new Uint8Array(data.bytes),
-        acceptDiagnostics(data.diagnostics),
-      )
+      runtime.acceptScroll(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
     } else if (data.type === "schedule") {
-      runtime.acceptSchedule(
-        data.notesSeq,
-        new Uint8Array(data.bytes),
-        acceptDiagnostics(data.diagnostics),
-      )
-    } else {
-      runtime.acceptSamplerDiagnostics(data.diagnostics)
+      runtime.acceptSchedule(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
+    } else if (data.type === "transport") {
+      runtime.acceptTransportDiagnostics({
+        status: data.status,
+        session: data.session,
+        recoveries: data.recoveries,
+        malformedFrames: data.malformedFrames,
+        endpointFailures: data.endpointFailures,
+        disconnects: data.disconnects,
+      })
     }
   }
   bridgeWorker = worker
@@ -97,9 +71,15 @@ function cachedBridge(): BridgeRuntime {
 }
 
 function acceptDiagnostics(
-  diagnostics: BridgeFileDiagnostics | null,
+  diagnostics: BridgeReceiptDiagnostics | null,
 ): BridgeChannelDiagnostics | null {
-  return diagnostics ? { ...diagnostics, acceptedAtMs: native.monotonicNow() } : null
+  return diagnostics
+    ? {
+        modifiedAtMs: diagnostics.receivedAtMs,
+        sizeBytes: diagnostics.sizeBytes,
+        acceptedAtMs: native.monotonicNow(),
+      }
+    : null
 }
 
 // The helper reports in native units — points on macOS, physical pixels on
@@ -164,9 +144,9 @@ contextBridge.exposeInMainWorld("overlay", {
     nativeCanvasAsync().then((snapshot) => snapshot && toDipCanvasSnapshot(dip, snapshot)),
 })
 
-// A Node-enabled Web Worker reads the bridge independently of rAF and transfers
-// the newest records into this preload's cache. The renderer only asks for the
-// latest decoded object; neither file I/O nor Electron IPC occurs while drawing.
+// A Node-enabled Web Worker owns the bridge endpoints and transfers complete
+// records into this preload's cache. The renderer only asks for the latest
+// decoded object; neither filesystem access nor Electron IPC occurs while drawing.
 contextBridge.exposeInMainWorld("bridge", {
   readState: (): BridgeState | null => {
     const state = cachedBridge().readState()

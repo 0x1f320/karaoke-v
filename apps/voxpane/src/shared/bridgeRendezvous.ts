@@ -33,6 +33,18 @@ export function encodeRendezvous(value: BridgeRendezvous): Uint8Array {
 }
 
 export function decodeRendezvous(bytes: Uint8Array, nowSeconds: number): BridgeRendezvous | null {
+  const value = decodeRendezvousRecord(bytes)
+  if (
+    value === null ||
+    nowSeconds - value.heartbeatSeconds < 0 ||
+    nowSeconds - value.heartbeatSeconds > 2
+  ) {
+    return null
+  }
+  return value
+}
+
+export function decodeRendezvousRecord(bytes: Uint8Array): BridgeRendezvous | null {
   if (bytes.length !== RENDEZVOUS_BYTES) {
     return null
   }
@@ -45,10 +57,7 @@ export function decodeRendezvous(bytes: Uint8Array, nowSeconds: number): BridgeR
 
   const [, heartbeatText, session, expectedChecksum] = match
   const heartbeatSeconds = Number(heartbeatText)
-  if (!Number.isSafeInteger(heartbeatSeconds) || nowSeconds - heartbeatSeconds < 0) {
-    return null
-  }
-  if (nowSeconds - heartbeatSeconds > 2) {
+  if (!Number.isSafeInteger(heartbeatSeconds)) {
     return null
   }
 
