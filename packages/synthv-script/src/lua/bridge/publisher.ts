@@ -1,38 +1,17 @@
-/**
- * The contract between the script and the app: which channels exist, what each
- * one carries, and how a reader pairs them up.
- *
- * Splitting the payload by how often it changes is the point: transport changes
- * every tick, the view transform changes while scrolling or zooming, and the
- * note schedule changes after edits.
- *
- * The state channel doubles as the index: it names the sequence number of each
- * slower channel, so a reader that already polls it learns that a transform or
- * schedule moved without opening either while unchanged. That is also why there
- * is no notification of any kind here — a watcher cannot beat "the app already looks
- * every frame", and measured, its tail latency is far worse.
- *
- * `session.json` is the exception that stays JSON and stays padded rather than
- * framed: it is written once, it is the document that tells a reader what the
- * binary channels are and which layout they use, and it has to survive being
- * read by a person with `cat`.
- */
-
 import { encodeJson } from "../json"
-import { type Channel, coldChannel, hotChannel } from "./channels"
-import { encodeNotes, encodeScroll, encodeState, LAYOUT, type NoteRecord } from "./codec"
+import { SCRIPT_VERSION } from "../version"
+import {
+  encodeNotes,
+  encodeScroll,
+  encodeSession,
+  encodeState,
+  LAYOUT,
+  type NoteRecord,
+} from "./codec"
 import { bridgeDirectory } from "./paths"
+import { createPipeClient } from "./pipe"
 
 const PROTOCOL = 1
-
-/**
- * The hot record is padded to this, so it must fit the longest `rev` a project
- * can produce. Publishing fails rather than truncating if it ever does not.
- */
-const STATE_WIDTH = 256
-const SCROLL_WIDTH = 64
-
-const SESSION_WIDTH = 1024
 
 export interface StateValue {
   at: number
@@ -56,8 +35,10 @@ interface ScrollValue {
   viewBottom: number
 }
 
+export type PrepareResult = "new-session" | "connected" | "disconnected"
+
 export interface Publisher {
-  readonly ready: boolean
+  prepare(elapsedMs: number): PrepareResult
   publishState(state: StateValue): void
   publishNotes(rev: string, notes: NoteRecord[]): void
   describe(): string
@@ -70,90 +51,128 @@ export function createPublisher(): Publisher {
     return unavailable("no home directory")
   }
 
-  const session = hotChannel(directory, "session.json", SESSION_WIDTH)
-  const state = hotChannel(directory, "state", STATE_WIDTH)
-  const scroll = hotChannel(directory, "scroll", SCROLL_WIDTH)
-  const notes = coldChannel(directory, "notes")
-
+  const client = createPipeClient(directory)
+  const scriptStartedAt = os.time()
   const host = SV.getHostInfo()
-  const announced = session.publish(
-    encodeJson({
-      v: PROTOCOL,
-      layout: LAYOUT,
-      session: `${os.time()}`,
-      host: {
-        osType: host.osType,
-        hostName: host.hostName,
-        hostVersion: host.hostVersion,
-        hostVersionNumber: host.hostVersionNumber,
-      },
-      channels: [
-        { name: "state", kind: "hot", encoding: "binary", width: STATE_WIDTH },
-        { name: "scroll", kind: "hot", encoding: "binary", width: SCROLL_WIDTH },
-        { name: "notes", kind: "cold", encoding: "binary" },
-      ],
-    }),
-  )
-  if (!announced) {
-    // Nothing else can work either, and saying so once is more useful than
-    // failing silently sixty times a second.
-    closeAll([session, state, scroll, notes])
-    return unavailable(`cannot write to ${directory}`)
-  }
-
+  let connectionCounter = 0
+  let activeConnectionSerial: number | undefined
+  let appSession = "none"
+  let scriptSession = "none"
   let seq = 0
   let notesSeq = 0
   let scrollSeq = 0
   let lastScroll: ScrollValue | null = null
   let lastError = "none"
 
+  function resetPublicationState(): void {
+    seq = 0
+    notesSeq = 0
+    scrollSeq = 0
+    lastScroll = null
+  }
+
+  function deactivate(message: string): void {
+    activeConnectionSerial = undefined
+    lastError = message
+  }
+
   return {
-    ready: true,
+    prepare(elapsedMs) {
+      const connection = client.connect(elapsedMs)
+      if (connection === undefined) {
+        activeConnectionSerial = undefined
+        return "disconnected"
+      }
+      if (connection.serial === activeConnectionSerial) {
+        return "connected"
+      }
+
+      resetPublicationState()
+      connectionCounter = connectionCounter + 1
+      appSession = connection.session
+      scriptSession = `${scriptStartedAt}:${connectionCounter}`
+      const sessionFrame = encodeSession(
+        encodeJson({
+          v: PROTOCOL,
+          layout: LAYOUT,
+          appSession,
+          scriptSession,
+          scriptVersion: SCRIPT_VERSION,
+          host: {
+            osType: host.osType,
+            hostName: host.hostName,
+            hostVersion: host.hostVersion,
+            hostVersionNumber: host.hostVersionNumber,
+          },
+        }),
+      )
+      if (!client.write("state", sessionFrame)) {
+        deactivate("session write failed")
+        client.disconnect()
+        return "disconnected"
+      }
+
+      activeConnectionSerial = connection.serial
+      lastError = "none"
+      return "new-session"
+    },
 
     publishState(value) {
+      if (activeConnectionSerial === undefined) {
+        return
+      }
+
       const nextScroll = scrollValue(value)
       if (lastScroll === null || !sameScroll(lastScroll, nextScroll)) {
         const nextScrollSeq = scrollSeq + 1
-        const ok = scroll.publish(encodeScroll({ scrollSeq: nextScrollSeq, ...nextScroll }))
-        if (ok) {
-          scrollSeq = nextScrollSeq
-          lastScroll = nextScroll
-        } else {
-          lastError = "scroll write failed"
+        if (!client.write("scroll", encodeScroll({ scrollSeq: nextScrollSeq, ...nextScroll }))) {
+          deactivate("scroll write failed")
+          return
         }
+        scrollSeq = nextScrollSeq
+        lastScroll = nextScroll
       }
 
-      seq = seq + 1
-      const ok = state.publish(
-        encodeState({
-          seq,
-          notesSeq,
-          scrollSeq,
-          at: value.at,
-          status: value.status,
-          loop: value.loop,
-          rev: value.rev,
-        }),
-      )
-      if (!ok) {
-        lastError = "state write failed"
+      const nextSeq = seq + 1
+      if (
+        !client.write(
+          "state",
+          encodeState({
+            seq: nextSeq,
+            notesSeq,
+            scrollSeq,
+            at: value.at,
+            status: value.status,
+            loop: value.loop,
+            rev: value.rev,
+          }),
+        )
+      ) {
+        deactivate("state write failed")
+        return
       }
+      seq = nextSeq
     },
 
-    publishNotes(rev, value) {
-      if (notes.publish(encodeNotes(notesSeq + 1, rev, value))) {
-        notesSeq = notesSeq + 1
-      } else {
-        lastError = "notes write failed"
+    publishNotes(rev, notes) {
+      if (activeConnectionSerial === undefined) {
+        return
       }
+      const nextNotesSeq = notesSeq + 1
+      if (!client.write("notes", encodeNotes(nextNotesSeq, rev, notes))) {
+        deactivate("notes write failed")
+        return
+      }
+      notesSeq = nextNotesSeq
     },
 
     describe() {
-      return `${directory} (seq ${seq}, scroll ${scrollSeq}, notes ${notesSeq}, last error: ${lastError})`
+      return `${directory} (${client.describe()}, app ${appSession}, script ${scriptSession}, seq ${seq}, scroll ${scrollSeq}, notes ${notesSeq}, last error: ${lastError})`
     },
 
     close() {
-      closeAll([session, state, scroll, notes])
+      activeConnectionSerial = undefined
+      client.disconnect()
     },
   }
 }
@@ -180,18 +199,12 @@ function sameScroll(left: ScrollValue, right: ScrollValue): boolean {
   )
 }
 
-function closeAll(channels: Channel[]): void {
-  for (const channel of channels) {
-    channel.close()
-  }
-}
-
 function unavailable(reason: string): Publisher {
   return {
-    ready: false,
+    prepare: () => "disconnected",
     publishState: () => {},
     publishNotes: () => {},
-    describe: () => `unavailable: ${reason}`,
+    describe: () => `disconnected, last error: ${reason}`,
     close: () => {},
   }
 }

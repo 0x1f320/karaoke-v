@@ -1,8 +1,8 @@
 # SynthV Pipe Bridge Design
 
 > English 원본: **[2026-08-08-synthv-pipe-bridge-design.md](2026-08-08-synthv-pipe-bridge-design.md)**.
-> 이 문서는 승인된 file bridge 교체 설계를 설명한다. 구현이 반영되기 전까지 현재 runtime은
-> [bridge.md](../../bridge.md)를 따른다.
+> 이 문서는 승인된 file bridge 교체 설계를 설명한다. 현재 runtime은 task 단위로 migration 중이며,
+> product document reconciliation은 이후 migration task에 남아 있다.
 
 ## Status
 
@@ -120,7 +120,10 @@ space로 padding하고 offset 0에 한 번의 128-byte write로 record를 갱신
 열기 전에 완전한 shape, checksum, session ID, heartbeat freshness를 검증한다. Malformed, torn,
 future, stale record는 앱이 없는 상태로 취급한다. Session ID는 `node:crypto`의 random byte 16개를
 lowercase hex로 encode한다. Heartbeat는 500 ms마다 쓰고 2초 동안 fresh하다. SynthV는 disconnected
-상태에서 최대 250 ms마다 확인하며 매 4 ms state tick에서는 접근하지 않는다.
+상태와 connected 상태 모두에서 250 ms logical-time cadence로 record를 다시 검증하며 매 4 ms state
+tick에서는 접근하지 않는다. 같은 app session의 fresh record는 기존 handle을 보존한다. Missing,
+malformed, stale, future, different-session record는 다른 connection을 시도하기 전에 complete handle
+set을 닫는다.
 
 Endpoint name은 rendezvous에 저장하지 않고 결정적으로 만든다.
 
@@ -129,9 +132,11 @@ Endpoint name은 rendezvous에 저장하지 않고 결정적으로 만든다.
 | macOS | `<bridge>/pipe-<session>-state`, `<bridge>/pipe-<session>-scroll`, `<bridge>/pipe-<session>-notes` |
 | Windows | `\\.\pipe\voxpane-<session>-state`, `\\.\pipe\voxpane-<session>-scroll`, `\\.\pipe\voxpane-<session>-notes` |
 
-Unique name은 새 app process가 stale endpoint를 재사용하지 못하게 한다. 정상 종료 시 rendezvous와
-macOS FIFO를 제거한다. 시작 시 voxpane endpoint pattern과 일치하는 FIFO node만 정리할 수 있으며,
-그 이름 아래 regular file이나 symbolic link가 있으면 절대 unlink하지 않는다.
+Unique name은 새 app process가 stale endpoint를 재사용하지 못하게 한다. 정상 종료 시 reader를
+닫기 전에 rendezvous와 macOS FIFO pathname을 withdraw한다. 앱은 이미 open된 writer를 300 ms 동안
+계속 drain한 다음 reader를 닫는다. Pathname이 withdraw된 뒤에는 새 non-creating open이 FIFO에
+도달할 수 없다. 시작 시 voxpane endpoint pattern과 일치하는 FIFO node만 정리할 수 있으며, 그 이름
+아래 regular file이나 symbolic link가 있으면 절대 unlink하지 않는다.
 
 유효한 heartbeat read와 FIFO open 사이에는 process-death race가 불가피하다. Unique endpoint name,
 reader-before-ready ordering, 짧고 disconnected 상태에서만 존재하는 open window로 앱이 그 정확한
@@ -143,7 +148,11 @@ reader-before-ready ordering, 짧고 disconnected 상태에서만 존재하는 o
 Writer는 세 handle을 하나의 connection으로 취급한다.
 
 1. Disconnected 상태에서 fresh rendezvous를 읽고 검증한다.
-2. 세 write-only endpoint를 모두 열고 각 handle의 stdio buffering을 끈다.
+2. 기존 endpoint를 `state`, `scroll`, `notes` 순서로 `io.open(path, "r+b")`를 사용해 열고 각
+   handle의 stdio buffering을 끈다. `r+b`는 portable non-creating RDWR semantics를 제공한다. 이
+   open mode와 관계없이 script는 endpoint handle에서 `read`, `seek`, `flush`를 호출하지 않고
+   `write`, `setvbuf`, `close`만 사용한다. `wb`는 create semantics 때문에 FIFO pathname withdrawal
+   이후 dead regular file을 남길 수 있으므로 제외한다.
 3. 하나라도 open에 실패하면 모든 handle을 닫고 disconnected backoff 후 재시도한다.
 4. 현재 view mapping과 note schedule을 수집한다.
 5. 새 app session에 맞춰 `stateSeq`, `scrollSeq`, `notesSeq`를 초기화한다.
@@ -155,7 +164,9 @@ Writer는 세 handle을 하나의 connection으로 취급한다.
 있으므로 재사용하면 앱 재시작 후 자동 정확 복구 요구를 충족하지 못한다.
 
 어느 stream에서든 write가 실패하면 세 handle을 모두 닫는다. 실패한 indexed-channel write는 state가
-광고하는 generation을 증가시키지 않는다. 다음 fresh rendezvous에서 set을 다시 연결하고 완전한
+광고하는 generation을 증가시키지 않는다. 실패한 disconnected attempt는 250 logical millisecond 동안
+backoff한다. Connected 상태에서는 동일한 250 ms rendezvous cadence가 앱의 300 ms drain grace 안에
+withdrawal 또는 session replacement를 감지한다. 다음 fresh rendezvous에서 set을 다시 연결하고 완전한
 snapshot을 재전송한다. Partial channel recovery는 별도의 session-consistency protocol을 추가하므로
 의도적으로 제외한다.
 
@@ -236,8 +247,8 @@ Bridge diagnostic은 file modification time과 read cost를 다음 항목으로 
 - reconnect, malformed frame, generation mismatch, revision mismatch counter;
 - 최신 composed state, scroll, notes generation.
 
-SynthV side panel은 disconnected, connecting, connected 상태, app session, 세 published generation,
-마지막 write 또는 rendezvous error를 표시한다.
+SynthV side panel은 disconnected 또는 connected 상태, app session, 세 published generation, 마지막
+write 또는 rendezvous error를 표시한다.
 
 File fallback은 없다. 앱은 legacy `session.json`, `state`, `scroll`, `notes` file을 절대 읽지 않고,
 pipe receiver가 ready가 된 뒤 그 정확한 path를 best-effort로 제거한다. Content hash로 새 script를
@@ -260,6 +271,7 @@ Pure test 범위는 다음과 같다.
 - generation mismatch 중 마지막 valid snapshot 유지;
 - app session 간 cache reset;
 - 한 channel 실패 후 모든 handle teardown;
+- same-session handle preservation과 250 ms 안의 connected rendezvous withdrawal;
 - reconnect 시 full snapshot order와 generation reset.
 
 Platform integration check 범위는 다음과 같다.

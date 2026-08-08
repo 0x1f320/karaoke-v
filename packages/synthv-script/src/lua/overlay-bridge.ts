@@ -7,7 +7,7 @@
  * the user, so it was taken for 150ms on a transport *event* and given back —
  * and so the script had to decide what counted as an event: is this a seek, a
  * loop wrap, an edit? A file has no such cost, so state simply goes out on every
- * tick and the app, which is already reading once a frame to draw, sees the
+ * tick and the app, which is already consuming once a frame to draw, sees the
  * discontinuity itself. `kind`, the seek tolerance and the anchor machinery all
  * belonged to the clipboard and left with it.
  *
@@ -90,6 +90,9 @@ class OverlayBridge {
 
   private toggle(): void {
     this.enabled = !this.enabled
+    if (!this.enabled) {
+      this.publisher.close()
+    }
     this.refresh()
   }
 
@@ -126,6 +129,7 @@ class OverlayBridge {
   }
 
   private tick(): void {
+    const preparation = this.publisher.prepare(this.ticks * CONFIG.tickInterval)
     this.ticks = this.ticks + 1
 
     const playback = SV.getPlayback()
@@ -140,9 +144,19 @@ class OverlayBridge {
       this.loopEnd = this.lastPlayhead
     }
 
-    // The schedule goes out before the state that indexes it, so `rev` and
-    // `notesSeq` describe this tick rather than the previous one.
-    if (status !== "stopped" && this.lastStatus === "stopped") {
+    if (preparation === "disconnected") {
+      if (status !== this.lastStatus) {
+        this.refresh()
+      }
+      this.lastStatus = status
+      this.lastPlayhead = head
+      return
+    }
+
+    if (preparation === "new-session") {
+      this.publishNotes()
+      this.refresh()
+    } else if (status !== "stopped" && this.lastStatus === "stopped") {
       // Playback just began: the app has no schedule if this session never
       // published one.
       this.publishNotes()

@@ -2,7 +2,7 @@
 
 > Korean translation: **[2026-08-08-synthv-pipe-bridge-design.ko.md](2026-08-08-synthv-pipe-bridge-design.ko.md)**.
 > This document describes the approved replacement for the file bridge. The current runtime
-> continues to follow [bridge.md](../../bridge.md) until the implementation lands.
+> is migrating task by task; product-document reconciliation remains a later migration task.
 
 ## Status
 
@@ -124,9 +124,11 @@ app pads the remaining bytes with spaces and updates the record with one 128-byt
 zero. SynthV validates the complete shape, checksum, session ID, and heartbeat freshness before
 opening any endpoint. A malformed, torn, future, or stale record is treated as no app. The
 session ID is 16 random bytes from `node:crypto`, encoded as lowercase hex. A heartbeat is written
-every 500 ms and is fresh for two seconds. SynthV checks at most every 250 ms while disconnected
-and does not touch it on every
-4 ms state tick.
+every 500 ms and is fresh for two seconds. SynthV revalidates the record on a 250 ms logical-time
+cadence while both disconnected and connected rather than touching it on every 4 ms state tick.
+A fresh record for the same app session preserves the existing handles. A missing, malformed,
+stale, future, or different-session record closes the complete handle set before another
+connection is attempted.
 
 Endpoint names are derived rather than stored in the rendezvous:
 
@@ -135,8 +137,10 @@ Endpoint names are derived rather than stored in the rendezvous:
 | macOS | `<bridge>/pipe-<session>-state`, `<bridge>/pipe-<session>-scroll`, `<bridge>/pipe-<session>-notes` |
 | Windows | `\\.\pipe\voxpane-<session>-state`, `\\.\pipe\voxpane-<session>-scroll`, `\\.\pipe\voxpane-<session>-notes` |
 
-Unique names prevent a new app process from reusing a stale endpoint. Normal shutdown removes
-the rendezvous and macOS FIFOs. Startup may prune only FIFO nodes matching voxpane's endpoint
+Unique names prevent a new app process from reusing a stale endpoint. Normal shutdown withdraws
+the rendezvous and macOS FIFO pathnames before closing readers. The app continues draining
+already-open writers for 300 ms, then closes the reader; no new non-creating open can reach a FIFO
+after its pathname is withdrawn. Startup may prune only FIFO nodes matching voxpane's endpoint
 pattern; it must never unlink a regular file or symbolic link found under such a name.
 
 There is an unavoidable process-death race between a valid heartbeat read and a FIFO open. Unique
@@ -149,7 +153,11 @@ race without reintroducing a native or subprocess bridge inside SynthV.
 The writer treats all three handles as one connection:
 
 1. Read and validate a fresh rendezvous while disconnected.
-2. Open all three write-only endpoints and disable stdio buffering on each handle.
+2. Open each existing endpoint in deterministic `state`, `scroll`, `notes` order with
+   `io.open(path, "r+b")`, then disable stdio buffering on every handle. `r+b` supplies portable
+   non-creating RDWR semantics; despite that open mode, the script never calls `read`, `seek`, or
+   `flush` on an endpoint handle and uses only `write`, `setvbuf`, and `close`. `wb` is excluded
+   because its create semantics could leave a dead regular file after FIFO pathname withdrawal.
 3. If any open fails, close every handle and retry after the disconnected backoff.
 4. Collect a current view mapping and note schedule.
 5. Reset `stateSeq`, `scrollSeq`, and `notesSeq` for the new app session.
@@ -161,9 +169,11 @@ The full note collection on step 4 is intentional. Cached notes may be up to one
 interval old, so reusing them would not satisfy automatic exact recovery after an app restart.
 
 A write failure on any stream closes all three handles. A failed indexed-channel write does not
-advance the generation advertised by state. The next fresh rendezvous reconnects the set and
-causes another complete snapshot. Partial channel recovery is deliberately excluded because it
-would add a second session-consistency protocol.
+advance the generation advertised by state. Failed disconnected attempts back off for 250
+logical milliseconds. While connected, the same 250 ms rendezvous cadence detects withdrawal or
+session replacement within the app's 300 ms drain grace. The next fresh rendezvous reconnects the
+set and causes another complete snapshot. Partial channel recovery is deliberately excluded
+because it would add a second session-consistency protocol.
 
 The app clears all bridge caches when its receiver session starts. It keeps the last valid
 composed snapshot while a newer state waits for matching indexed records, but data from a prior
@@ -247,8 +257,8 @@ Bridge diagnostics replace file modification times and read costs with:
 - reconnect, malformed frame, generation mismatch, and revision mismatch counters;
 - latest composed state, scroll, and notes generations.
 
-The SynthV side panel reports disconnected, connecting, or connected state, the app session, the
-three published generations, and the last write or rendezvous error.
+The SynthV side panel reports disconnected or connected state, the app session, the three
+published generations, and the last write or rendezvous error.
 
 There is no file fallback. The app never reads legacy `session.json`, `state`, `scroll`, or
 `notes` files and removes those exact paths on a best-effort basis after the pipe receiver is
@@ -272,6 +282,7 @@ Pure tests cover:
 - preservation of the last valid snapshot during a generation mismatch;
 - cache reset between app sessions;
 - all-handle teardown after one channel fails;
+- same-session handle preservation and connected rendezvous withdrawal within 250 ms;
 - full snapshot order and generation reset on reconnect.
 
 Platform integration checks cover:
