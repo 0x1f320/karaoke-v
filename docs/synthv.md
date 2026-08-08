@@ -50,7 +50,7 @@ after their sequence and revision relation matches.
 The session frame carries protocol/layout, `appSession`, `scriptSession`, script version,
 and host information. `appSession` comes from the app rendezvous; `scriptSession` changes
 when this Lua publisher reconnects. State, scroll, and notes then recover the complete
-current app view without a regular data-file rescan.
+current app view without a regular-channel rescan.
 
 ## Notes and pitch
 

@@ -44,7 +44,7 @@ detected edit에 publish한다. 앱은 세 stream을 어떤 순서로든 받을 
 
 session frame은 protocol/layout, `appSession`, `scriptSession`, script version, host information을 담는다.
 `appSession`은 app rendezvous에서 오고, `scriptSession`은 Lua publisher가 reconnect할 때 바뀐다. 그 뒤
-state, scroll, notes가 regular data-file rescan 없이 완전한 current app view를 recover한다.
+state, scroll, notes가 regular-channel rescan 없이 완전한 current app view를 recover한다.
 
 ## Notes and pitch
 

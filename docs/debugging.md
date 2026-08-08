@@ -33,8 +33,8 @@ advertised endpoints; an endpoint open/write failure or `EPIPE` means Lua closed
 will retry. A non-advancing sequence with a connected app points to a stopped Lua tick or
 its displayed last error.
 
-Use **Resend schedule** to request a full schedule deliberately. On reconnect the script
-also sends an exact notes/scroll/state snapshot automatically.
+Use **Resend schedule** to request a full schedule deliberately. On a clean client reconnect
+the script also sends an exact notes/scroll/state snapshot automatically.
 
 ## Pipe-session inspector
 
@@ -43,18 +43,20 @@ pnpm --filter @voxpane/synthv-script run dump
 pnpm --filter @voxpane/synthv-script run dump -- /path/to/bridge
 ```
 
-`dump` reads only `pipe-session`. It decodes the exact 128-byte VPR1 record and checksum,
-prints the app session, heartbeat age, freshness, and all three derived endpoint names. On
-macOS it uses `lstat` only and reports each endpoint as `fifo`, `missing`, `non-fifo`, or
-`symlink`; it never opens it. On Windows it prints derived Named Pipe names and does not
-probe by connecting.
+`dump` first `lstat`s `pipe-session`; `ENOENT` is unavailable, while a symlink or any
+non-regular node is malformed and is never read. It then decodes the exact 128-byte VPR1
+record and checksum, prints the app session, heartbeat age, freshness, and all three derived
+endpoint names. An app atomic regular-file replacement can race the check, but either
+app-owned generation is valid or checksum decoding rejects it. On macOS it uses `lstat`
+only for endpoints and reports `fifo`, `missing`, `non-fifo`, or `symlink`; it never opens
+them. On Windows it prints derived Named Pipe names and does not probe by connecting.
 
 | Output | Meaning | Exit |
 | --- | --- | --- |
 | `pipe-session: unavailable` | app stopped, not yet started, or rendezvous withdrawn | 0 |
 | `pipe-session: fresh` | a current app session is advertised | 0 |
 | `pipe-session: stale` | checksum-valid session remains after an app stop or crash | 0 |
-| `pipe-session: malformed (...)` | bad shape/checksum, future heartbeat, or an existing record that cannot be decoded | nonzero |
+| `pipe-session: malformed (...)` | symlink/non-regular node, bad shape/checksum, future heartbeat, or an existing record that cannot be decoded | nonzero |
 
 `dump` does not read live playhead, notes, bends, scroll, or per-channel ordering. It is a
 strictly non-consuming pipe-session inspector. Endpoint observations diagnose ownership;

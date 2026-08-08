@@ -91,9 +91,30 @@ export function inspectPipeSession({
   readFile = readFileSync,
   lstat = lstatSync,
 }) {
+  const rendezvousPath = join(directory, "pipe-session")
+  let rendezvousStat
+  try {
+    rendezvousStat = lstat(rendezvousPath)
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { status: "unavailable" }
+    }
+    return {
+      status: "malformed",
+      reason: `could not inspect pipe-session: ${error?.message ?? error}`,
+    }
+  }
+
+  if (rendezvousStat.isSymbolicLink()) {
+    return { status: "malformed", reason: "pipe-session is a symlink" }
+  }
+  if (!rendezvousStat.isFile()) {
+    return { status: "malformed", reason: "pipe-session is not a regular file" }
+  }
+
   let bytes
   try {
-    bytes = readFile(join(directory, "pipe-session"))
+    bytes = readFile(rendezvousPath)
   } catch (error) {
     if (error?.code === "ENOENT") {
       return { status: "unavailable" }
@@ -140,8 +161,17 @@ export function formatPipeSession(result) {
   ].join("\n")
 }
 
-function main() {
-  const result = inspectPipeSession({ directory: process.argv[2] ?? defaultDirectory() })
+export function directoryFromArguments(argv = process.argv) {
+  const argumentsAfterDoubleDash = argv.slice(2)
+  const directoryArguments =
+    argumentsAfterDoubleDash[0] === "--"
+      ? argumentsAfterDoubleDash.slice(1)
+      : argumentsAfterDoubleDash
+  return directoryArguments[0] ?? defaultDirectory()
+}
+
+export function main(argv = process.argv) {
+  const result = inspectPipeSession({ directory: directoryFromArguments(argv) })
   console.log(formatPipeSession(result))
   if (result.status === "malformed") {
     process.exitCode = 1

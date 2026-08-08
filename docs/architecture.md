@@ -48,9 +48,10 @@ flowchart TD
 
 Main owns long-lived Electron work: permissions, the tray, preferences, installing and
 rescanning `overlay-bridge.lua`, window following, and graceful shutdown. The preload
-worker owns all pipe servers, their reconnect/recovery lifecycle, and the decoded snapshot.
-It transfers valid state to preload memory; renderer `requestAnimationFrame` never waits
-for main or a pipe.
+worker owns the pipe servers, framed parsing, session gate, and reconnect/recovery
+lifecycle. It posts accepted frame records to preload; `BridgeRuntime` in preload decodes
+those records and composes matching generations into the snapshot. Renderer
+`requestAnimationFrame` never waits for main or a pipe.
 
 On a clean shutdown, main asks the receiver to stop before it withdraws its owned
 `pipe-session` and FIFO endpoints. The Darwin servers allow a 300 ms drain grace before

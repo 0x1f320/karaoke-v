@@ -30,8 +30,9 @@ sequenceDiagram
 
 The app refreshes the rendezvous heartbeat every 500 ms. The `state` endpoint carries a
 session frame followed by state frames; `scroll` and `notes` carry their respective framed
-records. Each channel has one active connection. A replacement connection supersedes the
-old connection for that channel.
+records. Each channel has one active connection. On Windows an overlapping client is
+rejected while that socket is active; only after its clean disconnect can the next client
+become the replacement connection.
 
 ## Rendezvous record
 
@@ -46,6 +47,12 @@ lowercase hexadecimal characters. A heartbeat up to two seconds old is current t
 The app only advertises after every endpoint reader is ready. The inspection command may
 classify a checksum-valid older record as stale; that indicates an app that stopped or
 crashed, not a malformed record.
+
+The inspector first `lstat`s `pipe-session`. `ENOENT` is unavailable; a symlink or any
+non-regular node is malformed and is never read. The app's atomic regular-file replacement
+can race that check: either app-owned regular VPR1 generation is acceptable and checksum
+validation rejects a malformed replacement. The inspector does not treat this local
+operational check as a defense against arbitrary external path mutation.
 
 Endpoint names are deterministic from `appSession`:
 
@@ -65,8 +72,8 @@ The app withdraws `pipe-session` before it tears down endpoints, then removes on
 nodes it still owns.
 
 On Windows the app uses a Node `net` Named Pipe server. It permits one active socket per
-channel and replaces it on a new connection. There is no PowerShell helper and no
-two-second launch path.
+channel, rejects an overlapping socket while it is active, and accepts the next socket only
+after a clean disconnect. There is no PowerShell helper and no two-second launch path.
 
 Lua uses `io.open(path, "wb")` for endpoint handles and only calls `write`, `close`, and
 `setvbuf("no")` on them. The platform's `wb` open includes the `O_CREAT` tradeoff: the
@@ -80,14 +87,15 @@ between validation and open remains unavoidable. Lua never reads a channel pipe;
 The first state frame of a Lua connection is a session frame containing `appSession` and
 `scriptSession`. The receiver checks that the frame's `appSession` equals the advertised
 session before it opens the session gate. It holds only the latest pre-session indexed
-frames, then applies them after a valid session frame. Any disconnect, invalid session,
-parser failure, or endpoint failure closes the gate, discards partial candidates, and
-recovers with fresh endpoints and a fresh app session.
+frames, then posts them after a valid session frame. A clean stream disconnect resets the
+parsers and session gate but keeps the current endpoints and `appSession`; the next Lua
+connection creates a fresh `scriptSession` and publishes session, notes, scroll, then state.
 
-On every successful reconnect Lua resets its sequences and publishes an exact snapshot:
-full `notes`, current `scroll`, then `state`. The three streams are not cross-channel
-ordered, so runtime composition waits for matching `scrollSeq`, `notesSeq`, and `rev`; it
-keeps the last valid snapshot while candidates disagree.
+An invalid session, parser failure, or endpoint failure instead starts receiver recovery,
+which tears down the current resources and creates fresh endpoints and a fresh `appSession`.
+The three streams are not cross-channel ordered, so `BridgeRuntime` decodes posted records
+and composes only matching `scrollSeq`, `notesSeq`, and `rev`; it keeps the last valid
+snapshot while candidates disagree.
 
 `appSession` identifies one app endpoint generation. `scriptSession` identifies one Lua
 publication generation within that app session. They are not interchangeable.
@@ -96,8 +104,8 @@ publication generation within that app session. They are not interchangeable.
 
 Pipe payloads are framed with the bridge header, layout, channel, and payload length. The
 receiver parser accepts only the channels assigned to an endpoint and enforces payload caps
-before allocation: state/session are small, scroll is small, and notes has a deliberate
-64 MiB maximum. A malformed stream is a recovery event, not a partial record to decode.
+before allocation: session 4 KiB, state 1 KiB, scroll 1 KiB, and notes 64 MiB. A malformed
+stream is a recovery event, not a partial record to decode.
 
 ## Shutdown and failure
 

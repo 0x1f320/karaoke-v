@@ -1,4 +1,4 @@
-# voxpane docs (한국어)
+# voxpane docs
 
 > 원문: **[README.md](README.md)**. 영어판이 원본이고 이 문서는 번역이다 — 동작이 바뀌면
 > **영어판을 먼저 고치고** 같은 커밋에서 이쪽을 맞춘다.
@@ -31,8 +31,8 @@ overlay까지 어떻게 오는지, 각 부분이 어떤 technique 위에 서 있
 
 | 증상 | 계층 | 문서 |
 | --- | --- | --- |
-| SynthV는 떠 있는데 overlay가 아예 없음 | window tracking, 또는 permissions gate | [debugging](debugging.ko.md#1-is-the-app-tracking-synthv), [overlay](overlay.ko.md#following-the-frame) |
-| overlay는 있는데 아무것도 안 그려짐 | script가 publish하지 않음 | [debugging](debugging.ko.md#2-is-the-script-alive), [bridge](bridge.ko.md) |
+| SynthV는 떠 있는데 overlay가 아예 없음 | window tracking, 또는 permissions gate | [debugging](debugging.ko.md#app-and-overlay), [overlay](overlay.ko.md#following-the-frame) |
+| overlay는 있는데 아무것도 안 그려짐 | script가 publish하지 않음 | [debugging](debugging.ko.md#script-side-panel), [bridge](bridge.ko.md#session-gate-and-recovery) |
 | 스크롤할 때 overlay가 밀림 | hot path, 또는 throttling | [overlay](overlay.ko.md#the-hot-path) |
 | 드래그 중 overlay가 창을 쫓아감 | bounds reconciliation | [overlay](overlay.ko.md#native-placement-with-debounced-reconciliation) |
 | overlay가 무관한 앱 위에 뜸 | visibility gating | [overlay](overlay.ko.md#visibility-gating) |
@@ -43,7 +43,7 @@ overlay까지 어떻게 오는지, 각 부분이 어떤 technique 위에 서 있
 | onset이 밋밋하거나 glow가 안 꺼짐 | glow envelope | [effects](effects.ko.md#two-summed-envelopes) |
 | 120Hz 디스플레이에서 particle이 두 배 | frame-rate independence | [effects](effects.ko.md#frame-rate-independence) |
 | trail 뒤로 줄무늬가 남음 | trail의 join rule | [effects](effects.ko.md#join-rules) |
-| SynthV에서 편집했는데 note가 옛것 | `rev` / `notesSeq` pairing | [bridge](bridge.ko.md#pairing-the-channels) |
+| SynthV에서 편집했는데 note가 옛것 | generation matching | [bridge](bridge.ko.md#session-gate-and-recovery) |
 | effect가 화면 밖으로 날아가거나 빈 곳에서 터짐 | pitch curve | [synthv](synthv.ko.md#the-computed-pitch-curve), [effects](effects.ko.md#pitch-following) |
 | import한 이미지가 안 나옴 | asset scheme | [effects](effects.ko.md#presets-images-and-the-preview) |
 | 한쪽 플랫폼에서만 깨짐 | geometry 분기 | [geometry](geometry.ko.md#two-platforms-two-strategies) |
@@ -57,10 +57,9 @@ overlay까지 어떻게 오는지, 각 부분이 어떤 technique 위에 서 있
 
 | Technique | 집 | 쓰는 곳 |
 | --- | --- | --- |
-| Replace-in-place channels, no queue | [bridge](bridge.ko.md#the-channels) | 데이터 경로 전체 |
-| One write per record (atomicity) | [bridge](bridge.ko.md#atomicity) | script의 channel 쓰기 |
-| `rev` / `notesSeq` pairing | [bridge](bridge.ko.md#pairing-the-channels) | schedule 신선도, group 전환 |
-| Refuse-on-unknown-layout | [bridge](bridge.ko.md#versioning) | 모든 decoder, `dump.mjs` 포함 |
+| Pipe-session rendezvous and app-owned endpoints | [bridge](bridge.ko.md#the-paths) | Lua connection과 app lifecycle |
+| Session gate and generation matching | [bridge](bridge.ko.md#session-gate-and-recovery) | recovery snapshot과 latest valid state |
+| Bounded framed parser | [bridge](bridge.ko.md#frame-boundaries) | `BridgeRuntime` decode 전 pipe receipt |
 | Playhead interpolation on the local clock | [architecture](architecture.ko.md#the-frame-loop) | transport, 모든 effect 타이밍 |
 | Predict-and-snap, follow, anchor | [geometry](geometry.ko.md#matching-a-note-to-a-rectangle) | note matching, debug reach band |
 | Read-scoped coordinate frames | [geometry](geometry.ko.md#staying-aligned) | matching, 그리고 살아 있는 모든 effect |

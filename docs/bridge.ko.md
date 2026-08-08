@@ -29,7 +29,8 @@ sequenceDiagram
 
 앱은 rendezvous heartbeat를 500 ms마다 refresh한다. `state` endpoint는 session frame 뒤에 state frame을
 싣고, `scroll`, `notes`는 각각 자기 framed record를 싣는다. channel마다 active connection은 하나다.
-새 connection은 그 channel의 이전 connection을 교체한다.
+Windows에서 active socket이 있는 동안 overlapping client는 reject되고, clean disconnect 뒤에만 다음
+client가 replacement connection이 된다.
 
 ## Rendezvous record
 
@@ -43,6 +44,11 @@ checksum은 `VPR1\n<heartbeat>\n<appSession>\n`의 FNV-1a 32-bit이며, eight lo
 character로 표시한다. Lua에서 heartbeat가 두 초 이하로 오래되었으면 current다. 앱은 모든 endpoint
 reader가 ready인 뒤에만 advertise한다. inspection command는 checksum-valid 오래된 record를 stale로
 classify할 수 있는데, 이는 malformed record가 아니라 app stopped/crashed를 뜻한다.
+
+inspector는 먼저 `pipe-session`을 `lstat`한다. `ENOENT`는 unavailable이고 symlink 또는 non-regular node는
+malformed이며 읽지 않는다. 앱의 atomic regular-file replacement가 이 check와 race할 수 있다. 하지만
+app-owned regular VPR1 generation 어느 쪽도 허용되고 malformed replacement는 checksum validation이
+reject한다. 이 inspector는 local operational check이지 임의 external path mutation 방어가 아니다.
 
 endpoint name은 `appSession`에서 deterministic하게 유도된다.
 
@@ -60,8 +66,9 @@ teardown을 bound한다. Lua는 `EPIPE` 또는 open/write failure를 보면 모�
 rendezvous retry loop로 돌아간다. 앱은 endpoint teardown 전에 `pipe-session`을 withdraw하고, 여전히
 자기가 소유한 FIFO node만 지운다.
 
-Windows에서 앱은 Node `net` Named Pipe server를 쓴다. channel별 active socket은 하나이며 새
-connection이 이를 교체한다. PowerShell helper도 two-second launch path도 없다.
+Windows에서 앱은 Node `net` Named Pipe server를 쓴다. channel별 active socket은 하나이며 active한 동안
+overlapping socket을 reject하고 clean disconnect 뒤에만 다음 socket을 받는다. PowerShell helper도
+two-second launch path도 없다.
 
 Lua endpoint handle은 `io.open(path, "wb")`로 열고 `write`, `close`, `setvbuf("no")`만 호출한다.
 platform의 `wb` open에는 `O_CREAT` tradeoff가 있다. ordered rendezvous withdrawal과 240 ms
@@ -73,13 +80,14 @@ pipe를 읽지 않으며 `pipe-session`만 regular read한다.
 
 Lua connection의 첫 state frame은 `appSession`, `scriptSession`을 담은 session frame이다. receiver는
 frame의 `appSession`이 advertised session과 같은지 확인하고 session gate를 연다. valid session frame
-전의 indexed frame은 latest 하나만 보관했다가 적용한다. disconnect, invalid session, parser failure,
-endpoint failure는 gate를 닫고 partial candidate를 버리며 fresh endpoint와 fresh app session으로
-recover한다.
+전의 indexed frame은 latest 하나만 보관했다가 post한다. clean stream disconnect는 parser와 session gate를
+reset하지만 current endpoint와 `appSession`은 유지한다. 다음 Lua connection은 새 `scriptSession`을 만들고
+session, notes, scroll, state 순서의 snapshot을 publish한다.
 
-성공적인 reconnect마다 Lua는 sequence를 reset하고 full `notes`, 현재 `scroll`, `state`의 exact snapshot을
-publish한다. 세 stream은 cross-channel order를 보장하지 않으므로 runtime은 `scrollSeq`, `notesSeq`, `rev`
-일치를 기다리고 candidate가 다르면 마지막 valid snapshot을 유지한다.
+invalid session, parser failure, endpoint failure는 receiver recovery를 시작한다. recovery는 current
+resource를 teardown하고 fresh endpoint와 fresh `appSession`을 만든다. 세 stream은 cross-channel order를
+보장하지 않으므로 `BridgeRuntime`은 post된 record를 decode하여 matching `scrollSeq`, `notesSeq`, `rev`만
+compose하고 candidate가 다르면 마지막 valid snapshot을 유지한다.
 
 `appSession`은 하나의 app endpoint generation을 식별한다. `scriptSession`은 그 app session 안의 하나의
 Lua publication generation을 식별한다. 둘은 바꿔 쓸 수 없다.
@@ -87,9 +95,8 @@ Lua publication generation을 식별한다. 둘은 바꿔 쓸 수 없다.
 ## Frame boundaries
 
 pipe payload는 bridge header, layout, channel, payload length로 frame된다. receiver parser는 endpoint에
-배정된 channel만 받고 allocation 전에 payload cap을 적용한다. state/session은 작고 scroll도 작으며,
-notes의 deliberate maximum은 64 MiB다. malformed stream은 partial record를 decode하는 대신 recovery
-event가 된다.
+배정된 channel만 받고 allocation 전에 payload cap을 적용한다. session은 4 KiB, state는 1 KiB, scroll은
+1 KiB, notes는 64 MiB다. malformed stream은 partial record를 decode하는 대신 recovery event가 된다.
 
 ## Shutdown and failure
 

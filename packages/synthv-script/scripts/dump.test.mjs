@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { inspectPipeSession } from "./dump.mjs"
 
@@ -13,7 +16,7 @@ function inspect(options = {}) {
     platform: "darwin",
     nowSeconds: HEARTBEAT,
     readFile: () => RECORD,
-    lstat: () => ({ isFIFO: () => true, isSymbolicLink: () => false }),
+    lstat: () => ({ isFile: () => true, isFIFO: () => true, isSymbolicLink: () => false }),
     ...options,
   })
 }
@@ -58,16 +61,41 @@ describe("pipe-session inspector", () => {
     })
   })
 
-  it("reports an absent app as unavailable", () => {
+  it("reports an absent app as unavailable without reading its rendezvous path", () => {
     const error = Object.assign(new Error("missing"), { code: "ENOENT" })
+    let reads = 0
 
     expect(
       inspect({
-        readFile: () => {
+        lstat: () => {
           throw error
+        },
+        readFile: () => {
+          reads += 1
+          return RECORD
         },
       }),
     ).toEqual({ status: "unavailable" })
+    expect(reads).toBe(0)
+  })
+
+  it.each([
+    ["symlink", { isFile: () => false, isFIFO: () => false, isSymbolicLink: () => true }],
+    ["fifo", { isFile: () => false, isFIFO: () => true, isSymbolicLink: () => false }],
+    ["directory", { isFile: () => false, isFIFO: () => false, isSymbolicLink: () => false }],
+  ])("rejects a rendezvous %s without reading it", (_kind, stat) => {
+    let reads = 0
+
+    expect(
+      inspect({
+        lstat: () => stat,
+        readFile: () => {
+          reads += 1
+          return RECORD
+        },
+      }),
+    ).toMatchObject({ status: "malformed" })
+    expect(reads).toBe(0)
   })
 
   it("inspects Darwin endpoints with lstat without opening them", () => {
@@ -81,7 +109,14 @@ describe("pipe-session inspector", () => {
       },
       lstat: (path) => {
         inspected.push(path)
-        return { isFIFO: () => false, isSymbolicLink: () => path.endsWith("scroll") }
+        if (path === "/bridge/pipe-session") {
+          return { isFile: () => true, isFIFO: () => false, isSymbolicLink: () => false }
+        }
+        return {
+          isFile: () => false,
+          isFIFO: () => false,
+          isSymbolicLink: () => path.endsWith("scroll"),
+        }
       },
     })
 
@@ -91,6 +126,7 @@ describe("pipe-session inspector", () => {
       { channel: "notes", path: `/bridge/pipe-${SESSION}-notes`, kind: "non-fifo" },
     ])
     expect(inspected).toEqual([
+      "/bridge/pipe-session",
       `/bridge/pipe-${SESSION}-state`,
       `/bridge/pipe-${SESSION}-scroll`,
       `/bridge/pipe-${SESSION}-notes`,
@@ -105,7 +141,7 @@ describe("pipe-session inspector", () => {
       platform: "win32",
       lstat: () => {
         lstatCalls += 1
-        throw new Error("Windows endpoints must not be probed")
+        return { isFile: () => true, isFIFO: () => false, isSymbolicLink: () => false }
       },
     })
 
@@ -114,12 +150,30 @@ describe("pipe-session inspector", () => {
       { channel: "scroll", path: `\\\\.\\pipe\\voxpane-${SESSION}-scroll`, kind: "named-pipe" },
       { channel: "notes", path: `\\\\.\\pipe\\voxpane-${SESSION}-notes`, kind: "named-pipe" },
     ])
-    expect(lstatCalls).toBe(0)
+    expect(lstatCalls).toBe(1)
   })
 
   it("contains no channel endpoint-open API", () => {
     const source = readFileSync(new URL("./dump.mjs", import.meta.url), "utf8")
 
     expect(source).not.toMatch(/\b(?:openSync|createReadStream|createConnection|net\.connect)\b/)
+  })
+
+  it("accepts a custom directory after pnpm's double dash", () => {
+    const directory = mkdtempSync(join(tmpdir(), "voxpane-dump-"))
+    try {
+      writeFileSync(join(directory, "pipe-session"), RECORD)
+
+      const result = spawnSync(process.execPath, ["scripts/dump.mjs", "--", directory], {
+        cwd: new URL("..", import.meta.url),
+        encoding: "utf8",
+      })
+
+      expect(result.status).toBe(0)
+      expect(result.stdout).toContain("pipe-session: stale")
+      expect(result.stdout).toContain(`state: ${directory}/pipe-${SESSION}-state (missing)`)
+    } finally {
+      rmSync(directory, { force: true, recursive: true })
+    }
   })
 })

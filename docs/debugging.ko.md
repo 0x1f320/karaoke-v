@@ -30,7 +30,7 @@ SynthV의 **Overlay Bridge** side panel을 연다. loaded version, bridge on/off
 `EPIPE`는 Lua가 endpoint set을 닫고 retry한다는 뜻이다. app이 connected인데 sequence가 늘지 않으면 Lua
 tick이 멈췄거나 표시된 last error를 확인한다.
 
-**Resend schedule**은 full schedule을 의도적으로 요청한다. reconnect에서도 script가 exact
+**Resend schedule**은 full schedule을 의도적으로 요청한다. clean client reconnect에서도 script가 exact
 notes/scroll/state snapshot을 자동으로 보낸다.
 
 ## Pipe-session inspector
@@ -40,17 +40,19 @@ pnpm --filter @voxpane/synthv-script run dump
 pnpm --filter @voxpane/synthv-script run dump -- /path/to/bridge
 ```
 
-`dump`는 `pipe-session`만 읽는다. 정확한 128-byte VPR1 record와 checksum을 decode하고 app session,
-heartbeat age, freshness, 세 derived endpoint name을 출력한다. macOS에서는 `lstat`만 써서 endpoint를
-`fifo`, `missing`, `non-fifo`, `symlink`로 보고하며 열지 않는다. Windows에서는 derived Named Pipe name을
-출력하고 connect probe를 하지 않는다.
+`dump`는 먼저 `pipe-session`을 `lstat`한다. `ENOENT`는 unavailable이고 symlink 또는 non-regular node는
+malformed이며 읽지 않는다. 그다음 정확한 128-byte VPR1 record와 checksum을 decode하고 app session,
+heartbeat age, freshness, 세 derived endpoint name을 출력한다. 앱의 atomic regular-file replacement가 이
+check와 race할 수 있지만 app-owned generation 어느 쪽도 valid이고 checksum decode가 malformed replacement를
+reject한다. macOS에서는 endpoint에 `lstat`만 써서 `fifo`, `missing`, `non-fifo`, `symlink`로 보고하며 열지
+않는다. Windows에서는 derived Named Pipe name을 출력하고 connect probe를 하지 않는다.
 
 | Output | Meaning | Exit |
 | --- | --- | --- |
 | `pipe-session: unavailable` | app stopped, not yet started, 또는 rendezvous withdrawn | 0 |
 | `pipe-session: fresh` | current app session이 advertise됨 | 0 |
 | `pipe-session: stale` | app stop/crash 뒤 checksum-valid session이 남음 | 0 |
-| `pipe-session: malformed (...)` | bad shape/checksum, future heartbeat, 또는 decode할 수 없는 existing record | nonzero |
+| `pipe-session: malformed (...)` | symlink/non-regular node, bad shape/checksum, future heartbeat, 또는 decode할 수 없는 existing record | nonzero |
 
 `dump`를 live playhead, note, bend, scroll, per-channel ordering에 쓰지 않는다. 이는 strictly
 non-consuming pipe-session inspector다. endpoint observation은 ownership을 diagnose하지만 connected Lua

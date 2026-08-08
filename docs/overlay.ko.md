@@ -1,4 +1,4 @@
-# The overlay surface (한국어)
+# The overlay surface
 
 > 원문: **[overlay.md](overlay.md)**. 영어판이 원본이다.
 
@@ -29,7 +29,7 @@ mouse-move 이벤트를 계속 오게 해서 hover 상태 같은 것이 여전�
 
 `webPreferences` 두 항목이 하중을 받는다:
 
-- **`sandbox: false`.** preload가 native addon을 require하고 bridge channel 파일을 연다.
+- **`sandbox: false`.** preload가 native addon을 require하고 bridge endpoint worker를 시작한다.
   이것이 renderer로 하여금 geometry와 재생 상태를 **프레임 경로에 IPC 없이** 읽게 해준다 —
   [hot path](#the-hot-path) 참조.
 - **`backgroundThrottling: false`.** overlay는 절대 포커스를 받지 않고, Electron은 포커스
@@ -175,7 +175,7 @@ overlay가 살아남음.
 
 | 단계 | 어디서 | 비용 |
 | --- | --- | --- |
-| bridge 파일 sample | preload Web Worker | 약 4 ms마다, rAF와 독립적 |
+| bridge pipe frame receive | preload Web Worker | event-driven, rAF와 독립적 |
 | 최신 bridge `state` 읽기 | preload memory cache | file I/O와 할당 없음 |
 | canvas snapshot 갱신 | preload, 비동기 native task | 약 250 ms마다, rAF call stack 밖 |
 | 판단하고 그리기 | renderer | 단순 스크롤이면 transform 한 번 |

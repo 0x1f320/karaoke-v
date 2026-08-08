@@ -40,10 +40,13 @@ pnpm --filter @voxpane/synthv-script run dump
 pnpm --filter @voxpane/synthv-script run dump -- /path/to/bridge
 ```
 
-`dump` is a strictly non-consuming inspector. It reads and verifies only the 128-byte VPR1
-`pipe-session` record, prints the app session, heartbeat age/freshness, and deterministic
-endpoint names. On macOS it reports endpoint node types through `lstat` without opening
-them; on Windows it prints the Named Pipe names without connecting.
+`dump` is a strictly non-consuming inspector. It first `lstat`s `pipe-session`: `ENOENT`
+is unavailable, while a symlink or another non-regular node is malformed and never read. It
+then verifies the 128-byte VPR1 record, prints the app session, heartbeat age/freshness, and
+deterministic endpoint names. App atomic regular-file replacement can race this check, but
+either app-owned generation is valid or checksum decoding rejects it. On macOS it reports
+endpoint node types through `lstat` without opening them; on Windows it prints the Named
+Pipe names without connecting.
 
 With the app stopped, it prints exactly:
 
@@ -51,6 +54,7 @@ With the app stopped, it prints exactly:
 pipe-session: unavailable
 ```
 
-and exits zero. A valid stale record also exits zero. A bad record, checksum, or future
-heartbeat prints `pipe-session: malformed (...)` and exits nonzero. It never dumps live
-payloads, opens a FIFO, opens a Named Pipe, or reads a channel endpoint.
+and exits zero. A valid stale record also exits zero. A symlink, non-regular node, bad
+record, checksum, or future heartbeat prints `pipe-session: malformed (...)` and exits
+nonzero. It never dumps live payloads, opens a FIFO, opens a Named Pipe, or reads a channel
+endpoint.

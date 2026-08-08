@@ -28,8 +28,8 @@ tests; this tree covers behaviour.
 
 | Symptom | Layer | Document |
 | --- | --- | --- |
-| No overlay at all; SynthV is open | window tracking, or the permissions gate | [debugging](debugging.md#1-is-the-app-tracking-synthv), [overlay](overlay.md#following-the-frame) |
-| Overlay is there, nothing ever draws | the script is not publishing | [debugging](debugging.md#2-is-the-script-alive), [bridge](bridge.md) |
+| No overlay at all; SynthV is open | window tracking, or the permissions gate | [debugging](debugging.md#app-and-overlay), [overlay](overlay.md#following-the-frame) |
+| Overlay is there, nothing ever draws | the script is not publishing | [debugging](debugging.md#script-side-panel), [bridge](bridge.md#session-gate-and-recovery) |
 | Overlay lags behind scrolling | the hot path, or throttling | [overlay](overlay.md#the-hot-path) |
 | Overlay chases the window during a drag | bounds reconciliation | [overlay](overlay.md#native-placement-with-debounced-reconciliation) |
 | Overlay floats over an unrelated app | visibility gating | [overlay](overlay.md#visibility-gating) |
@@ -40,7 +40,7 @@ tests; this tree covers behaviour.
 | Onsets read flat, or the glow never goes out | the glow envelopes | [effects](effects.md#two-summed-envelopes) |
 | Twice the particles on a 120 Hz display | frame-rate independence | [effects](effects.md#frame-rate-independence) |
 | A streak across the roll behind the trail | the trail's join rules | [effects](effects.md#join-rules) |
-| Notes stale after an edit in SynthV | `rev` / `notesSeq` pairing | [bridge](bridge.md#pairing-the-channels) |
+| Notes stale after an edit in SynthV | generation matching | [bridge](bridge.md#session-gate-and-recovery) |
 | Effect flies off-screen or fires in silence | the pitch curve | [synthv](synthv.md#the-computed-pitch-curve), [effects](effects.md#pitch-following) |
 | An imported image never appears | the asset scheme | [effects](effects.md#presets-images-and-the-preview) |
 | Broken on one platform only | the geometry split | [geometry](geometry.md#two-platforms-two-strategies) |
@@ -54,10 +54,9 @@ technique has **one home**; everything else links to it.
 
 | Technique | Home | Used by |
 | --- | --- | --- |
-| Replace-in-place channels, no queue | [bridge](bridge.md#the-channels) | the whole data path |
-| One write per record (atomicity) | [bridge](bridge.md#atomicity) | the script's channel writes |
-| `rev` / `notesSeq` pairing | [bridge](bridge.md#pairing-the-channels) | schedule freshness, group changes |
-| Refuse-on-unknown-layout | [bridge](bridge.md#versioning) | every decoder, including `dump.mjs` |
+| Pipe-session rendezvous and app-owned endpoints | [bridge](bridge.md#the-paths) | Lua connection and app lifecycle |
+| Session gate and generation matching | [bridge](bridge.md#session-gate-and-recovery) | recovery snapshots and latest valid state |
+| Bounded framed parser | [bridge](bridge.md#frame-boundaries) | pipe receipt before `BridgeRuntime` decoding |
 | Playhead interpolation on the local clock | [architecture](architecture.md#the-frame-loop) | the transport, all effect timing |
 | Predict-and-snap, follow, anchor | [geometry](geometry.md#matching-a-note-to-a-rectangle) | note matching, debug reach bands |
 | Read-scoped coordinate frames | [geometry](geometry.md#staying-aligned) | matching, and every live effect |

@@ -45,8 +45,9 @@ flowchart TD
 ```
 
 Main은 permissions, tray, preferences, `overlay-bridge.lua` 설치와 rescan, window following, graceful
-shutdown처럼 수명이 긴 Electron 작업을 소유한다. preload worker는 pipe server 전체, reconnect/recovery
-lifecycle, decoded snapshot을 소유한다. 정상 state는 preload memory로 transfer되고 renderer
+shutdown처럼 수명이 긴 Electron 작업을 소유한다. preload worker는 pipe server, framed parser, session gate,
+reconnect/recovery lifecycle을 소유한다. worker는 accepted frame record를 preload로 post하고, preload의
+`BridgeRuntime`이 그 record를 decode하여 matching generation을 snapshot으로 compose한다. renderer
 `requestAnimationFrame`은 main이나 pipe를 기다리지 않는다.
 
 정상 shutdown에서는 main이 먼저 receiver stop을 요청하고, 그 다음 자기 `pipe-session`과 FIFO endpoint를
