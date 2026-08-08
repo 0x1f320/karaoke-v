@@ -28,7 +28,7 @@
   },
   "debug": {
     "channels": {
-      "connection": "{{status}} | セッション {{session}} | パイプ復旧 {{recoveries}} 回 | 不正フレーム {{malformedFrames}} 件 | エンドポイント失敗 {{endpointFailures}} 回 | 切断 {{disconnects}} 回",
+      "connection": "接続状態: {{status}} | セッション: {{session}} | パイプ復旧: {{recoveries}}回 | 不正フレーム: {{malformedFrames}}件 | エンドポイント失敗: {{endpointFailures}}回 | 切断: {{disconnects}}回",
       "status": {
         "starting": "開始中",
         "ready": "準備完了",

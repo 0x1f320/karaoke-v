@@ -28,7 +28,7 @@
   },
   "debug": {
     "channels": {
-      "connection": "{{status}} 연결 | 세션 {{session}} | 파이프 복구 {{recoveries}}회 | 잘못된 프레임 {{malformedFrames}}개 | 엔드포인트 실패 {{endpointFailures}}회 | 연결 해제 {{disconnects}}회",
+      "connection": "연결 상태: {{status}} | 세션: {{session}} | 파이프 복구: {{recoveries}}회 | 잘못된 프레임: {{malformedFrames}}개 | 엔드포인트 실패: {{endpointFailures}}회 | 연결 해제: {{disconnects}}회",
       "status": {
         "starting": "시작 중",
         "ready": "준비됨",

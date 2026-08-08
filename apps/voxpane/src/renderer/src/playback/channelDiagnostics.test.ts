@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import type { BridgeDiagnostics } from "../../../shared/bridgeDiagnostics"
 import type { Viewport } from "../../../shared/geometry"
@@ -15,7 +16,7 @@ import {
 
 const LABELS: BridgeDiagnosticsLabels = {
   connection: (values) =>
-    `connection ${values.status} session=${values.session} recoveries=${values.recoveries} malformed=${values.malformedFrames} endpointFailures=${values.endpointFailures} disconnects=${values.disconnects}`,
+    `Connection: ${values.status} | Session: ${values.session} | Pipe recoveries: ${values.recoveries} | Malformed frames: ${values.malformedFrames} | Endpoint failures: ${values.endpointFailures} | Disconnects: ${values.disconnects}`,
   status: (status) => status ?? "unavailable",
   state: "state",
   scroll: "scroll",
@@ -91,7 +92,7 @@ describe("formatBridgeDiagnostics", () => {
         labels: LABELS,
       }),
     ).toEqual([
-      "connection connected session=01234567 recoveries=2 malformed=1 endpointFailures=3 disconnects=6",
+      "Connection: connected | Session: 01234567 | Pipe recoveries: 2 | Malformed frames: 1 | Endpoint failures: 3 | Disconnects: 6",
       "state seq=12 notesSeq=7 scrollSeq=4 rev=abcdef received=1000.0ms size=256 B applied=40.0ms avg=30.0ms min=10.0ms max=50.0ms p95=50.0ms p99=50.0ms",
       "scroll scrollSeq=4 received=500.0ms size=64 B applied=30.0ms avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
       "notes notesSeq=7 rev=abcdef received=200.0ms size=4.0 KiB applied=10.0ms avg=12.5ms min=5.0ms max=20.0ms p95=20.0ms p99=20.0ms",
@@ -122,6 +123,28 @@ describe("formatBridgeDiagnostics", () => {
       ),
     ).toContain(
       "state seq=n/a notesSeq=n/a scrollSeq=n/a rev=n/a received=n/a size=n/a applied=n/a avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
+    )
+  })
+})
+
+describe("debug channel locales", () => {
+  it("uses natural connection templates without repeating the status noun", () => {
+    const channels = (language: string) =>
+      JSON.parse(
+        readFileSync(
+          new URL(`../../../shared/i18n/locales/${language}.json`, import.meta.url),
+          "utf8",
+        ),
+      ).debug.channels
+
+    expect(channels("ko").connection).toBe(
+      "연결 상태: {{status}} | 세션: {{session}} | 파이프 복구: {{recoveries}}회 | 잘못된 프레임: {{malformedFrames}}개 | 엔드포인트 실패: {{endpointFailures}}회 | 연결 해제: {{disconnects}}회",
+    )
+    expect(channels("en").connection).toBe(
+      "Connection: {{status}} | Session: {{session}} | Pipe recoveries: {{recoveries}} | Malformed frames: {{malformedFrames}} | Endpoint failures: {{endpointFailures}} | Disconnects: {{disconnects}}",
+    )
+    expect(channels("ja").connection).toBe(
+      "接続状態: {{status}} | セッション: {{session}} | パイプ復旧: {{recoveries}}回 | 不正フレーム: {{malformedFrames}}件 | エンドポイント失敗: {{endpointFailures}}回 | 切断: {{disconnects}}回",
     )
   })
 })

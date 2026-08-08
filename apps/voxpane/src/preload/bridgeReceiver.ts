@@ -328,7 +328,9 @@ export class BridgeReceiver {
       if (this.stopped || this.current !== createdResources || this.recoveryRequested) {
         return
       }
-      this.publishTransport("ready", session)
+      if (!createdResources.sessionGateOpen) {
+        this.publishTransport("ready", session)
+      }
       this.scheduleHeartbeat(createdResources)
       this.resolveReady?.()
       this.resolveReady = null

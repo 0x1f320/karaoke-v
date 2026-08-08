@@ -28,7 +28,7 @@
   },
   "debug": {
     "channels": {
-      "connection": "{{status}} connection | session {{session}} | pipe recoveries {{recoveries}} | malformed frames {{malformedFrames}} | endpoint failures {{endpointFailures}} | disconnects {{disconnects}}",
+      "connection": "Connection: {{status}} | Session: {{session}} | Pipe recoveries: {{recoveries}} | Malformed frames: {{malformedFrames}} | Endpoint failures: {{endpointFailures}} | Disconnects: {{disconnects}}",
       "status": {
         "starting": "starting",
         "ready": "ready",

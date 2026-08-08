@@ -97,6 +97,8 @@ class MemoryFileSystem implements BridgeReceiverFileSystem {
   readonly writes: { path: string; bytes: Uint8Array; create: boolean }[] = []
   readonly unlinks: string[] = []
   readonly reads: string[] = []
+  readonly lstatCalls: string[] = []
+  readonly lstatGates = new Map<string, Deferred<void>>()
   readonly writeGates = new Map<number, Deferred<void>>()
   onUnlink: ((path: string) => void) | null = null
 
@@ -108,6 +110,8 @@ class MemoryFileSystem implements BridgeReceiverFileSystem {
   }
 
   async lstat(path: string) {
+    this.lstatCalls.push(path)
+    await this.lstatGates.get(path)?.promise
     const entry = this.entries.get(path)
     if (!entry) throw Object.assign(new Error("missing"), { code: "ENOENT" })
     return {
@@ -309,6 +313,63 @@ afterEach(() => {
 })
 
 describe("BridgeReceiver", () => {
+  it("keeps connected when a valid session arrives during legacy cleanup", async () => {
+    const files = new MemoryFileSystem()
+    const cleanup = deferred<void>()
+    files.set("/bridge/state", "file")
+    files.lstatGates.set("/bridge/state", cleanup)
+    const values = harness({ files })
+
+    const starting = values.receiver.start()
+    await flush()
+    await flush()
+    expect(files.lstatCalls).toContain("/bridge/state")
+
+    endpoint(values, FIRST_SESSION, "state").emitData(sessionFrame())
+    cleanup.resolve()
+    await starting
+
+    expect(
+      values.messages
+        .filter((message) => message.type === "transport")
+        .map((message) => message.status),
+    ).toEqual(["starting", "connected"])
+    await values.receiver.stop()
+  })
+
+  it("publishes ready when startup receives no session", async () => {
+    const values = harness()
+
+    await values.receiver.start()
+
+    expect(
+      values.messages
+        .filter((message) => message.type === "transport")
+        .map((message) => message.status),
+    ).toEqual(["starting", "ready"])
+    await values.receiver.stop()
+  })
+
+  it("does not inflate transport counters for duplicate valid session frames", async () => {
+    const values = harness()
+    await values.receiver.start()
+
+    endpoint(values, FIRST_SESSION, "state").emitData(sessionFrame())
+    endpoint(values, FIRST_SESSION, "state").emitData(sessionFrame())
+
+    const connected = values.messages.filter(
+      (message) => message.type === "transport" && message.status === "connected",
+    )
+    expect(connected).toHaveLength(1)
+    expect(connected[0]).toMatchObject({
+      recoveries: 0,
+      malformedFrames: 0,
+      endpointFailures: 0,
+      disconnects: { state: 0, scroll: 0, notes: 0 },
+    })
+    await values.receiver.stop()
+  })
+
   it("publishes rendezvous only after all three endpoints are ready", async () => {
     const gates = [deferred<void>(), deferred<void>(), deferred<void>()]
     const values = harness({
