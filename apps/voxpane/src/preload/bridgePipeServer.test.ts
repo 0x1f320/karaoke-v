@@ -1,5 +1,16 @@
 import { execFile } from "node:child_process"
-import { lstatSync, mkdtempSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs"
+import {
+  closeSync,
+  lstatSync,
+  mkdtempSync,
+  openSync,
+  renameSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs"
+import { lstat, unlink } from "node:fs/promises"
 import { createConnection } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -9,6 +20,33 @@ import { createPipeEndpointServer } from "./bridgePipeServer"
 
 const temporaryDirectories: string[] = []
 const execFileAsync = promisify(execFile)
+
+interface Deferred {
+  promise: Promise<void>
+  resolve(): void
+}
+
+function deferred(): Deferred {
+  let resolve!: () => void
+  const promise = new Promise<void>((onResolve) => {
+    resolve = onResolve
+  })
+  return { promise, resolve }
+}
+
+async function settleWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out after ${timeoutMs} ms`)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 
 function temporaryDirectory(prefix: string): string {
   const directory = mkdtempSync(join(tmpdir(), prefix))
@@ -185,5 +223,77 @@ describe.skipIf(process.platform !== "darwin")("macOS FIFO endpoint", () => {
 
     expect(lstatSync(path).isFIFO()).toBe(true)
     expect(lstatSync(path).ino).toBe(replacementInode)
+  })
+
+  it("withdraws the FIFO pathname before closing its existing descriptors", async () => {
+    const directory = temporaryDirectory("voxpane-fifo-withdraw-")
+    const path = join(directory, "state")
+    const withdrawn = deferred()
+    const releaseWithdrawal = deferred()
+    const chunks: number[][] = []
+    const server = createPipeEndpointServer(
+      { platform: "darwin", path, channel: "state" },
+      {
+        files: {
+          lstat,
+          unlink: async (target) => {
+            await unlink(target)
+            withdrawn.resolve()
+            await releaseWithdrawal.promise
+          },
+        },
+      },
+    )
+    await server.start(
+      (chunk) => chunks.push([...chunk]),
+      () => {},
+      () => {},
+    )
+    const writer = openSync(path, "w")
+    writeSync(writer, Uint8Array.of(0))
+    await waitForValue(chunks, 1)
+    const stopping = server.stop()
+    let observationError: unknown = null
+    let descriptorError: unknown = null
+    let lateOpen: Awaited<ReturnType<typeof execFileAsync>> | null = null
+
+    try {
+      await settleWithin(withdrawn.promise, 1_000)
+      try {
+        writeSync(writer, Uint8Array.of(1))
+      } catch (error) {
+        descriptorError = error
+      }
+      lateOpen = await execFileAsync(
+        process.execPath,
+        [
+          "-e",
+          `const fs = require("node:fs");
+try {
+  fs.openSync(process.argv[1], fs.constants.O_WRONLY);
+  process.stdout.write("opened");
+  process.exitCode = 2;
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+  process.stdout.write(error.code);
+}`,
+          path,
+        ],
+        { timeout: 1_000 },
+      )
+    } catch (error) {
+      observationError = error
+    } finally {
+      releaseWithdrawal.resolve()
+      try {
+        await stopping
+      } finally {
+        closeSync(writer)
+      }
+    }
+
+    expect(observationError).toBeNull()
+    expect(descriptorError).toBeNull()
+    expect(lateOpen?.stdout).toBe("ENOENT")
   })
 })

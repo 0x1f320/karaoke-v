@@ -519,13 +519,14 @@ export class BridgeReceiver {
       resources.teardownPromise = (async () => {
         resources.cancelled = true
         this.clearHeartbeat()
+        await Promise.allSettled([...resources.rendezvousWrites])
+        // SynthV must never see an advertised FIFO after its reader starts shutting down.
+        await this.removeOwnedRendezvous(resources.session)
         await Promise.allSettled(
           Object.values(resources.endpoints).map((endpoint) =>
             Promise.resolve().then(() => endpoint.stop()),
           ),
         )
-        await Promise.allSettled([...resources.rendezvousWrites])
-        await this.removeOwnedRendezvous(resources.session)
       })()
     }
     return resources.teardownPromise

@@ -97,6 +97,7 @@ class MemoryFileSystem implements BridgeReceiverFileSystem {
   readonly unlinks: string[] = []
   readonly reads: string[] = []
   readonly writeGates = new Map<number, Deferred<void>>()
+  onUnlink: ((path: string) => void) | null = null
 
   async list(directory: string): Promise<string[]> {
     const prefix = `${directory}/`
@@ -117,6 +118,7 @@ class MemoryFileSystem implements BridgeReceiverFileSystem {
   async unlink(path: string): Promise<void> {
     if (!this.entries.delete(path)) throw Object.assign(new Error("missing"), { code: "ENOENT" })
     this.unlinks.push(path)
+    this.onUnlink?.(path)
   }
 
   async read(path: string): Promise<Uint8Array | null> {
@@ -150,6 +152,7 @@ class FakeEndpoint implements PipeEndpointServer {
   synchronousStartFailure: Error | null = null
   startGate: Deferred<void> | null = null
   stopGate: Deferred<void> | null = null
+  onStopBegin: (() => void) | null = null
   private onData: ((chunk: Uint8Array) => void) | null = null
   private onDisconnect: (() => void) | null = null
   private onFatal: ((error: Error) => void) | null = null
@@ -173,6 +176,7 @@ class FakeEndpoint implements PipeEndpointServer {
   }
 
   async stop(): Promise<void> {
+    this.onStopBegin?.()
     this.stopped = true
     this.startGate?.reject(new Error("stopped"))
     await this.stopGate?.promise
@@ -479,6 +483,31 @@ describe("BridgeReceiver", () => {
     await values.receiver.stop()
   })
 
+  it.each(["explicit stop", "recovery"] as const)(
+    "withdraws owned rendezvous before endpoint stop begins during %s",
+    async (mode) => {
+      const events: string[] = []
+      const values = harness({
+        configureEndpoint: (server, index) => {
+          server.onStopBegin = () => events.push(`stop:${index}`)
+        },
+      })
+      values.files.onUnlink = (path) => {
+        if (path === "/bridge/pipe-session") events.push("rendezvous:unlink")
+      }
+      await values.receiver.start()
+
+      if (mode === "recovery") {
+        endpoint(values, FIRST_SESSION, "state").emitFatal()
+        await flush()
+      }
+      await values.receiver.stop()
+
+      expect(events[0]).toBe("rendezvous:unlink")
+      expect(events.slice(1).every((event) => event.startsWith("stop:"))).toBe(true)
+    },
+  )
+
   it("joins an in-flight initial rendezvous write before stop cleanup", async () => {
     const files = new MemoryFileSystem()
     const writeGate = deferred<void>()
@@ -531,8 +560,19 @@ describe("BridgeReceiver", () => {
   it("does not let an old in-flight heartbeat overwrite a recovered session", async () => {
     const files = new MemoryFileSystem()
     const writeGate = deferred<void>()
+    const teardownGate = deferred<void>()
+    const events: string[] = []
     files.writeGates.set(1, writeGate)
-    const values = harness({ files })
+    files.onUnlink = (path) => {
+      if (path === "/bridge/pipe-session") events.push("rendezvous:unlink")
+    }
+    const values = harness({
+      files,
+      configureEndpoint: (server, index) => {
+        if (index === 0) server.stopGate = teardownGate
+        server.onStopBegin = () => events.push(`stop:${index}`)
+      },
+    })
     await values.receiver.start()
 
     await values.timers.advanceBy(500)
@@ -540,13 +580,26 @@ describe("BridgeReceiver", () => {
     await flush()
     await values.timers.advanceBy(250)
     const sessionsBeforeOldWriteCompletes = values.created.length
+    const endpointStoppedBeforeOldWriteCompletes = events.some((event) => event.startsWith("stop:"))
 
     writeGate.resolve()
+    await flush()
+    await flush()
+    const unlinkIndex = events.indexOf("rendezvous:unlink")
+    const stopIndex = events.findIndex((event) => event.startsWith("stop:"))
+    await values.timers.advanceBy(250)
+    const sessionsBeforeEndpointTeardownCompletes = values.created.length
+    teardownGate.resolve()
+    await flush()
     await flush()
     await values.timers.advanceBy(250)
     await flush()
 
     expect(sessionsBeforeOldWriteCompletes).toBe(3)
+    expect(endpointStoppedBeforeOldWriteCompletes).toBe(false)
+    expect(unlinkIndex).toBeGreaterThanOrEqual(0)
+    expect(unlinkIndex).toBeLessThan(stopIndex)
+    expect(sessionsBeforeEndpointTeardownCompletes).toBe(3)
     expect(values.created).toHaveLength(6)
     expect(rendezvous(files, START_MS + values.timers.now)?.session).toBe(SECOND_SESSION)
     await values.receiver.stop()

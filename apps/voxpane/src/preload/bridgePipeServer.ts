@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { closeSync, createReadStream, openSync, writeSync } from "node:fs"
+import { closeSync, createReadStream, fstatSync, openSync, writeSync } from "node:fs"
 import { lstat, unlink } from "node:fs/promises"
 import { createServer, type Server, type Socket } from "node:net"
 import { promisify } from "node:util"
@@ -23,9 +23,27 @@ export interface PipeEndpointServerOptions {
   channel: PipeChannel
 }
 
-export function createPipeEndpointServer(options: PipeEndpointServerOptions): PipeEndpointServer {
+export interface PipeEndpointStat {
+  dev: number
+  ino: number
+  isFIFO(): boolean
+}
+
+export interface PipeEndpointServerDependencies {
+  files?: {
+    lstat(path: string): Promise<PipeEndpointStat>
+    unlink(path: string): Promise<void>
+  }
+}
+
+const REAL_PIPE_FILES = { lstat, unlink }
+
+export function createPipeEndpointServer(
+  options: PipeEndpointServerOptions,
+  dependencies: PipeEndpointServerDependencies = {},
+): PipeEndpointServer {
   if (options.platform === "darwin") {
-    return new DarwinPipeEndpointServer(options.path)
+    return new DarwinPipeEndpointServer(options.path, dependencies.files ?? REAL_PIPE_FILES)
   }
   if (options.platform === "win32") {
     return new WindowsPipeEndpointServer(options.path)
@@ -48,13 +66,17 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private startPromise: Promise<void> | null = null
   private stopPromise: Promise<void> | null = null
+  private shutdownPromise: Promise<void> | null = null
   private stopped = false
   private fatalReported = false
   private onData: (chunk: Uint8Array) => void = () => {}
   private onDisconnect: () => void = () => {}
   private onFatal: (error: Error) => void = () => {}
 
-  constructor(private readonly path: string) {}
+  constructor(
+    private readonly path: string,
+    private readonly files: NonNullable<PipeEndpointServerDependencies["files"]>,
+  ) {}
 
   start(
     onData: (chunk: Uint8Array) => void,
@@ -68,9 +90,7 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
     this.onDisconnect = onDisconnect
     this.onFatal = onFatal
     this.startPromise = this.startInternal().catch(async (error: unknown) => {
-      await this.closeStream()
-      this.closeKeepalive()
-      await this.removeOwnedFifo()
+      await this.shutdownEndpoint()
       throw asError(error)
     })
     return this.startPromise
@@ -84,9 +104,9 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
   }
 
   private async startInternal(): Promise<void> {
-    let existing: Awaited<ReturnType<typeof lstat>> | null = null
+    let existing: PipeEndpointStat | null = null
     try {
-      existing = await lstat(this.path)
+      existing = await this.files.lstat(this.path)
     } catch (error) {
       if (!isMissing(error)) throw error
     }
@@ -95,14 +115,14 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
       throw new Error(`Refusing to replace non-FIFO pipe endpoint: ${this.path}`)
     }
     if (existing) {
-      await unlink(this.path)
+      await this.files.unlink(this.path)
     }
     if (this.stopped) {
       throw new Error("Pipe endpoint stopped before startup")
     }
 
     await execFileAsync("/usr/bin/mkfifo", [this.path])
-    const created = await lstat(this.path)
+    const created = await this.files.lstat(this.path)
     if (!created.isFIFO()) {
       throw new Error(`mkfifo did not create a FIFO: ${this.path}`)
     }
@@ -197,13 +217,42 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
-    await this.closeStream()
+    await this.shutdownEndpoint()
     try {
       await this.startPromise
     } catch {}
-    await this.closeStream()
-    this.closeKeepalive()
-    await this.removeOwnedFifo()
+    await this.shutdownEndpoint()
+  }
+
+  private shutdownEndpoint(): Promise<void> {
+    if (this.shutdownPromise) {
+      return this.shutdownPromise
+    }
+    const shutdown = this.shutdownEndpointInternal()
+    this.shutdownPromise = shutdown
+    void shutdown
+      .finally(() => {
+        if (this.shutdownPromise === shutdown) {
+          this.shutdownPromise = null
+        }
+      })
+      .catch(() => {})
+    return shutdown
+  }
+
+  private async shutdownEndpointInternal(): Promise<void> {
+    this.establishShutdownKeepalive()
+    try {
+      // Keep RDWR alive while withdrawing the name so late write-only opens cannot block.
+      await this.withdrawOwnedFifo()
+    } finally {
+      try {
+        await this.closeStream()
+      } finally {
+        this.closeKeepalive()
+        this.identity = null
+      }
+    }
   }
 
   private async closeStream(): Promise<void> {
@@ -235,22 +284,13 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
   }
 
   private wakeReader(): void {
-    let temporaryFd: number | null = null
-    try {
-      let fd = this.keepaliveFd
-      if (fd === null) {
-        temporaryFd = openSync(this.path, "r+")
-        fd = temporaryFd
-      }
-      writeSync(fd, Uint8Array.of(0))
-    } catch {
-    } finally {
-      if (temporaryFd !== null) {
-        try {
-          closeSync(temporaryFd)
-        } catch {}
-      }
+    const fd = this.keepaliveFd
+    if (fd === null) {
+      return
     }
+    try {
+      writeSync(fd, Uint8Array.of(0))
+    } catch {}
   }
 
   private closeKeepalive(): void {
@@ -263,20 +303,44 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
     this.keepaliveFd = null
   }
 
-  private async removeOwnedFifo(): Promise<void> {
+  private establishShutdownKeepalive(): void {
+    if (this.keepaliveFd !== null || !this.stream || this.stream.closed) {
+      return
+    }
+    const identity = this.identity
+    if (!identity) {
+      return
+    }
+    let fd: number | null = null
+    try {
+      fd = openSync(this.path, "r+")
+      const opened = fstatSync(fd)
+      if (opened.isFIFO() && opened.dev === identity.dev && opened.ino === identity.ino) {
+        this.keepaliveFd = fd
+        fd = null
+      }
+    } catch {
+    } finally {
+      if (fd !== null) {
+        try {
+          closeSync(fd)
+        } catch {}
+      }
+    }
+  }
+
+  private async withdrawOwnedFifo(): Promise<void> {
     const identity = this.identity
     if (!identity) {
       return
     }
     try {
-      const current = await lstat(this.path)
+      const current = await this.files.lstat(this.path)
       if (current.isFIFO() && current.dev === identity.dev && current.ino === identity.ino) {
-        await unlink(this.path)
+        await this.files.unlink(this.path)
       }
     } catch (error) {
       if (!isMissing(error)) throw error
-    } finally {
-      this.identity = null
     }
   }
 }
