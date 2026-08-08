@@ -115,6 +115,15 @@ describe("BridgeFrameParser", () => {
     expect(stateParser().push(expected)).toEqual([expected])
   })
 
+  it("lets a valid policy discard a partial frame on reset", () => {
+    const parser = stateParser()
+    const expected = frame(BRIDGE_CHANNEL_STATE, Uint8Array.of(1, 2))
+
+    expect(parser.push(expected.subarray(0, 5))).toEqual([])
+    parser.reset()
+    expect(parser.push(expected)).toEqual([expected])
+  })
+
   it("rejects malformed headers permanently without scanning for later frames", () => {
     const malformed = frame(BRIDGE_CHANNEL_STATE, Uint8Array.of(1))
     malformed[0] = 0
@@ -151,6 +160,59 @@ describe("BridgeFrameParser", () => {
       allowedChannels: [BRIDGE_CHANNEL_STATE],
       maximumPayloadBytes: {} as Readonly<Record<number, number>>,
     })
+
+    expect(parser.push(frame(BRIDGE_CHANNEL_STATE, Uint8Array.of(1)))).toBeNull()
+  })
+
+  it.each([null, {}])(
+    "keeps an invalid allowedChannels policy terminal after reset",
+    (allowedChannels) => {
+      const parser = new BridgeFrameParser({
+        allowedChannels,
+        maximumPayloadBytes: { [BRIDGE_CHANNEL_STATE]: 256 },
+      } as unknown as BridgeFramePolicy)
+      const valid = frame(BRIDGE_CHANNEL_STATE, Uint8Array.of(1))
+      let result: Uint8Array[] | null = []
+
+      expect(() => {
+        result = parser.push(valid)
+      }).not.toThrow()
+      expect(result).toBeNull()
+      parser.reset()
+      expect(parser.push(valid)).toBeNull()
+    },
+  )
+
+  it.each([null, []])(
+    "rejects an invalid maximumPayloadBytes policy without throwing",
+    (maximumPayloadBytes) => {
+      const parser = new BridgeFrameParser({
+        allowedChannels: [BRIDGE_CHANNEL_STATE],
+        maximumPayloadBytes,
+      } as unknown as BridgeFramePolicy)
+
+      expect(() => parser.push(frame(BRIDGE_CHANNEL_STATE, Uint8Array.of(1)))).not.toThrow()
+      expect(parser.push(frame(BRIDGE_CHANNEL_STATE, Uint8Array.of(1)))).toBeNull()
+    },
+  )
+
+  it("rejects a runtime non-Uint8Array chunk permanently without throwing", () => {
+    const parser = stateParser()
+    const valid = frame(BRIDGE_CHANNEL_STATE, Uint8Array.of(1))
+    let result: Uint8Array[] | null = []
+
+    expect(() => {
+      result = parser.push(null as unknown as Uint8Array)
+    }).not.toThrow()
+    expect(result).toBeNull()
+    expect(parser.push(valid)).toBeNull()
+  })
+
+  it("rejects a payload cap inherited from the policy prototype", () => {
+    const parser = new BridgeFrameParser({
+      allowedChannels: [BRIDGE_CHANNEL_STATE],
+      maximumPayloadBytes: Object.create({ [BRIDGE_CHANNEL_STATE]: 256 }),
+    } as BridgeFramePolicy)
 
     expect(parser.push(frame(BRIDGE_CHANNEL_STATE, Uint8Array.of(1)))).toBeNull()
   })

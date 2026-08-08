@@ -7,20 +7,54 @@ export interface BridgeFramePolicy {
   maximumPayloadBytes: Readonly<Record<number, number>>
 }
 
+interface NormalizedBridgeFramePolicy {
+  allowedChannels: ReadonlySet<number>
+  maximumPayloadBytes: ReadonlyMap<number, number>
+}
+
 export class BridgeFrameParser {
   private readonly header = new Uint8Array(BRIDGE_HEADER_BYTES)
+  private readonly allowedChannels: ReadonlySet<number>
+  private readonly maximumPayloadBytes: ReadonlyMap<number, number>
+  private readonly policyMalformed: boolean
   private headerLength = 0
   private frame: Uint8Array | null = null
   private frameLength = 0
   private malformed = false
 
-  constructor(private readonly policy: BridgeFramePolicy) {}
+  constructor(policy: BridgeFramePolicy) {
+    const normalized = normalizePolicy(policy)
+    this.allowedChannels = normalized?.allowedChannels ?? new Set()
+    this.maximumPayloadBytes = normalized?.maximumPayloadBytes ?? new Map()
+    this.policyMalformed = normalized === null
+    this.malformed = this.policyMalformed
+  }
 
   push(chunk: Uint8Array): Uint8Array[] | null {
     if (this.malformed) {
       return null
     }
 
+    if (!isUint8Array(chunk)) {
+      return this.markMalformed()
+    }
+
+    try {
+      return this.pushChunk(chunk)
+    } catch {
+      return this.markMalformed()
+    }
+  }
+
+  reset(): void {
+    this.header.fill(0)
+    this.headerLength = 0
+    this.frame = null
+    this.frameLength = 0
+    this.malformed = this.policyMalformed
+  }
+
+  private pushChunk(chunk: Uint8Array): Uint8Array[] | null {
     const frames: Uint8Array[] = []
     let offset = 0
 
@@ -78,14 +112,6 @@ export class BridgeFrameParser {
     return frames
   }
 
-  reset(): void {
-    this.header.fill(0)
-    this.headerLength = 0
-    this.frame = null
-    this.frameLength = 0
-    this.malformed = false
-  }
-
   private readPayloadLength(): number | null {
     const view = new DataView(this.header.buffer, this.header.byteOffset, this.header.byteLength)
     if (view.getUint32(0, true) !== BRIDGE_MAGIC || view.getUint16(4, true) !== BRIDGE_LAYOUT) {
@@ -93,17 +119,13 @@ export class BridgeFrameParser {
     }
 
     const channel = view.getUint16(6, true)
-    if (!this.policy.allowedChannels.includes(channel)) {
+    if (!this.allowedChannels.has(channel) || !this.maximumPayloadBytes.has(channel)) {
       return null
     }
 
-    const maximumPayloadBytes = this.policy.maximumPayloadBytes[channel]
+    const maximumPayloadBytes = this.maximumPayloadBytes.get(channel)
     const payloadLength = view.getUint32(8, true)
-    if (
-      !Number.isSafeInteger(maximumPayloadBytes) ||
-      maximumPayloadBytes < 0 ||
-      payloadLength > maximumPayloadBytes
-    ) {
+    if (maximumPayloadBytes === undefined || payloadLength > maximumPayloadBytes) {
       return null
     }
 
@@ -117,5 +139,61 @@ export class BridgeFrameParser {
     this.frameLength = 0
     this.malformed = true
     return null
+  }
+}
+
+function normalizePolicy(policy: BridgeFramePolicy): NormalizedBridgeFramePolicy | null {
+  try {
+    if (policy === null || typeof policy !== "object") {
+      return null
+    }
+
+    const { allowedChannels, maximumPayloadBytes } = policy as {
+      allowedChannels?: unknown
+      maximumPayloadBytes?: unknown
+    }
+    if (!Array.isArray(allowedChannels) || maximumPayloadBytes === null) {
+      return null
+    }
+    if (typeof maximumPayloadBytes !== "object" || Array.isArray(maximumPayloadBytes)) {
+      return null
+    }
+
+    const channels = new Set<number>()
+    for (const channel of allowedChannels) {
+      if (!Number.isInteger(channel) || channel < 0 || channel > 0xffff) {
+        return null
+      }
+      channels.add(channel)
+    }
+
+    const caps = new Map<number, number>()
+    for (const channel of channels) {
+      if (!Object.hasOwn(maximumPayloadBytes, channel)) {
+        return null
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(maximumPayloadBytes, channel)
+      if (
+        descriptor === undefined ||
+        !("value" in descriptor) ||
+        !Number.isSafeInteger(descriptor.value) ||
+        descriptor.value < 0
+      ) {
+        return null
+      }
+      caps.set(channel, descriptor.value)
+    }
+
+    return { allowedChannels: channels, maximumPayloadBytes: caps }
+  } catch {
+    return null
+  }
+}
+
+function isUint8Array(value: unknown): value is Uint8Array {
+  try {
+    return value instanceof Uint8Array
+  } catch {
+    return false
   }
 }
