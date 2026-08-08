@@ -1,3 +1,9 @@
+## [1.0.0-dev.6](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.5...v1.0.0-dev.6) (2026-08-08)
+
+### ⚡ Performance Improvements
+
+* **bridge:** publish scroll transform only on change ([#100](https://github.com/0x1f320/voxpane/issues/100)) ([d78a209](https://github.com/0x1f320/voxpane/commit/d78a209f893ed4c853b9439f27ddeec64076b605))
+
 ## [1.0.0-dev.5](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.4...v1.0.0-dev.5) (2026-08-08)
 
 ### ✨ Features
