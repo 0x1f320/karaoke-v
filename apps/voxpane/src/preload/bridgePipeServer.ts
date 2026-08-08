@@ -7,6 +7,8 @@ import type { PipeChannel } from "../shared/bridgeRendezvous"
 
 const execFileAsync = promisify(execFile)
 const FIFO_REOPEN_DELAY_MS = 25
+const FIFO_DRAIN_GRACE_MS = 300
+const FIFO_READER_CLOSE_TIMEOUT_MS = 100
 
 export interface PipeEndpointServer {
   start(
@@ -34,16 +36,25 @@ export interface PipeEndpointServerDependencies {
     lstat(path: string): Promise<PipeEndpointStat>
     unlink(path: string): Promise<void>
   }
+  sleep?(delayMs: number): Promise<void>
 }
 
 const REAL_PIPE_FILES = { lstat, unlink }
+const sleep = (delayMs: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, delayMs)
+  })
 
 export function createPipeEndpointServer(
   options: PipeEndpointServerOptions,
   dependencies: PipeEndpointServerDependencies = {},
 ): PipeEndpointServer {
   if (options.platform === "darwin") {
-    return new DarwinPipeEndpointServer(options.path, dependencies.files ?? REAL_PIPE_FILES)
+    return new DarwinPipeEndpointServer(
+      options.path,
+      dependencies.files ?? REAL_PIPE_FILES,
+      dependencies.sleep ?? sleep,
+    )
   }
   if (options.platform === "win32") {
     return new WindowsPipeEndpointServer(options.path)
@@ -68,6 +79,7 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
   private stopPromise: Promise<void> | null = null
   private shutdownPromise: Promise<void> | null = null
   private stopped = false
+  private shuttingDown = false
   private fatalReported = false
   private onData: (chunk: Uint8Array) => void = () => {}
   private onDisconnect: () => void = () => {}
@@ -76,6 +88,7 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
   constructor(
     private readonly path: string,
     private readonly files: NonNullable<PipeEndpointServerDependencies["files"]>,
+    private readonly sleep: NonNullable<PipeEndpointServerDependencies["sleep"]>,
   ) {}
 
   start(
@@ -138,7 +151,7 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
 
   private openReader(): Promise<void> {
     return new Promise((resolve, reject) => {
-      if (this.stopped) {
+      if (this.stopped || this.shuttingDown) {
         reject(new Error("Pipe endpoint stopped before reader open"))
         return
       }
@@ -150,7 +163,7 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
       let failed = false
 
       stream.on("data", (chunk) => {
-        if (this.stopped) {
+        if (this.stopped || this.shuttingDown) {
           return
         }
         const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk
@@ -167,7 +180,7 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
       })
       stream.once("end", () => {
         ended = true
-        if (!this.stopped) {
+        if (!this.stopped && !this.shuttingDown) {
           this.ensureKeepalive()
           this.onDisconnect()
         }
@@ -175,7 +188,9 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
       stream.once("error", (error) => {
         failed = true
         if (opened) {
-          this.reportFatal(error)
+          if (!this.shuttingDown) {
+            this.reportFatal(error)
+          }
         } else {
           reject(error)
         }
@@ -188,7 +203,7 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
           reject(new Error("FIFO reader closed before readiness"))
           return
         }
-        if (this.stopped || failed) {
+        if (this.stopped || this.shuttingDown || failed) {
           return
         }
         if (!ended) {
@@ -204,7 +219,7 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
   }
 
   private reportFatal(error: Error): void {
-    if (this.stopped || this.fatalReported) {
+    if (this.stopped || this.shuttingDown || this.fatalReported) {
       return
     }
     this.fatalReported = true
@@ -241,10 +256,15 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
   }
 
   private async shutdownEndpointInternal(): Promise<void> {
+    this.shuttingDown = true
     this.establishShutdownKeepalive()
+    const readerNeedsShutdown = this.stream !== null && !this.stream.closed
     try {
-      // Keep RDWR alive while withdrawing the name so late write-only opens cannot block.
+      // Keep RDWR alive while withdrawing the name so late non-creating opens fail promptly.
       await this.withdrawOwnedFifo()
+      if (readerNeedsShutdown) {
+        await this.sleep(FIFO_DRAIN_GRACE_MS)
+      }
     } finally {
       try {
         await this.closeStream()
@@ -265,7 +285,20 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
       return
     }
     await new Promise<void>((resolve) => {
-      stream.once("close", resolve)
+      let timer: ReturnType<typeof setTimeout> | null = null
+      const finish = (): void => {
+        stream.off("close", finish)
+        if (timer) {
+          clearTimeout(timer)
+          timer = null
+        }
+        resolve()
+      }
+      stream.once("close", finish)
+      timer = setTimeout(() => {
+        stream.on("error", () => {})
+        finish()
+      }, FIFO_READER_CLOSE_TIMEOUT_MS)
       stream.destroy()
       // A byte is required to release a Darwin FIFO read already blocked in libuv.
       this.wakeReader()
@@ -273,7 +306,7 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
   }
 
   private ensureKeepalive(): void {
-    if (this.keepaliveFd !== null || this.stopped) {
+    if (this.keepaliveFd !== null || this.stopped || this.shuttingDown) {
       return
     }
     try {
@@ -335,6 +368,8 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
       return
     }
     try {
+      // POSIX has no inode-conditional unlink; the final lstat/unlink pair relies on this
+      // directory remaining app-owned and never unlinks after a known identity mismatch.
       const current = await this.files.lstat(this.path)
       if (current.isFIFO() && current.dev === identity.dev && current.ino === identity.ino) {
         await this.files.unlink(this.path)

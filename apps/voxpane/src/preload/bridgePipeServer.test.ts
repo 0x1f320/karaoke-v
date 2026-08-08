@@ -186,7 +186,10 @@ describe.skipIf(process.platform !== "darwin")("macOS FIFO endpoint", () => {
     const path = join(directory, "state")
     await execFileAsync("/usr/bin/mkfifo", [path])
     const previousInode = lstatSync(path).ino
-    const server = createPipeEndpointServer({ platform: "darwin", path, channel: "state" })
+    const server = createPipeEndpointServer(
+      { platform: "darwin", path, channel: "state" },
+      { sleep: async () => {} },
+    )
 
     await server.start(
       () => {},
@@ -205,7 +208,10 @@ describe.skipIf(process.platform !== "darwin")("macOS FIFO endpoint", () => {
     const directory = temporaryDirectory("voxpane-fifo-replaced-")
     const path = join(directory, "state")
     const replacementPath = join(directory, "replacement")
-    const server = createPipeEndpointServer({ platform: "darwin", path, channel: "state" })
+    const server = createPipeEndpointServer(
+      { platform: "darwin", path, channel: "state" },
+      { sleep: async () => {} },
+    )
 
     await server.start(
       () => {},
@@ -229,7 +235,9 @@ describe.skipIf(process.platform !== "darwin")("macOS FIFO endpoint", () => {
     const directory = temporaryDirectory("voxpane-fifo-withdraw-")
     const path = join(directory, "state")
     const withdrawn = deferred()
-    const releaseWithdrawal = deferred()
+    const graceStarted = deferred()
+    const releaseGrace = deferred()
+    const graceDelays: number[] = []
     const chunks: number[][] = []
     const server = createPipeEndpointServer(
       { platform: "darwin", path, channel: "state" },
@@ -239,8 +247,12 @@ describe.skipIf(process.platform !== "darwin")("macOS FIFO endpoint", () => {
           unlink: async (target) => {
             await unlink(target)
             withdrawn.resolve()
-            await releaseWithdrawal.promise
           },
+        },
+        sleep: async (delayMs) => {
+          graceDelays.push(delayMs)
+          graceStarted.resolve()
+          await releaseGrace.promise
         },
       },
     )
@@ -249,7 +261,7 @@ describe.skipIf(process.platform !== "darwin")("macOS FIFO endpoint", () => {
       () => {},
       () => {},
     )
-    const writer = openSync(path, "w")
+    const writer = openSync(path, "r+")
     writeSync(writer, Uint8Array.of(0))
     await waitForValue(chunks, 1)
     const stopping = server.stop()
@@ -259,6 +271,7 @@ describe.skipIf(process.platform !== "darwin")("macOS FIFO endpoint", () => {
 
     try {
       await settleWithin(withdrawn.promise, 1_000)
+      await settleWithin(graceStarted.promise, 1_000)
       try {
         writeSync(writer, Uint8Array.of(1))
       } catch (error) {
@@ -270,7 +283,7 @@ describe.skipIf(process.platform !== "darwin")("macOS FIFO endpoint", () => {
           "-e",
           `const fs = require("node:fs");
 try {
-  fs.openSync(process.argv[1], fs.constants.O_WRONLY);
+  fs.openSync(process.argv[1], fs.constants.O_RDWR);
   process.stdout.write("opened");
   process.exitCode = 2;
 } catch (error) {
@@ -284,7 +297,7 @@ try {
     } catch (error) {
       observationError = error
     } finally {
-      releaseWithdrawal.resolve()
+      releaseGrace.resolve()
       try {
         await stopping
       } finally {
@@ -294,6 +307,38 @@ try {
 
     expect(observationError).toBeNull()
     expect(descriptorError).toBeNull()
+    expect(graceDelays).toHaveLength(1)
+    expect(graceDelays[0]).toBeGreaterThanOrEqual(300)
     expect(lateOpen?.stdout).toBe("ENOENT")
+    expect(() => lstatSync(path)).toThrow()
+  })
+
+  it("bounds reader shutdown when the owned pathname disappears after data", async () => {
+    const directory = temporaryDirectory("voxpane-fifo-missing-stop-")
+    const path = join(directory, "state")
+    const chunks: number[][] = []
+    const server = createPipeEndpointServer({ platform: "darwin", path, channel: "state" })
+    await server.start(
+      (chunk) => chunks.push([...chunk]),
+      () => {},
+      () => {},
+    )
+    const writer = openSync(path, "r+")
+    writeSync(writer, Uint8Array.of(7))
+    await waitForValue(chunks, 1)
+    unlinkSync(path)
+    const stopping = server.stop()
+    let stopError: unknown = null
+
+    try {
+      await settleWithin(stopping, 800)
+    } catch (error) {
+      stopError = error
+    } finally {
+      closeSync(writer)
+      await settleWithin(stopping, 1_000)
+    }
+
+    expect(stopError).toBeNull()
   })
 })
