@@ -10,14 +10,16 @@
 const DIRECTORY_NAME = "voxpane"
 const CHANNEL_DIRECTORY = "bridge"
 
-// Destructured on purpose: `string.find` returns two values, and comparing the
-// call itself against undefined compiles to a table comparison that is never
-// nil — which silently picks the wrong platform.
-const [WINDOWS] = string.find(string.lower(SV.getHostInfo().osType), "win", 1, true)
-const IS_WINDOWS = WINDOWS !== undefined
+function isWindows(osType: string): boolean {
+  // Destructured on purpose: `string.find` returns two values, and comparing the
+  // call itself against undefined compiles to a table comparison that is never
+  // nil — which silently picks the wrong platform.
+  const [windows] = string.find(string.lower(osType), "win", 1, true)
+  return windows !== undefined
+}
 
 export function bridgeDirectory(): string | undefined {
-  if (IS_WINDOWS) {
+  if (isWindows(SV.getHostInfo().osType)) {
     const local = os.getenv("LOCALAPPDATA")
     return local !== undefined ? `${local}\\${DIRECTORY_NAME}\\${CHANNEL_DIRECTORY}` : undefined
   }
@@ -28,5 +30,32 @@ export function bridgeDirectory(): string | undefined {
 }
 
 export function channelPath(directory: string, name: string): string {
-  return IS_WINDOWS ? `${directory}\\${name}` : `${directory}/${name}`
+  return isWindows(SV.getHostInfo().osType) ? `${directory}\\${name}` : `${directory}/${name}`
+}
+
+export interface PipeEndpoints {
+  session: string
+  state: string
+  scroll: string
+  notes: string
+}
+
+export function endpointPaths(osType: string, directory: string, session: string): PipeEndpoints {
+  if (isWindows(osType)) {
+    const prefix = `\\\\.\\pipe\\voxpane-${session}`
+    return {
+      session,
+      state: `${prefix}-state`,
+      scroll: `${prefix}-scroll`,
+      notes: `${prefix}-notes`,
+    }
+  }
+
+  const prefix = `${directory}/pipe-${session}`
+  return {
+    session,
+    state: `${prefix}-state`,
+    scroll: `${prefix}-scroll`,
+    notes: `${prefix}-notes`,
+  }
 }
