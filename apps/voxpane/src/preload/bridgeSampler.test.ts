@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { STATE_BYTES } from "../shared/bridgeChannels"
+import type { BridgeRecordRead } from "../shared/bridgeDiagnostics"
 import { BridgeSampler } from "./bridgeSampler"
 
 const MAGIC = 0x31425056
@@ -77,21 +78,35 @@ function notes(rev: string): Uint8Array {
   return record(2, new Writer().text(rev).u32(0).done())
 }
 
+function readable(bytes: Uint8Array | null | undefined): BridgeRecordRead | null {
+  return bytes ? { bytes, diagnostics: null } : null
+}
+
 function harness(states: Array<Uint8Array | null>, schedules: Array<Uint8Array | null> = []) {
   const publishedStates: Uint8Array[] = []
   const publishedSchedules: Array<{ notesSeq: number; bytes: Uint8Array }> = []
+  const diagnostics: unknown[] = []
   let scheduleReads = 0
+  let now = 0
   const sampler = new BridgeSampler({
-    readState: () => states.shift() ?? null,
+    now: () => now++,
+    readState: () => readable(states.shift()),
     readSchedule: () => {
       scheduleReads += 1
-      return schedules.shift() ?? null
+      return readable(schedules.shift())
     },
-    publishState: (bytes) => publishedStates.push(Uint8Array.from(bytes)),
-    publishSchedule: (notesSeq, bytes) =>
-      publishedSchedules.push({ notesSeq, bytes: Uint8Array.from(bytes) }),
+    publishState: (record) => publishedStates.push(Uint8Array.from(record.bytes)),
+    publishSchedule: (notesSeq, record) =>
+      publishedSchedules.push({ notesSeq, bytes: Uint8Array.from(record.bytes) }),
+    publishDiagnostics: (event) => diagnostics.push(event),
   })
-  return { sampler, publishedStates, publishedSchedules, scheduleReads: () => scheduleReads }
+  return {
+    sampler,
+    publishedStates,
+    publishedSchedules,
+    diagnostics,
+    scheduleReads: () => scheduleReads,
+  }
 }
 
 describe("BridgeSampler", () => {
@@ -152,5 +167,31 @@ describe("BridgeSampler", () => {
     sampler.sample()
 
     expect(publishedSchedules).toEqual([{ notesSeq: 2, bytes: matching }])
+  })
+
+  it("reports debug failure counters and recent read costs", () => {
+    const { sampler, diagnostics } = harness(
+      [null, new Uint8Array(STATE_BYTES), state(1, "r1"), state(2, "new")],
+      [new Uint8Array(4), notes("old")],
+    )
+
+    sampler.sample(true)
+    sampler.sample(true)
+    sampler.sample(true)
+    sampler.sample(true)
+
+    expect(diagnostics.at(-1)).toEqual({
+      counters: {
+        stateMissing: 1,
+        stateInvalid: 1,
+        notesMissing: 0,
+        notesInvalid: 1,
+        revMismatch: 1,
+      },
+      costs: {
+        stateReadMs: 1,
+        notesReadMs: 1,
+      },
+    })
   })
 })

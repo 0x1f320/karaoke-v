@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react"
+import { useTranslation } from "react-i18next"
 import type { BridgeNote } from "../../shared/bridgeChannels"
-import type { PianoRoll, Rect } from "../../shared/geometry"
+import type { PianoRoll, Rect, Viewport } from "../../shared/geometry"
 import {
   DEFAULT_PREFERENCES,
   type GlowPreferences,
@@ -12,6 +13,15 @@ import { Permissions } from "./components/Permissions"
 import { Settings } from "./components/Settings"
 import { Toolbar } from "./components/Toolbar"
 import { CanvasManager } from "./playback/canvasManager"
+import {
+  BridgeDiagnosticsGraphHistory,
+  BridgeDiagnosticsStats,
+  BridgeScrollLatency,
+  diagnosticsGraphSample,
+  diagnosticsPanelPosition,
+  drawDiagnosticsGraph,
+  formatBridgeDiagnostics,
+} from "./playback/channelDiagnostics"
 import { predictedNoteRect, toReadFrame } from "./playback/debugNotes"
 import { composeFrame, frameTransform, padRect, pitchBounds } from "./playback/frame"
 import { ScrollLatencyProbe } from "./playback/latencyProbe"
@@ -50,6 +60,10 @@ const EMPTY_REACHES: Rect[] = []
  */
 const MAX_MATCH_SLIP_PX = 24
 const CANVAS_READ_GAP_MS = 250
+const DIAGNOSTICS_PANEL_PAD_PX = 8
+const DIAGNOSTICS_GRAPH_W = 260
+const DIAGNOSTICS_GRAPH_H = 132
+const DIAGNOSTICS_GRAPH_SAMPLES = 180
 
 /**
  * The note whose contour covers `seconds` — the one sounding, or, in the gap
@@ -99,14 +113,51 @@ export function App() {
 }
 
 function Overlay() {
+  const { t } = useTranslation()
   const hostRef = useRef<HTMLDivElement>(null)
+  const diagnosticsRef = useRef<HTMLPreElement>(null)
+  const diagnosticsGraphRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) {
       return
     }
+    const diagnosticsElement = diagnosticsRef.current
+    const diagnosticsGraphElement = diagnosticsGraphRef.current
     const renderer = new NoteRenderer(host)
+    const diagnosticsLabels = {
+      state: t("debug.channels.state"),
+      notes: t("debug.channels.notes"),
+      age: t("debug.channels.age"),
+      size: t("debug.channels.size"),
+      applied: t("debug.channels.applied"),
+      average: t("debug.channels.average"),
+      current: t("debug.channels.current"),
+      min: t("debug.channels.min"),
+      read: t("debug.channels.read"),
+      seq: t("debug.channels.seq"),
+      notesSeq: t("debug.channels.notesSeq"),
+      rev: t("debug.channels.rev"),
+      failures: t("debug.channels.failures"),
+      stateMissing: t("debug.channels.stateMissing"),
+      stateInvalid: t("debug.channels.stateInvalid"),
+      notesMissing: t("debug.channels.notesMissing"),
+      notesInvalid: t("debug.channels.notesInvalid"),
+      revMismatch: t("debug.channels.revMismatch"),
+      stateApplied: t("debug.channels.stateApplied"),
+      notesApplied: t("debug.channels.notesApplied"),
+      stateRead: t("debug.channels.stateRead"),
+      notesRead: t("debug.channels.notesRead"),
+      scrollApplied: t("debug.channels.scrollApplied"),
+      max: t("debug.channels.max"),
+      p95: t("debug.channels.p95"),
+      p99: t("debug.channels.p99"),
+      missing: t("debug.channels.missing"),
+    }
+    const diagnosticsStats = new BridgeDiagnosticsStats()
+    const diagnosticsGraph = new BridgeDiagnosticsGraphHistory(DIAGNOSTICS_GRAPH_SAMPLES)
+    const scrollLatency = new BridgeScrollLatency()
 
     let read: PianoRoll | null = null
 
@@ -126,6 +177,16 @@ function Overlay() {
       pitch: PitchPreferences
     }) => {
       debug = p.debug
+      window.bridge.setDiagnosticsEnabled(debug)
+      if (!debug && diagnosticsElement) {
+        diagnosticsElement.classList.add("hidden")
+        diagnosticsStats.reset()
+        diagnosticsGraph.reset()
+        scrollLatency.reset()
+      }
+      if (!debug && diagnosticsGraphElement) {
+        diagnosticsGraphElement.classList.add("hidden")
+      }
       particles = { ...particleParams(p.particles), enabled: p.effects && p.particles.enabled }
       glow = { ...glowParams(p.glow), enabled: p.effects && p.glow.enabled }
       trail = { ...trailParams(p.trail), enabled: p.effects && p.trail.enabled }
@@ -163,6 +224,49 @@ function Overlay() {
     // is moving. Null whenever the last frame had nothing to compare against.
     let wasAt: { contentX: number; refY: number } | null = null
     let frameId = 0
+    const updateDiagnostics = (nowMs: number, clip: Rect | null, viewport: Viewport | null) => {
+      if (!diagnosticsElement || !debug) {
+        return
+      }
+      if (!clip || clip.w <= 0 || clip.h <= 0) {
+        diagnosticsElement.classList.add("hidden")
+        diagnosticsGraphElement?.classList.add("hidden")
+        return
+      }
+      const diagnostics = window.bridge.readDiagnostics()
+      const scrollAppliedMs = scrollLatency.sample(viewport, diagnostics, nowMs)
+      diagnosticsGraph.push(diagnosticsGraphSample(diagnostics, nowMs, scrollAppliedMs))
+      diagnosticsElement.textContent = formatBridgeDiagnostics(diagnostics, {
+        nowEpochMs: Date.now(),
+        nowMonotonicMs: nowMs,
+        scrollAppliedMs,
+        stats: diagnosticsStats.sample(diagnostics, nowMs, scrollAppliedMs),
+        labels: diagnosticsLabels,
+      }).join("\n")
+      diagnosticsElement.classList.remove("hidden")
+      const position = diagnosticsPanelPosition(
+        clip,
+        {
+          w: diagnosticsElement.offsetWidth,
+          h: diagnosticsElement.offsetHeight,
+        },
+        DIAGNOSTICS_PANEL_PAD_PX,
+      )
+      diagnosticsElement.style.transform = `translate(${position.x}px, ${position.y}px)`
+      if (diagnosticsGraphElement) {
+        drawDiagnosticsGraph(diagnosticsGraphElement, {
+          clip,
+          dpr: window.devicePixelRatio || 1,
+          history: diagnosticsGraph.samples(),
+          labels: diagnosticsLabels,
+          max: diagnosticsGraph.scale(),
+          padding: DIAGNOSTICS_PANEL_PAD_PX,
+          width: DIAGNOSTICS_GRAPH_W,
+          height: DIAGNOSTICS_GRAPH_H,
+        })
+        diagnosticsGraphElement.classList.remove("hidden")
+      }
+    }
     const draw = () => {
       raf = requestAnimationFrame(draw)
       frameId += 1
@@ -182,6 +286,7 @@ function Overlay() {
       const vp = debug || transport.playing || renderer.effectsActive ? latestViewport : null
 
       if (!vp || !read || vp.refY === undefined) {
+        updateDiagnostics(nowMs, null, null)
         wasAt = null
         if (uploaded) {
           renderer.clear()
@@ -370,6 +475,7 @@ function Overlay() {
         offsetSemitones,
         trailSemitones,
       )
+      updateDiagnostics(nowMs, frame.clip, latestViewport)
       renderer.draw({
         width: w,
         height: h,
@@ -405,12 +511,25 @@ function Overlay() {
     raf = requestAnimationFrame(draw)
 
     return () => {
+      window.bridge.setDiagnosticsEnabled(false)
       canvasManager.stop()
       cancelAnimationFrame(raf)
       unsubscribe()
       renderer.dispose()
     }
-  }, [])
+  }, [t])
 
-  return <div ref={hostRef} className="fixed inset-0 block h-full w-full" />
+  return (
+    <div className="fixed inset-0 block h-full w-full">
+      <div ref={hostRef} className="absolute inset-0" />
+      <pre
+        ref={diagnosticsRef}
+        className="pointer-events-none absolute top-0 left-0 hidden whitespace-pre rounded bg-black/70 px-2 py-1 font-mono text-[11px] leading-4 text-white"
+      />
+      <canvas
+        ref={diagnosticsGraphRef}
+        className="pointer-events-none absolute top-0 left-0 hidden rounded"
+      />
+    </div>
+  )
 }

@@ -134,6 +134,21 @@ notes: ENOENT: ...
 - **reach band** — 보이는 각 note의 effect가 세로로 얼마나 갈 수 있는지. pitch following이
   켜져 있고 *또한* 그 mode가 effect의 위치를 움직일 때만(`intensity`가 아닌 경우) 그린다.
   piano roll 가장자리를 넘어가는 band는 mask에 잘려 사라져 보일 effect다.
+- **bridge channel diagnostics** — piano roll 우상단의 작은 panel에 `state`와 `notes` 각각 한 줄로
+  표시한다. channel file의 filesystem `mtime` 기준 age, 마지막 size, accepted record가 현재
+  draw까지 기다린 시간, 최신 read cost, accepted `seq` / `notesSeq` / `rev`를 보여준다. 각 channel
+  line은 debug collection이 켜진 뒤 서로 다른 accepted record들의 accepted-to-draw `avg`, `min`,
+  `max`, `p95`, `p99` 통계를 포함한다. `fail` line은 missing file, 거부된 record, `rev` mismatch를
+  세고, `scroll` line은 현재 scroll timing과 scroll spike의 `avg`, `min`, `max`, `p95`, `p99`를
+  보여준다. `n/a`는 그 channel의 유효 record가 아직 overlay cache에 도달하지 않았다는 뜻이다.
+- **bridge timing graph** — piano roll 좌상단의 작은 graph에 최근 `state applied`, `state read`,
+  `scroll applied` timing을 그린다. note timing은 text panel에만 남기고 graph에는 그리지 않는다.
+  `scroll applied`는 bridge-derived viewport가 바뀐 때만 sample을 찍고, 그 state record가 overlay
+  cache에 도달한 시점부터 그것을 사용하는 draw까지를 잰다. graph는 viewport가 바뀌지 않는 동안
+  `scroll applied`를 `0`으로 그리므로, 실제로 새 scroll position을 적용한 frame만 spike로 보인다.
+  graph의 max scale은 한번 커지면 그 spike가 visible window 밖으로 지나간 뒤에도 debug collection이
+  reset될 때까지 유지된다. y-axis label은 유지된 scale 기준의 `max`, half-max, zero를 보여준다.
+  다른 없는 sample은 0으로 잇지 않고 line을 끊는다.
 
 debug mode가 켜져 있으면 scroll burst마다 overlay DevTools console에 latency report 한 줄도
 찍힌다. 개발 중에는 main process terminal로도 `[voxpane latency] ...`가 전달되며, 현재
