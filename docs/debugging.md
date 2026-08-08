@@ -46,10 +46,12 @@ pnpm --filter @voxpane/synthv-script run dump -- /path/to/bridge
 `dump` first `lstat`s `pipe-session`; `ENOENT` is unavailable, while a symlink or any
 non-regular node is malformed and is never read. It then decodes the exact 128-byte VPR1
 record and checksum, prints the app session, heartbeat age, freshness, and all three derived
-endpoint names. An app atomic regular-file replacement can race the check, but either
-app-owned generation is valid or checksum decoding rejects it. On macOS it uses `lstat`
-only for endpoints and reports `fifo`, `missing`, `non-fifo`, or `symlink`; it never opens
-them. On Windows it prints derived Named Pipe names and does not probe by connecting.
+endpoint names. Each heartbeat reopens the same regular file with `r+`, writes the one
+positioned 128-byte record at offset zero, and truncates it; recovery may unlink then
+recreate the file. The regular-or-absent gate therefore treats a recovery `ENOENT` as
+unavailable and any short or invalid record as malformed. On macOS it uses `lstat` only for
+endpoints and reports `fifo`, `missing`, `non-fifo`, or `symlink`; it never opens them. On
+Windows it prints derived Named Pipe names and does not probe by connecting.
 
 | Output | Meaning | Exit |
 | --- | --- | --- |

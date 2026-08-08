@@ -41,7 +41,7 @@ tests; this tree covers behaviour.
 | Twice the particles on a 120 Hz display | frame-rate independence | [effects](effects.md#frame-rate-independence) |
 | A streak across the roll behind the trail | the trail's join rules | [effects](effects.md#join-rules) |
 | Notes stale after an edit in SynthV | generation matching | [bridge](bridge.md#session-gate-and-recovery) |
-| Effect flies off-screen or fires in silence | the pitch curve | [synthv](synthv.md#the-computed-pitch-curve), [effects](effects.md#pitch-following) |
+| Effect flies off-screen or fires in silence | the pitch curve | [synthv](synthv.md#notes-and-pitch), [effects](effects.md#pitch-following) |
 | An imported image never appears | the asset scheme | [effects](effects.md#presets-images-and-the-preview) |
 | Broken on one platform only | the geometry split | [geometry](geometry.md#two-platforms-two-strategies) |
 | Windows-only misalignment on a scaled display | the DIP transform | [geometry](geometry.md#physical-pixels-points-and-dips) |
@@ -81,7 +81,7 @@ technique has **one home**; everything else links to it.
 | Procedural textures, built once | [effects](effects.md#procedural-textures-built-once) | glow shapes, the spark |
 | Blend and tint duality | [effects](effects.md#blend-and-tint-duality) | glow, particles, imported images |
 | Synthesized pitch fallback | [effects](effects.md#pitch-following) | pitch following, the settings preview |
-| Measured, not documented | [synthv](synthv.md#the-computed-pitch-curve) | everything touching the engine |
+| Measured, not documented | [synthv](synthv.md#notes-and-pitch) | everything touching the engine |
 
 ## How to write in here
 

@@ -12,20 +12,23 @@ native helper supplies the screen anchor that SynthV's script cannot see.
 flowchart LR
     script["overlay-bridge.lua\nSynthV Lua"]
     session["pipe-session\n128-byte VPR1 heartbeat"]
-    app["preload worker\napp-owned pipe servers"]
-    cache["preload cache\nlast valid snapshot"]
+    worker["preload worker\nservers, framing, session gate"]
+    runtime["preload BridgeRuntime\ndecode, compose, cache"]
     renderer["renderer rAF\nPixi effects"]
     script -- "regular read only" --> session
-    session --> app
-    script -- "state / scroll / notes frames" --> app
-    app --> cache --> renderer
+    session --> worker
+    script -- "state / scroll / notes frames" --> worker
+    worker -- "accepted records" --> runtime
+    runtime --> renderer
 ```
 
 The app creates the bridge directory, owns the three endpoints, and advertises one fresh
 app session through `pipe-session`. Lua reads that small regular file and opens the derived
 `state`, `scroll`, and `notes` write endpoints. The worker receives framed bytes
-event-by-event; the renderer reads only the in-memory cache. No per-frame IPC or endpoint
-I/O is in the render path.
+event-by-event, applies the session gate, and posts accepted records to preload
+`BridgeRuntime`. `BridgeRuntime` decodes and composes matching generations into the
+in-memory cache; the renderer reads only that cache. No per-frame IPC or endpoint I/O is in
+the render path.
 
 The streams have different change rates: `state` carries the playhead and the current
 `rev`/`scrollSeq`/`notesSeq`; `scroll` carries the viewport transform; `notes` carries a
@@ -96,7 +99,7 @@ frame, or absent native anchor means nothing is drawn, not that the frame loop t
 | Path | Responsibility |
 | --- | --- |
 | `apps/voxpane/src/main` | Electron lifecycle, windows, graceful bridge shutdown |
-| `apps/voxpane/src/preload` | worker-owned endpoints, framed parsing, runtime cache |
+| `apps/voxpane/src/preload` | worker-owned endpoints, framing, session gate; `BridgeRuntime` decode, composition, cache |
 | `apps/voxpane/src/shared` | rendezvous, frame, diagnostic, and geometry contracts |
 | `apps/voxpane/src/renderer/src/playback` | cache consumption, transport, matching, pitch |
 | `packages/synthv-script` | TypeScript authored Lua publisher |

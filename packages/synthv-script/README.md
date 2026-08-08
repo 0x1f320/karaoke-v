@@ -43,10 +43,11 @@ pnpm --filter @voxpane/synthv-script run dump -- /path/to/bridge
 `dump` is a strictly non-consuming inspector. It first `lstat`s `pipe-session`: `ENOENT`
 is unavailable, while a symlink or another non-regular node is malformed and never read. It
 then verifies the 128-byte VPR1 record, prints the app session, heartbeat age/freshness, and
-deterministic endpoint names. App atomic regular-file replacement can race this check, but
-either app-owned generation is valid or checksum decoding rejects it. On macOS it reports
-endpoint node types through `lstat` without opening them; on Windows it prints the Named
-Pipe names without connecting.
+deterministic endpoint names. Each heartbeat reopens the same regular file with `r+`, writes
+the one positioned 128-byte record at offset zero, and truncates it; recovery may unlink
+then recreate the file. The regular-or-absent gate treats a recovery `ENOENT` as unavailable
+and any short or invalid record as malformed. On macOS it reports endpoint node types through
+`lstat` without opening them; on Windows it prints the Named Pipe names without connecting.
 
 With the app stopped, it prints exactly:
 

@@ -44,7 +44,7 @@ overlay까지 어떻게 오는지, 각 부분이 어떤 technique 위에 서 있
 | 120Hz 디스플레이에서 particle이 두 배 | frame-rate independence | [effects](effects.ko.md#frame-rate-independence) |
 | trail 뒤로 줄무늬가 남음 | trail의 join rule | [effects](effects.ko.md#join-rules) |
 | SynthV에서 편집했는데 note가 옛것 | generation matching | [bridge](bridge.ko.md#session-gate-and-recovery) |
-| effect가 화면 밖으로 날아가거나 빈 곳에서 터짐 | pitch curve | [synthv](synthv.ko.md#the-computed-pitch-curve), [effects](effects.ko.md#pitch-following) |
+| effect가 화면 밖으로 날아가거나 빈 곳에서 터짐 | pitch curve | [synthv](synthv.ko.md#notes-and-pitch), [effects](effects.ko.md#pitch-following) |
 | import한 이미지가 안 나옴 | asset scheme | [effects](effects.ko.md#presets-images-and-the-preview) |
 | 한쪽 플랫폼에서만 깨짐 | geometry 분기 | [geometry](geometry.ko.md#two-platforms-two-strategies) |
 | 스케일된 디스플레이에서 Windows만 어긋남 | DIP transform | [geometry](geometry.ko.md#physical-pixels-points-and-dips) |
@@ -64,7 +64,7 @@ overlay까지 어떻게 오는지, 각 부분이 어떤 technique 위에 서 있
 | Predict-and-snap, follow, anchor | [geometry](geometry.ko.md#matching-a-note-to-a-rectangle) | note matching, debug reach band |
 | Read-scoped coordinate frames | [geometry](geometry.ko.md#staying-aligned) | matching, 그리고 살아 있는 모든 effect |
 | Coordinate-space rebasing | [geometry](geometry.ko.md#staying-aligned) | 매칭된 rect, anchor, 모든 effect — [effects](effects.ko.md#coordinate-space-rebasing) |
-| Stability flags on a read | [geometry](geometry.ko.md#staying-aligned) | macOS note pump |
+| Stability flags on a read | [geometry](geometry.ko.md#staying-aligned) | note-read acceptance |
 | DIP conversion | [geometry](geometry.ko.md#physical-pixels-points-and-dips) | 창 배치, 모든 Windows geometry |
 | Canvas identification by implied size | [geometry](geometry.ko.md#two-platforms-two-strategies) | Windows UIA 탐색 |
 | Native placement + debounced reconciliation | [overlay](overlay.ko.md#native-placement-with-debounced-reconciliation) | Windows의 overlay 창 |
@@ -84,7 +84,7 @@ overlay까지 어떻게 오는지, 각 부분이 어떤 technique 위에 서 있
 | Procedural textures, built once | [effects](effects.ko.md#procedural-textures-built-once) | glow shape, spark |
 | Blend and tint duality | [effects](effects.ko.md#blend-and-tint-duality) | glow, particles, import한 이미지 |
 | Synthesized pitch fallback | [effects](effects.ko.md#pitch-following) | pitch following, 설정 preview |
-| Measured, not documented | [synthv](synthv.ko.md#the-computed-pitch-curve) | engine에 닿는 모든 것 |
+| Measured, not documented | [synthv](synthv.ko.md#notes-and-pitch) | engine에 닿는 모든 것 |
 
 ## How to write in here
 

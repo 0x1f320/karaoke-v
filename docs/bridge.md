@@ -17,15 +17,17 @@ files: they are three app-owned pipe endpoints.
 
 ```mermaid
 sequenceDiagram
-    participant A as App worker
+    participant W as App worker
     participant R as pipe-session
     participant L as SynthV Lua
-    A->>A: create state, scroll, notes readers
-    A->>R: publish VPR1 appSession heartbeat
+    participant P as Preload BridgeRuntime
+    W->>W: create readers, framing, session gate
+    W->>R: publish VPR1 appSession heartbeat
     L->>R: read 128 bytes
-    L->>A: open three write endpoints
-    L->>A: session, notes, scroll, state frames
-    A->>A: session gate and runtime composition
+    L->>W: open three write endpoints
+    L->>W: session, notes, scroll, state frames
+    W->>P: post accepted records
+    P->>P: decode, compose matching generations, cache
 ```
 
 The app refreshes the rendezvous heartbeat every 500 ms. The `state` endpoint carries a
@@ -49,10 +51,12 @@ classify a checksum-valid older record as stale; that indicates an app that stop
 crashed, not a malformed record.
 
 The inspector first `lstat`s `pipe-session`. `ENOENT` is unavailable; a symlink or any
-non-regular node is malformed and is never read. The app's atomic regular-file replacement
-can race that check: either app-owned regular VPR1 generation is acceptable and checksum
-validation rejects a malformed replacement. The inspector does not treat this local
-operational check as a defense against arbitrary external path mutation.
+non-regular node is malformed and is never read. Each heartbeat opens the same regular file
+with `r+`, writes one positioned 128-byte record at offset zero, and truncates the file to
+that length. Recovery may instead unlink and recreate it. Consequently, the normal
+heartbeat keeps the inspected path regular; if recovery wins the `lstat`/read race, `ENOENT`
+is unavailable and a short or invalid read is malformed. The inspector does not treat this
+local operational check as a defense against arbitrary external path mutation.
 
 Endpoint names are deterministic from `appSession`:
 

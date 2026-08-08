@@ -16,15 +16,17 @@ record이자 heartbeat다. `state`, `scroll`, `notes`는 data file이 아니라 
 
 ```mermaid
 sequenceDiagram
-    participant A as App worker
+    participant W as App worker
     participant R as pipe-session
     participant L as SynthV Lua
-    A->>A: create state, scroll, notes readers
-    A->>R: publish VPR1 appSession heartbeat
+    participant P as Preload BridgeRuntime
+    W->>W: create readers, framing, session gate
+    W->>R: publish VPR1 appSession heartbeat
     L->>R: read 128 bytes
-    L->>A: open three write endpoints
-    L->>A: session, notes, scroll, state frames
-    A->>A: session gate and runtime composition
+    L->>W: open three write endpoints
+    L->>W: session, notes, scroll, state frames
+    W->>P: post accepted records
+    P->>P: decode, compose matching generations, cache
 ```
 
 앱은 rendezvous heartbeat를 500 ms마다 refresh한다. `state` endpoint는 session frame 뒤에 state frame을
@@ -46,9 +48,11 @@ reader가 ready인 뒤에만 advertise한다. inspection command는 checksum-val
 classify할 수 있는데, 이는 malformed record가 아니라 app stopped/crashed를 뜻한다.
 
 inspector는 먼저 `pipe-session`을 `lstat`한다. `ENOENT`는 unavailable이고 symlink 또는 non-regular node는
-malformed이며 읽지 않는다. 앱의 atomic regular-file replacement가 이 check와 race할 수 있다. 하지만
-app-owned regular VPR1 generation 어느 쪽도 허용되고 malformed replacement는 checksum validation이
-reject한다. 이 inspector는 local operational check이지 임의 external path mutation 방어가 아니다.
+malformed이며 읽지 않는다. heartbeat마다 같은 regular file을 `r+`로 열고 offset zero에 positioned
+128-byte record 하나를 write한 뒤 그 길이로 truncate한다. recovery는 대신 unlink 후 recreate할 수 있다.
+따라서 normal heartbeat는 검사한 path를 regular로 유지한다. recovery가 `lstat`/read race에서 이기면
+`ENOENT`는 unavailable이고 short 또는 invalid read는 malformed다. 이 inspector는 local operational
+check이지 임의 external path mutation 방어가 아니다.
 
 endpoint name은 `appSession`에서 deterministic하게 유도된다.
 

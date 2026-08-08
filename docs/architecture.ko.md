@@ -12,19 +12,21 @@ voxpane은 Synthesizer V Studio 2 위의 투명한 Electron overlay에 effect를
 flowchart LR
     script["overlay-bridge.lua\nSynthV Lua"]
     session["pipe-session\n128-byte VPR1 heartbeat"]
-    app["preload worker\napp-owned pipe servers"]
-    cache["preload cache\nlast valid snapshot"]
+    worker["preload worker\nservers, framing, session gate"]
+    runtime["preload BridgeRuntime\ndecode, compose, cache"]
     renderer["renderer rAF\nPixi effects"]
     script -- "regular read only" --> session
-    session --> app
-    script -- "state / scroll / notes frames" --> app
-    app --> cache --> renderer
+    session --> worker
+    script -- "state / scroll / notes frames" --> worker
+    worker -- "accepted records" --> runtime
+    runtime --> renderer
 ```
 
 앱은 bridge directory를 만들고 세 endpoint를 소유하며, 하나의 새 app session을 `pipe-session`으로
 advertise한다. Lua는 그 작은 regular file을 읽고, 유도된 `state`, `scroll`, `notes` write endpoint를
-연다. worker는 framed byte를 event-by-event로 받고 renderer는 in-memory cache만 읽는다. render
-path에는 per-frame IPC나 endpoint I/O가 없다.
+연다. worker는 framed byte를 event-by-event로 받고 session gate를 적용한 뒤 accepted record를 preload
+`BridgeRuntime`으로 post한다. `BridgeRuntime`은 matching generation을 decode/compose하여 in-memory
+cache에 넣고 renderer는 그 cache만 읽는다. render path에는 per-frame IPC나 endpoint I/O가 없다.
 
 stream의 change rate는 다르다. `state`는 playhead와 현재 `rev`/`scrollSeq`/`notesSeq`를, `scroll`은
 viewport transform을, `notes`는 전체 schedule을 싣는다. 셋은 independent stream이므로 channel 사이의
@@ -90,7 +92,7 @@ script 부재, pipe disconnect, malformed frame, native anchor 부재는 frame l
 | Path | Responsibility |
 | --- | --- |
 | `apps/voxpane/src/main` | Electron lifecycle, windows, graceful bridge shutdown |
-| `apps/voxpane/src/preload` | worker-owned endpoints, framed parsing, runtime cache |
+| `apps/voxpane/src/preload` | worker-owned endpoints, framing, session gate; `BridgeRuntime` decode, composition, cache |
 | `apps/voxpane/src/shared` | rendezvous, frame, diagnostic, geometry contracts |
 | `apps/voxpane/src/renderer/src/playback` | cache consumption, transport, matching, pitch |
 | `packages/synthv-script` | TypeScript로 작성한 Lua publisher |

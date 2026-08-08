@@ -42,10 +42,12 @@ pnpm --filter @voxpane/synthv-script run dump -- /path/to/bridge
 
 `dump`는 먼저 `pipe-session`을 `lstat`한다. `ENOENT`는 unavailable이고 symlink 또는 non-regular node는
 malformed이며 읽지 않는다. 그다음 정확한 128-byte VPR1 record와 checksum을 decode하고 app session,
-heartbeat age, freshness, 세 derived endpoint name을 출력한다. 앱의 atomic regular-file replacement가 이
-check와 race할 수 있지만 app-owned generation 어느 쪽도 valid이고 checksum decode가 malformed replacement를
-reject한다. macOS에서는 endpoint에 `lstat`만 써서 `fifo`, `missing`, `non-fifo`, `symlink`로 보고하며 열지
-않는다. Windows에서는 derived Named Pipe name을 출력하고 connect probe를 하지 않는다.
+heartbeat age, freshness, 세 derived endpoint name을 출력한다. heartbeat마다 같은 regular file을 `r+`로
+다시 열어 offset zero에 positioned 128-byte record 하나를 write하고 truncate한다. recovery는 file을 unlink한
+뒤 recreate할 수 있다. 따라서 regular-or-absent gate는 recovery `ENOENT`를 unavailable로, short 또는 invalid
+record를 malformed로 처리한다. macOS에서는 endpoint에 `lstat`만 써서 `fifo`, `missing`, `non-fifo`,
+`symlink`로 보고하며 열지 않는다. Windows에서는 derived Named Pipe name을 출력하고 connect probe를 하지
+않는다.
 
 | Output | Meaning | Exit |
 | --- | --- | --- |
