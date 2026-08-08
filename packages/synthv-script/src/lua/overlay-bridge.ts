@@ -6,8 +6,8 @@
  * the transport. That one could only speak in blips — the clipboard belongs to
  * the user, so it was taken for 150ms on a transport *event* and given back —
  * and so the script had to decide what counted as an event: is this a seek, a
- * loop wrap, an edit? A file has no such cost, so state simply goes out on every
- * tick and the app, which is already consuming once a frame to draw, sees the
+ * loop wrap, an edit? The app-owned pipe transport lets state go out on every
+ * tick and the app, which receives it independently of drawing, sees the
  * discontinuity itself. `kind`, the seek tolerance and the anchor machinery all
  * belonged to the clipboard and left with it.
  *
@@ -27,8 +27,8 @@ const SCRIPT_TITLE = "Overlay Bridge"
 
 const CONFIG = {
   /**
-   * Publishing costs ~4us, so there is little to save by slowing down while
-   * the transport is stopped — and stopped is exactly when the user scrolls.
+   * Publishing state on every tick keeps viewport updates current while the
+   * transport is stopped, which is exactly when the user scrolls.
    * On Windows the view transform published here is the app's only source for
    * where the piano roll is scrolled to, so a slower idle tick is a scroll the
    * overlay follows a tick late.
@@ -208,7 +208,7 @@ class OverlayBridge {
   }
 
   /**
-   * Publishing while stopped is the whole point of the file transport. The
+   * Publishing while stopped is the whole point of the pipe transport. The
    * clipboard could not do it — taking the user's clipboard on every note edit
    * was not a cost worth paying — so the app used to see an edited schedule only
    * once playback started.

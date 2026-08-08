@@ -1,194 +1,103 @@
 # Architecture
 
-> 한국어판: **[architecture.ko.md](architecture.ko.md)**. 영어판이 원본이므로, 동작이 바뀌면 여기를 먼저 고치고
-> 같은 커밋에서 번역을 맞춘다.
+> Korean: [architecture.ko.md](architecture.ko.md). English is the source of truth.
 
-voxpane draws effects on top of Synthesizer V Studio 2's piano roll. It never modifies the
-project and it is not a plugin: it is a separate desktop app that puts a transparent
-window over SynthV's and paints on it in time with playback.
-
-That framing is the source of every design decision below. The app has to answer two
-questions sixty times a second about a program it does not control:
-
-- **What is sounding right now?** Only SynthV knows. A Lua script running inside it
-  publishes the answer.
-- **Where is that note on screen?** The script knows the note in canvas-local units, but
-  it has no idea where its own window is. The OS accessibility layer supplies that native
-  anchor from outside.
-
-Neither source can answer the other's question, and the two are read on different clocks.
-Reconciling them is what most of the renderer does.
+voxpane draws effects in a transparent Electron overlay above Synthesizer V Studio 2. The
+app never changes the project. SynthV supplies what is playing and its view transform; the
+native helper supplies the screen anchor that SynthV's script cannot see.
 
 ## The path
 
-Two paths, from two sources that cannot answer each other's question, converging in the
-renderer:
+```mermaid
+flowchart LR
+    script["overlay-bridge.lua\nSynthV Lua"]
+    session["pipe-session\n128-byte VPR1 heartbeat"]
+    app["preload worker\napp-owned pipe servers"]
+    cache["preload cache\nlast valid snapshot"]
+    renderer["renderer rAF\nPixi effects"]
+    script -- "regular read only" --> session
+    session --> app
+    script -- "state / scroll / notes frames" --> app
+    app --> cache --> renderer
+```
+
+The app creates the bridge directory, owns the three endpoints, and advertises one fresh
+app session through `pipe-session`. Lua reads that small regular file and opens the derived
+`state`, `scroll`, and `notes` write endpoints. The worker receives framed bytes
+event-by-event; the renderer reads only the in-memory cache. No per-frame IPC or endpoint
+I/O is in the render path.
+
+The streams have different change rates: `state` carries the playhead and the current
+`rev`/`scrollSeq`/`notesSeq`; `scroll` carries the viewport transform; `notes` carries a
+whole schedule. They are independent streams, so arrival order across channels is not an
+ordering guarantee.
+
+## Main ownership
 
 ```mermaid
 flowchart TD
-    subgraph SV["Synthesizer V Studio 2"]
-        script["<b>overlay-bridge.lua</b><br/>packages/synthv-script (TS → Lua)<br/>every 4 ms — playhead, status, sample view<br/>on change — view transform or note schedule"]
-    end
-
-    subgraph CH["the bridge directory"]
-        files["<b>session.json · state · scroll · notes</b><br/>one whole record each,<br/>replaced in place"]
-    end
-
-    subgraph NAT["native helper — packages/macos-helper · packages/windows-helper"]
-        mac["<b>macOS · Accessibility</b><br/>canvas/cache seed + window frame"]
-        win["<b>Windows · UI Automation</b><br/>canvas rectangle + window origin"]
-    end
-
-    subgraph REN["overlay renderer"]
-        worker["<b>bridge Web Worker</b><br/>polls state every 4 ms<br/>reads indexed channels on change"]
-        preload["<b>preload cache</b><br/>latest decoded state<br/>transform + schedule by generation"]
-        transport["<b>Transport</b><br/>playhead, schedule"]
-        match["<b>note matching</b><br/>which rect is this note?"]
-        pixi["<b>PixiJS effects</b>"]
-    end
-
-    script -- "one write per whole record" --> files
-    files -- "poll independently of rendering" --> worker --> preload
-    mac --> preload
-    win --> preload
-    preload --> transport --> match --> pixi
-    preload -- "native viewport anchor" --> match
+    main["Electron main\nwindow lifecycle, script install, graceful quit"]
+    worker["preload worker\nendpoints, rendezvous, parser, recovery"]
+    overlay["overlay renderer\ncache consumer"]
+    native["native helper\nwindow and canvas anchor"]
+    main --> worker
+    main --> overlay
+    native --> main
+    worker --> overlay
 ```
 
-The bridge directory is `~/Library/Application Support/voxpane/bridge` on macOS and
-`%LOCALAPPDATA%\voxpane\bridge` on Windows — [bridge.md](bridge.md#where) for why it is
-there and who creates it.
+Main owns long-lived Electron work: permissions, the tray, preferences, installing and
+rescanning `overlay-bridge.lua`, window following, and graceful shutdown. The preload
+worker owns all pipe servers, their reconnect/recovery lifecycle, and the decoded snapshot.
+It transfers valid state to preload memory; renderer `requestAnimationFrame` never waits
+for main or a pipe.
 
-The main process sits around both and touches neither per frame. It follows SynthV's window
-frame — moving the overlay and docking the toolbar — installs `overlay-bridge.lua` into
-SynthV's scripts directory, owns preferences and broadcasts every change to all windows, and
-runs the tray, the permissions gate and window lifecycle.
+On a clean shutdown, main asks the receiver to stop before it withdraws its owned
+`pipe-session` and FIFO endpoints. The Darwin servers allow a 300 ms drain grace before
+their bounded reader teardown. A force-kill cannot make that ordering atomic, so a late
+Lua open remains an unavoidable race and is handled as a reconnect.
 
-Three sources of truth feed the picture, and they are genuinely independent:
+## Geometry path
 
-| Source | Answers | Read by |
-| --- | --- | --- |
-| the bridge script | what is sounding, when, at what pitch | the preload worker every 4 ms; the renderer reads its memory snapshot |
-| the native helper | where SynthV's window and piano-roll canvas are | the renderer at ~250 ms (canvas) and main (the frame) |
-| preferences | what the effects look like | every window, pushed from main |
+```mermaid
+flowchart LR
+    schedule["notes schedule\nnotesSeq + rev"]
+    scroll["viewport transform\nscrollSeq"]
+    anchor["native canvas anchor"]
+    match["generation candidate matcher"]
+    rects["note rectangles"]
+    schedule --> match
+    scroll --> match
+    anchor --> match --> rects
+```
 
-## Processes and windows
-
-**Main** (`src/main`) owns everything with a lifetime longer than a frame and nothing that
-happens per frame.
-
-- `index.ts` — the follow loop. One native stick observer reports SynthV's window frame;
-  the overlay is resized onto it and the toolbar docked beside it. Also the single-instance
-  lock, the permissions gate, and the order in which the rest is initialised (that order is
-  load-bearing — see the comments in the file).
-- `bridgeScript.ts` — installs the bundled `overlay-bridge.lua` into SynthV's scripts
-  directory, comparing **content hashes** rather than versions, then asks macOS to rescan.
-- `preferences.ts` — the single writer of `preferences.json` under `userData`. Every update
-  is broadcast to all windows, so no renderer holds its own copy of the truth.
-- `overlay.ts`, `toolbar.ts`, `settings.ts`, `permissions.ts`, `tray.ts` — one window each,
-  each owning its own creation and placement. The overlay's own behaviour — staying above
-  SynthV, following it, hiding with it — is [overlay.md](overlay.md).
-- `dip.ts` — see [geometry](geometry.md#physical-pixels-points-and-dips).
-
-**Preload** (`src/preload`) owns the hot input cache, which is unusual and deliberate. It
-runs with `sandbox: false` and the overlay enables Node integration in a dedicated Web
-Worker, so that worker can keep the bridge files open and sample them without involving
-either main or the renderer frame loop. Valid records are transferred to preload; the view
-transform is retained by `scrollSeq`, schedules by `notesSeq`, and matching records are
-composed into one latest state object. The renderer only reads that memory cache. A
-per-frame round trip to main, or an unnecessary per-frame file read, is what this
-arrangement exists to avoid.
-
-**Renderer** (`src/renderer`) is one bundle serving four views, selected by
-`window.location.hash` in `App.tsx`: no hash is the overlay, `#toolbar`, `#settings`,
-`#permissions` are the others. The overlay is the only one with a frame loop.
-
-**Native helpers** (`packages/macos-helper`, `packages/windows-helper`) are Rust + napi-rs.
-Both do window following and canvas discovery; the preload then computes note rectangles
-from the bridge schedule and view transform. `shared/native.ts` is the one surface over
-both, and it deliberately does *not* hide the geometry difference — see
-[geometry](geometry.md).
+The runtime composes a snapshot only when the latest `scroll` record has the state's
+`scrollSeq` and, when `notesSeq` is nonzero, the schedule has both the matching `notesSeq`
+and `rev`. It retains the last valid snapshot while a newer candidate is incomplete or
+mismatched. The candidate matcher then combines the matched schedule and transform with
+the native canvas anchor. This keeps scroll following responsive without pretending that
+the three pipe streams share a clock.
 
 ## The frame loop
 
-`App.tsx`'s `draw()` runs on `requestAnimationFrame` and is the whole of the overlay. In
-order:
+Each animation frame reads the latest accepted cache entry, interpolates the playhead,
+finds the sounding note, combines its canvas-local rectangle with the current viewport and
+native anchor, samples pitch, and draws. Native canvas discovery runs separately, so an
+older anchor can never block a current scroll transform.
 
-1. **Take the latest bridge snapshot.** `transport.poll()` reads the newest valid decoded
-   state object from preload memory. The bridge worker samples the file every 4 ms
-   independently of rAF, so a late frame does not delay acquisition. Changed `scrollSeq`
-   and `notesSeq` values select the transform and schedule already retained in preload.
-2. **Take the latest native canvas anchor.** `CanvasManager` refreshes only the canvas and
-   window origin every ~250 ms, outside the draw call. Scroll, zoom and the vertical
-   reference are recomputed immediately from the in-memory bridge state in step 1, so a
-   slow AX reply can make the canvas anchor older but cannot delay scroll following.
-3. **Ask what is sounding.** The playhead is interpolated on the local clock between two
-   state records; the schedule is binary-searched for the note under it.
-4. **Find that note's rectangle.** The hard part — [geometry](geometry.md).
-5. **Sample the sung pitch** at this instant (`playback/pitch.ts`), which moves the
-   emission point off the note's own lane and can drive effect intensity.
-6. **Draw.** One transform update on the Pixi scene. Base note geometry is rebuilt only
-   when the schedule generation or native canvas changes; a changed scroll generation
-   reuses it and updates the scene transform.
-
-There is no note pump. `Transport` owns the schedule, native canvas snapshot and derived
-piano-roll set together. This removes the redundant 30 ms geometry loop and its competing
-bridge/native reads.
-
-So there are **four clocks**, and confusing them is the source of most timing bugs:
-
-| Clock | Rate | Carries |
-| --- | --- | --- |
-| the script's tick | 4 ms | playhead and transport status; view sampling, with writes only on change |
-| the bridge worker | ~4 ms + file-read time | latest valid state; changed scroll and schedule generations |
-| the canvas manager | ~250 ms + native response time | canvas and window origin |
-| the frame loop | display refresh | in-memory snapshot consumption, geometry transform and drawing |
-
-They are not synchronised and are not meant to be. Native anchors may be slightly stale, but
-scroll and zoom are recomputed from the current cached transform before drawing, so the
-consumer corrects for age rather than waiting for freshness.
-
-## Why the transport is so small
-
-`playback/transport.ts` is 200 lines and does no event detection at all — no seek
-tolerance, no "was that a loop wrap?", no anchors. That is a consequence of the transport
-being a file.
-
-The bridge used to move data through the clipboard, which belongs to the user, so it could
-only be taken for ~150 ms **on an event**. The script therefore had to decide what an event
-was. A file costs ~4 µs per publish, so state simply goes out on every tick and the app —
-already reading once a frame in order to draw — sees discontinuities itself. All the
-machinery that existed to compensate for a stingy transport left with it. The current app
-samples that file on a dedicated worker rather than tying acquisition to display refresh.
-
-Worth knowing when reading old issues (#61, #75): anything about clipboard blips or a
-Windows memory scan describes a transport that no longer exists.
-
-## Failure is the normal state
-
-SynthV may not be running. The script may not be installed. The user may not have granted
-Accessibility. A record may be half-written at the moment it is read. None of these are
-errors; all of them are frames with nothing to draw.
-
-The consequence, which is enforced fairly consistently across the codebase: **decoders
-return `null` rather than throwing**, and the frame loop treats `null` as "skip". If you
-add a code path that throws inside `draw()`, you have made a missing SynthV into a broken
-overlay.
+The relevant clocks are independent: Lua's 4 ms tick, the app's 500 ms rendezvous
+heartbeat, event-driven pipe receipt, native canvas refresh, and `requestAnimationFrame`.
+They are intentionally not synchronized. A missing script, disconnected pipe, malformed
+frame, or absent native anchor means nothing is drawn, not that the frame loop throws.
 
 ## Where things live
 
-| Path | What |
+| Path | Responsibility |
 | --- | --- |
-| `apps/voxpane/src/main` | Electron main: windows, tracking, preferences, tray |
-| `apps/voxpane/src/preload` | the hot path — channel reads, geometry, `contextBridge` API |
-| `apps/voxpane/src/renderer/src/playback` | transport clock, note location, pitch, frame math |
-| `apps/voxpane/src/renderer/src/render` | the PixiJS scene: glow, particles, trail — [effects.md](effects.md) |
-| `apps/voxpane/src/shared` | types and pure logic both sides need — and the tests |
-| `packages/synthv-script` | the Lua bridge script (authored in TypeScript) |
-| `packages/macos-helper` | Rust: Accessibility reads, window sticking, script rescan |
-| `packages/windows-helper` | Rust: UI Automation canvas lookup, window sticking |
-
-Tests are Vitest, colocated, and cover the pure logic only — bridge decoding, preferences,
-the transport clock, note location, frame math, the DIP transforms. Anything needing
-Electron, a native addon or a real piano roll is out of scope by design; that is why so
-much of the tricky arithmetic lives in `shared/` and `playback/` as free functions.
+| `apps/voxpane/src/main` | Electron lifecycle, windows, graceful bridge shutdown |
+| `apps/voxpane/src/preload` | worker-owned endpoints, framed parsing, runtime cache |
+| `apps/voxpane/src/shared` | rendezvous, frame, diagnostic, and geometry contracts |
+| `apps/voxpane/src/renderer/src/playback` | cache consumption, transport, matching, pitch |
+| `packages/synthv-script` | TypeScript authored Lua publisher |
+| `packages/macos-helper` | Accessibility anchor and window sticking |
+| `packages/windows-helper` | UI Automation anchor and window sticking |

@@ -1,18 +1,14 @@
-// Prints the bridge channels a running script publishes. Binary records buy
-// the editor ~17ms per edit and cost the ability to read a channel with `cat`,
-// so this is how that gets paid back — and it doubles as the reference for
-// what the app's reader has to do.
-//
-//   node scripts/dump.mjs [directory]
-
-import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs"
+import { lstatSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { join, posix, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
-const MAGIC = "VPB1"
-const LAYOUT = 5
-const CHANNEL = { SESSION: 0, STATE: 1, NOTES: 2, SCROLL: 3 }
-const STATUS = ["stopped", "playing", "looping"]
+const RENDEZVOUS_BYTES = 128
+const FNV_OFFSET = 0x811c9dc5
+const FNV_PRIME = 0x01000193
+const FRESH_SECONDS = 2
+const CHANNELS = ["state", "scroll", "notes"]
+const RECORD = /^VPR1\n([0-9]+)\n([0-9a-f]{32})\n([0-9a-f]{8})\n *$/
 
 function defaultDirectory() {
   if (process.platform === "win32") {
@@ -22,188 +18,136 @@ function defaultDirectory() {
   return join(homedir(), "Library", "Application Support", "voxpane", "bridge")
 }
 
-const directory = process.argv[2] ?? defaultDirectory()
+function checksum(bytes) {
+  let hash = FNV_OFFSET
+  for (const byte of bytes) {
+    hash = Math.imul(hash ^ byte, FNV_PRIME) >>> 0
+  }
+  return hash.toString(16).padStart(8, "0")
+}
 
-function readChannel(name, limit) {
-  const path = join(directory, name)
-  const size = statSync(path).size
-  const length = limit === undefined ? size : Math.min(limit, size)
-  const buffer = Buffer.allocUnsafe(length)
-  const fd = openSync(path, "r")
+export function decodePipeSession(bytes) {
+  if (bytes.length !== RENDEZVOUS_BYTES) {
+    return null
+  }
+
+  const text = new TextDecoder().decode(bytes)
+  const match = RECORD.exec(text)
+  if (match === null) {
+    return null
+  }
+
+  const [, heartbeatText, session, expectedChecksum] = match
+  const heartbeatSeconds = Number(heartbeatText)
+  if (!Number.isSafeInteger(heartbeatSeconds)) {
+    return null
+  }
+
+  const prefix = `VPR1\n${heartbeatText}\n${session}\n`
+  if (checksum(new TextEncoder().encode(prefix)) !== expectedChecksum) {
+    return null
+  }
+
+  return { heartbeatSeconds, session }
+}
+
+export function pipeEndpoint(platform, directory, session, channel) {
+  if (platform === "win32") {
+    return `\\\\.\\pipe\\voxpane-${session}-${channel}`
+  }
+  return posix.join(directory, `pipe-${session}-${channel}`)
+}
+
+function endpointKind(path, lstat) {
   try {
-    readSync(fd, buffer, 0, length, 0)
-  } finally {
-    closeSync(fd)
-  }
-  return buffer
-}
-
-class Cursor {
-  constructor(buffer, offset = 0) {
-    this.view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-    this.buffer = buffer
-    this.offset = offset
-  }
-  u8() {
-    return this.view.getUint8(this.offset++)
-  }
-  u16() {
-    const value = this.view.getUint16(this.offset, true)
-    this.offset += 2
-    return value
-  }
-  i16() {
-    const value = this.view.getInt16(this.offset, true)
-    this.offset += 2
-    return value
-  }
-  u32() {
-    const value = this.view.getUint32(this.offset, true)
-    this.offset += 4
-    return value
-  }
-  f64() {
-    const value = this.view.getFloat64(this.offset, true)
-    this.offset += 8
-    return value
-  }
-  /** Length-prefixed UTF-8, the `s2` of `string.pack`. */
-  str() {
-    const length = this.u16()
-    const value = this.buffer.toString("utf8", this.offset, this.offset + length)
-    this.offset += length
-    return value
-  }
-}
-
-const HEADER_BYTES = 12
-
-function readHeader(cursor) {
-  if (cursor.buffer.byteLength < HEADER_BYTES) {
-    throw new Error("never published (the file is empty)")
-  }
-  const magic = cursor.buffer.toString("latin1", cursor.offset, cursor.offset + 4)
-  cursor.offset += 4
-  const layout = cursor.u16()
-  const channel = cursor.u16()
-  const length = cursor.u32()
-  if (magic !== MAGIC) {
-    throw new Error(`not a bridge record (magic ${JSON.stringify(magic)})`)
-  }
-  if (layout !== LAYOUT) {
-    // Refusing beats interpreting: a fixed layout misread is silent.
-    throw new Error(`unknown layout ${layout}, this reader speaks ${LAYOUT}`)
-  }
-  return { channel, length }
-}
-
-function decodeState(buffer) {
-  const cursor = new Cursor(buffer)
-  const { channel } = readHeader(cursor)
-  if (channel !== CHANNEL.STATE) {
-    throw new Error(`expected the state channel, got ${channel}`)
-  }
-  const seq = cursor.u32()
-  const notesSeq = cursor.u32()
-  const scrollSeq = cursor.u32()
-  const status = STATUS[cursor.u8()] ?? "?"
-  const hasLoop = (cursor.u8() & 1) === 1
-  const at = cursor.f64()
-  const loopStart = cursor.f64()
-  const loopEnd = cursor.f64()
-  return {
-    seq,
-    notesSeq,
-    scrollSeq,
-    status,
-    at,
-    loop: hasLoop ? { start: loopStart, end: loopEnd } : null,
-    rev: cursor.str(),
-  }
-}
-
-function decodeScroll(buffer) {
-  const cursor = new Cursor(buffer)
-  const { channel } = readHeader(cursor)
-  if (channel !== CHANNEL.SCROLL) {
-    throw new Error(`expected the scroll channel, got ${channel}`)
-  }
-  return {
-    scrollSeq: cursor.u32(),
-    perBlick: cursor.f64(),
-    perSemitone: cursor.f64(),
-    viewLeft: cursor.f64(),
-    viewRight: cursor.f64(),
-    viewTop: cursor.f64(),
-    viewBottom: cursor.f64(),
-  }
-}
-
-function decodeNotes(buffer) {
-  const cursor = new Cursor(buffer)
-  const { channel } = readHeader(cursor)
-  if (channel !== CHANNEL.NOTES) {
-    throw new Error(`expected the notes channel, got ${channel}`)
-  }
-  const notesSeq = cursor.u32()
-  const rev = cursor.str()
-  const count = cursor.u32()
-  const notes = []
-  for (let i = 0; i < count; i++) {
-    const onB = cursor.f64()
-    const offB = cursor.f64()
-    const onS = cursor.f64()
-    const offS = cursor.f64()
-    const pitch = cursor.i16()
-    const lyric = cursor.str()
-    const bendCount = cursor.u16()
-    const bend = new Int16Array(bendCount)
-    for (let b = 0; b < bendCount; b++) {
-      bend[b] = cursor.i16()
+    const stat = lstat(path)
+    if (stat.isSymbolicLink()) {
+      return "symlink"
     }
-    notes.push({ onB, offB, onS, offS, pitch, lyric, bend })
+    return stat.isFIFO() ? "fifo" : "non-fifo"
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return "missing"
+    }
+    return `error: ${error?.code ?? error?.message ?? String(error)}`
   }
-  return { notesSeq, rev, count, notes }
 }
 
-console.log(`directory: ${directory}\n`)
-
-try {
-  const session = JSON.parse(readFileSync(join(directory, "session.json"), "utf8"))
-  console.log("session.json:", JSON.stringify(session, null, 2))
-} catch (error) {
-  console.log(`session.json: ${error.message}`)
+function endpoints(platform, directory, session, lstat) {
+  return CHANNELS.map((channel) => {
+    const path = pipeEndpoint(platform, directory, session, channel)
+    return {
+      channel,
+      path,
+      kind: platform === "win32" ? "named-pipe" : endpointKind(path, lstat),
+    }
+  })
 }
 
-try {
-  console.log("\nstate:", decodeState(readChannel("state")))
-} catch (error) {
-  console.log(`\nstate: ${error.message}`)
-}
-
-try {
-  console.log("\nscroll:", decodeScroll(readChannel("scroll")))
-} catch (error) {
-  console.log(`\nscroll: ${error.message}`)
-}
-
-try {
-  const { notesSeq, rev, count, notes } = decodeNotes(readChannel("notes"))
-  console.log(`\nnotes: notesSeq ${notesSeq}, rev ${rev}, ${count} notes`)
-  for (const note of notes.slice(0, 8)) {
-    const bend =
-      note.bend.length === 0
-        ? "bend none"
-        : `bend ${note.bend.length} [${Math.min(...note.bend)}..${Math.max(...note.bend)}] cents` +
-          ` ${Array.from(note.bend.slice(0, 6)).join(" ")}…`
-    console.log(
-      `  ${note.onS.toFixed(3)}s - ${note.offS.toFixed(3)}s  pitch ${note.pitch}` +
-        `  ${JSON.stringify(note.lyric)}  ${bend}`,
-    )
+export function inspectPipeSession({
+  directory,
+  platform = process.platform,
+  nowSeconds = Math.floor(Date.now() / 1_000),
+  readFile = readFileSync,
+  lstat = lstatSync,
+}) {
+  let bytes
+  try {
+    bytes = readFile(join(directory, "pipe-session"))
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { status: "unavailable" }
+    }
+    return {
+      status: "malformed",
+      reason: `could not read pipe-session: ${error?.message ?? error}`,
+    }
   }
-  if (count > 8) {
-    console.log(`  … ${count - 8} more`)
+
+  const record = decodePipeSession(bytes)
+  if (record === null) {
+    return { status: "malformed", reason: "invalid VPR1 record" }
   }
-} catch (error) {
-  console.log(`\nnotes: ${error.message}`)
+
+  const ageSeconds = nowSeconds - record.heartbeatSeconds
+  if (ageSeconds < 0) {
+    return { status: "malformed", reason: "future heartbeat" }
+  }
+
+  return {
+    status: ageSeconds > FRESH_SECONDS ? "stale" : "fresh",
+    ...record,
+    ageSeconds,
+    endpoints: endpoints(platform, directory, record.session, lstat),
+  }
+}
+
+export function formatPipeSession(result) {
+  if (result.status === "unavailable") {
+    return "pipe-session: unavailable"
+  }
+  if (result.status === "malformed") {
+    return `pipe-session: malformed (${result.reason})`
+  }
+
+  return [
+    `pipe-session: ${result.status}`,
+    `session: ${result.session}`,
+    `heartbeat: ${result.heartbeatSeconds} (age: ${result.ageSeconds}s)`,
+    ...result.endpoints.map(
+      (endpoint) => `${endpoint.channel}: ${endpoint.path} (${endpoint.kind})`,
+    ),
+  ].join("\n")
+}
+
+function main() {
+  const result = inspectPipeSession({ directory: process.argv[2] ?? defaultDirectory() })
+  console.log(formatPipeSession(result))
+  if (result.status === "malformed") {
+    process.exitCode = 1
+  }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main()
 }
