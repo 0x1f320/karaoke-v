@@ -9,6 +9,11 @@ const RECORD = `${PREFIX}24fef1d5\n${" ".repeat(70)}`
 
 let closed = false
 
+function record(heartbeat: string, checksum: string): string {
+  const content = `VPR1\n${heartbeat}\n${SESSION}\n${checksum}\n`
+  return `${content}${" ".repeat(128 - content.length)}`
+}
+
 beforeEach(() => {
   closed = false
   Object.assign(globalThis, {
@@ -25,7 +30,8 @@ beforeEach(() => {
           const index = value.indexOf(needle, start - 1)
           return index < 0 ? [undefined, undefined] : [index + 1, index + needle.length]
         }
-        return /^[0-9a-f]+$/.test(value) ? [1, value.length] : [undefined, undefined]
+        const valid = needle === "^[0-9]+$" ? /^[0-9]+$/.test(value) : /^[0-9a-f]+$/.test(value)
+        return valid ? [1, value.length] : [undefined, undefined]
       },
       format: (_format: string, value: number) => (value >>> 0).toString(16).padStart(8, "0"),
       lower: (value: string) => value.toLowerCase(),
@@ -58,6 +64,24 @@ describe("decodeRendezvous", () => {
 
   it("rejects a bad checksum", () => {
     expect(decodeRendezvous(RECORD.replace("24fef1d5", "00000000"), NOW)).toBeUndefined()
+  })
+
+  it.each([
+    ["+1786171600", "9e6f7200"],
+    ["1.7861716e9", "2feefe37"],
+    ["1786171600.0", "fad7ee43"],
+    [" 1786171600 ", "378fe597"],
+  ])("rejects the non-decimal heartbeat form %j", (heartbeat, checksum) => {
+    expect(decodeRendezvous(record(heartbeat, checksum), NOW)).toBeUndefined()
+  })
+
+  it.each([0, 1, 2])("accepts a heartbeat %s seconds old", (age) => {
+    expect(decodeRendezvous(RECORD, NOW + age)).toEqual({ heartbeatSeconds: NOW, session: SESSION })
+  })
+
+  it("rejects a stale or future heartbeat", () => {
+    expect(decodeRendezvous(RECORD, NOW + 3)).toBeUndefined()
+    expect(decodeRendezvous(RECORD, NOW - 1)).toBeUndefined()
   })
 })
 

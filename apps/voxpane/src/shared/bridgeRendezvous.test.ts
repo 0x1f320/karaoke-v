@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { posix, win32 } from "node:path"
+import { describe, expect, it, vi } from "vitest"
 import {
   decodeRendezvous,
   encodeRendezvous,
@@ -74,12 +75,31 @@ describe("rendezvous record", () => {
 })
 
 describe("pipeEndpoint", () => {
-  it("derives platform-specific state endpoint names", () => {
-    expect(pipeEndpoint("darwin", "/bridge", SESSION, "state")).toBe(
-      `/bridge/pipe-${SESSION}-state`,
-    )
+  it("derives Windows state endpoint names", () => {
     expect(pipeEndpoint("win32", "C:\\bridge", SESSION, "state")).toBe(
       `\\\\.\\pipe\\voxpane-${SESSION}-state`,
     )
+  })
+
+  it("keeps all Darwin endpoint names POSIX when the app runs on Windows", async () => {
+    vi.resetModules()
+    vi.doMock("node:path", () => ({ join: win32.join, posix }))
+
+    try {
+      const rendezvous = await import("./bridgeRendezvous")
+
+      expect(
+        rendezvous.PIPE_CHANNELS.map((channel) =>
+          rendezvous.pipeEndpoint("darwin", "/bridge", SESSION, channel),
+        ),
+      ).toEqual([
+        `/bridge/pipe-${SESSION}-state`,
+        `/bridge/pipe-${SESSION}-scroll`,
+        `/bridge/pipe-${SESSION}-notes`,
+      ])
+    } finally {
+      vi.doUnmock("node:path")
+      vi.resetModules()
+    }
   })
 })

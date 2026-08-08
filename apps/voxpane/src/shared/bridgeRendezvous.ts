@@ -1,4 +1,4 @@
-import { join } from "node:path"
+import { posix } from "node:path"
 
 export const RENDEZVOUS_BYTES = 128
 export const RENDEZVOUS_FILE = "pipe-session"
@@ -69,5 +69,5 @@ export function pipeEndpoint(
   if (platform === "win32") {
     return `\\\\.\\pipe\\voxpane-${session}-${channel}`
   }
-  return join(directory, `pipe-${session}-${channel}`)
+  return posix.join(directory, `pipe-${session}-${channel}`)
 }

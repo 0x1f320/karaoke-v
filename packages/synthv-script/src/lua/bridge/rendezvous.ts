@@ -16,6 +16,11 @@ function isLowerHex(value: string): boolean {
   return matched !== undefined
 }
 
+function isDecimal(value: string): boolean {
+  const [matched] = string.find(value, "^[0-9]+$", 1)
+  return matched !== undefined
+}
+
 function multiplyFNV(hash: number): number {
   const lower = hash & 0xffff
   const upper = hash >>> 16
@@ -49,6 +54,7 @@ export function decodeRendezvous(
     session === undefined ||
     expectedChecksum === undefined ||
     padding === undefined ||
+    !isDecimal(heartbeatText) ||
     string.len(session) !== 32 ||
     string.len(expectedChecksum) !== 8 ||
     !isLowerHex(session) ||
