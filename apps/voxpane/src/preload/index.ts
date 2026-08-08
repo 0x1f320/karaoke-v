@@ -1,6 +1,11 @@
 import { join } from "node:path"
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron"
 import type { BridgeSchedule, BridgeState } from "../shared/bridgeChannels"
+import type {
+  BridgeChannelDiagnostics,
+  BridgeFileDiagnostics,
+  BridgeSamplerDiagnostics,
+} from "../shared/bridgeDiagnostics"
 import {
   type CanvasSnapshot,
   type DipTransform,
@@ -20,18 +25,26 @@ import { BridgeRuntime } from "./bridgeRuntime"
 interface StateMessage {
   type: "state"
   bytes: ArrayBuffer
+  diagnostics: BridgeFileDiagnostics | null
 }
 
 interface ScheduleMessage {
   type: "schedule"
   notesSeq: number
   bytes: ArrayBuffer
+  diagnostics: BridgeFileDiagnostics | null
 }
 
-type BridgeWorkerMessage = StateMessage | ScheduleMessage
+interface DiagnosticsMessage {
+  type: "diagnostics"
+  diagnostics: BridgeSamplerDiagnostics
+}
+
+type BridgeWorkerMessage = StateMessage | ScheduleMessage | DiagnosticsMessage
 
 interface BrowserWorker {
   onmessage: ((event: { data: BridgeWorkerMessage }) => void) | null
+  postMessage(message: unknown): void
 }
 
 interface BrowserWorkerConstructor {
@@ -54,14 +67,26 @@ function cachedBridge(): BridgeRuntime {
   const worker = new Worker(workerUrl)
   worker.onmessage = ({ data }) => {
     if (data.type === "state") {
-      runtime.acceptState(new Uint8Array(data.bytes))
+      runtime.acceptState(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
+    } else if (data.type === "schedule") {
+      runtime.acceptSchedule(
+        data.notesSeq,
+        new Uint8Array(data.bytes),
+        acceptDiagnostics(data.diagnostics),
+      )
     } else {
-      runtime.acceptSchedule(data.notesSeq, new Uint8Array(data.bytes))
+      runtime.acceptSamplerDiagnostics(data.diagnostics)
     }
   }
   bridgeWorker = worker
   bridgeRuntime = runtime
   return runtime
+}
+
+function acceptDiagnostics(
+  diagnostics: BridgeFileDiagnostics | null,
+): BridgeChannelDiagnostics | null {
+  return diagnostics ? { ...diagnostics, acceptedAtMs: native.monotonicNow() } : null
 }
 
 // The helper reports in native units — points on macOS, physical pixels on
@@ -135,6 +160,11 @@ contextBridge.exposeInMainWorld("bridge", {
     return state && toDipState(dip, state)
   },
   readSchedule: (notesSeq: number): BridgeSchedule | null => cachedBridge().readSchedule(notesSeq),
+  readDiagnostics: () => cachedBridge().readDiagnostics(),
+  setDiagnosticsEnabled: (enabled: boolean): void => {
+    cachedBridge()
+    bridgeWorker?.postMessage({ type: "diagnostics", enabled })
+  },
   monotonicNow: (): number => native.monotonicNow(),
 })
 

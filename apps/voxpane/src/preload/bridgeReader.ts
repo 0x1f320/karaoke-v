@@ -1,6 +1,7 @@
-import { closeSync, openSync, readSync, statSync } from "node:fs"
+import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { STATE_BYTES } from "../shared/bridgeChannels"
+import type { BridgeFileDiagnostics, BridgeRecordRead } from "../shared/bridgeDiagnostics"
 import { bridgeDirectory, CHANNEL_NOTES, CHANNEL_STATE } from "../shared/bridgePath"
 
 // Reads the bridge channels inside the Node-enabled Web Worker. The state read
@@ -24,8 +25,7 @@ class Channel {
     this.path = join(bridgeDirectory(), name)
   }
 
-  /** Reads `length` bytes from the start, or null if the file is not readable. */
-  read(buffer: Uint8Array, length: number): Uint8Array | null {
+  read(buffer: Uint8Array, length: number, diagnostics: boolean): BridgeRecordRead | null {
     if (this.fd === null) {
       try {
         this.fd = openSync(this.path, "r")
@@ -35,7 +35,13 @@ class Channel {
     }
     try {
       const read = readSync(this.fd, buffer, 0, length, 0)
-      return read > 0 ? buffer.subarray(0, read) : null
+      if (read <= 0) {
+        return null
+      }
+      return {
+        bytes: buffer.subarray(0, read),
+        diagnostics: diagnostics ? this.diagnostics() : null,
+      }
     } catch {
       // The script can be reinstalled or the directory cleared underneath us;
       // dropping the handle means the next sample reopens rather than reading a
@@ -50,6 +56,18 @@ class Channel {
       return statSync(this.path).size
     } catch {
       return 0
+    }
+  }
+
+  private diagnostics(): BridgeFileDiagnostics | null {
+    if (this.fd === null) {
+      return null
+    }
+    try {
+      const stat = fstatSync(this.fd)
+      return { modifiedAtMs: stat.mtimeMs, sizeBytes: stat.size }
+    } catch {
+      return null
     }
   }
 
@@ -68,14 +86,14 @@ class Channel {
 const state = new Channel(CHANNEL_STATE)
 const notes = new Channel(CHANNEL_NOTES)
 
-export function readStateRecord(): Uint8Array | null {
-  return state.read(stateBuffer, STATE_BYTES)
+export function readStateRecord(diagnostics = false): BridgeRecordRead | null {
+  return state.read(stateBuffer, STATE_BYTES, diagnostics)
 }
 
-export function readScheduleRecord(): Uint8Array | null {
+export function readScheduleRecord(diagnostics = false): BridgeRecordRead | null {
   const size = notes.size()
   if (size === 0) {
     return null
   }
-  return notes.read(Buffer.allocUnsafeSlow(size), size)
+  return notes.read(Buffer.allocUnsafeSlow(size), size, diagnostics)
 }

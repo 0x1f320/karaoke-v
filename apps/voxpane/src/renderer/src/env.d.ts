@@ -1,4 +1,5 @@
 import type { BridgeSchedule, BridgeState } from "../../shared/bridgeChannels"
+import type { BridgeDiagnostics } from "../../shared/bridgeDiagnostics"
 import type { CanvasSnapshot } from "../../shared/geometry"
 import type { PermissionKey, PermissionsStatus } from "../../shared/permissions"
 import type { Preferences, PreferencesPatch } from "../../shared/preferences"
@@ -13,6 +14,8 @@ declare global {
       readState(): BridgeState | null
       /** The note schedule. Only worth reading when readState's notesSeq changes. */
       readSchedule(notesSeq: number): BridgeSchedule | null
+      readDiagnostics(): BridgeDiagnostics
+      setDiagnosticsEnabled(enabled: boolean): void
       /** Monotonic clock shared with native geometry reads, for measuring age. */
       monotonicNow(): number
     }

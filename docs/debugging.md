@@ -145,6 +145,26 @@ Settings ▸ General ▸ **Enable debug mode**. It draws, on the overlay itself:
   when pitch following is enabled *and* its mode moves the effect's position (anything but
   `intensity`). A band running past the piano roll's edge is an effect that will be masked
   away and appear to vanish.
+- **bridge channel diagnostics** — a small panel in the piano roll's upper-right corner,
+  with one line each for `state` and `notes`, showing the channel file's age from
+  filesystem `mtime`, its last size, the latest read cost, accepted `seq` / `notesSeq` /
+  `rev`, and how long the accepted record has been waiting before the current draw. Each
+  channel line includes accepted-to-draw `avg`, `min`, `max`, `p95` and `p99` stats for
+  distinct accepted records since debug collection was enabled. A `fail` line counts
+  missing files, refused records and `rev` mismatches, and a `scroll` line shows the
+  current scroll timing plus `avg`, `min`, `max`, `p95` and `p99` for scroll spikes.
+  `n/a` means no valid record for that channel has reached the overlay cache since debug
+  collection was enabled.
+- **bridge timing graph** — a small graph in the piano roll's upper-left corner, plotting
+  recent `state applied`, `state read` and `scroll applied` timings. Note timings stay in
+  the text panel and are not plotted. `scroll applied` samples only when the bridge-derived
+  viewport changes, and measures from that state record reaching the overlay cache to the
+  draw that uses it. The graph draws `scroll applied` as `0` while the viewport is
+  unchanged, so spikes mark frames that actually applied a new scroll position. Once the
+  graph's max scale grows, it stays there until debug collection resets, even after the
+  spike leaves the visible window. The y-axis labels show `max`, half-max and zero against
+  that retained scale. Other missing samples break the line rather than being drawn as
+  zero.
 
 While debug mode is on, scroll bursts also produce one-line latency reports in the overlay
 DevTools console. In development they are forwarded to the main-process terminal as

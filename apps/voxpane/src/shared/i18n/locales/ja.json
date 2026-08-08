@@ -26,6 +26,37 @@
     "effects": "ノートエフェクト",
     "settings": "設定"
   },
+  "debug": {
+    "channels": {
+      "state": "state",
+      "notes": "notes",
+      "age": "age",
+      "size": "size",
+      "applied": "applied",
+      "average": "avg",
+      "current": "current",
+      "min": "min",
+      "read": "read",
+      "seq": "seq",
+      "notesSeq": "notesSeq",
+      "rev": "rev",
+      "failures": "fail",
+      "stateMissing": "stateMissing",
+      "stateInvalid": "stateInvalid",
+      "notesMissing": "notesMissing",
+      "notesInvalid": "notesInvalid",
+      "revMismatch": "revMismatch",
+      "stateApplied": "st app",
+      "notesApplied": "nt app",
+      "stateRead": "st read",
+      "notesRead": "nt read",
+      "scrollApplied": "scroll",
+      "max": "max",
+      "p95": "p95",
+      "p99": "p99",
+      "missing": "n/a"
+    }
+  },
   "permissions": {
     "title": {
       "granted": "準備ができました",
