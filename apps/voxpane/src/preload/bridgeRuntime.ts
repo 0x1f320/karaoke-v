@@ -1,10 +1,11 @@
 import type {
   BridgeSchedule,
   BridgeScrollRecord,
+  BridgeSession,
   BridgeState,
   BridgeStateRecord,
 } from "../shared/bridgeChannels"
-import { decodeNotes, decodeScroll, decodeState } from "../shared/bridgeChannels"
+import { decodeNotes, decodeScroll, decodeSession, decodeState } from "../shared/bridgeChannels"
 import type {
   BridgeChannelDiagnostics,
   BridgeDiagnostics,
@@ -12,12 +13,18 @@ import type {
 } from "../shared/bridgeDiagnostics"
 
 export interface BridgeRuntimeDecoders {
+  decodeSession(bytes: Uint8Array): BridgeSession | null
   decodeState(bytes: Uint8Array): BridgeStateRecord | null
   decodeScroll(bytes: Uint8Array): BridgeScrollRecord | null
   decodeNotes(bytes: Uint8Array): BridgeSchedule | null
 }
 
-const DECODERS: BridgeRuntimeDecoders = { decodeState, decodeScroll, decodeNotes }
+interface Accepted<T> {
+  value: T
+  diagnostics: BridgeChannelDiagnostics | null
+}
+
+const DECODERS: BridgeRuntimeDecoders = { decodeSession, decodeState, decodeScroll, decodeNotes }
 const EMPTY_SAMPLER_DIAGNOSTICS: BridgeSamplerDiagnostics = {
   counters: {
     stateMissing: 0,
@@ -38,9 +45,17 @@ const EMPTY_SAMPLER_DIAGNOSTICS: BridgeSamplerDiagnostics = {
 
 export class BridgeRuntime {
   private state: BridgeState | null = null
-  private scroll: BridgeScrollRecord | null = null
+  private stateCandidate: Accepted<BridgeStateRecord> | null = null
+  private scrollCandidate: Accepted<BridgeScrollRecord> | null = null
+  private notesCandidate: Accepted<BridgeSchedule> | null = null
   private scheduleSeq = 0
   private schedule: BridgeSchedule | null = null
+  private samplerDiagnostics: BridgeSamplerDiagnostics = EMPTY_SAMPLER_DIAGNOSTICS
+  private revisionMismatches = 0
+  private lastRevisionMismatch: {
+    state: BridgeStateRecord
+    schedule: BridgeSchedule
+  } | null = null
   private diagnostics: BridgeDiagnostics = {
     state: null,
     scroll: null,
@@ -53,76 +68,89 @@ export class BridgeRuntime {
 
   constructor(private readonly decoders: BridgeRuntimeDecoders = DECODERS) {}
 
+  acceptSession(bytes: Uint8Array, _diagnostics: BridgeChannelDiagnostics | null = null): void {
+    if (!this.decoders.decodeSession(bytes)) {
+      return
+    }
+    this.stateCandidate = null
+    this.scrollCandidate = null
+    this.notesCandidate = null
+    this.lastRevisionMismatch = null
+    this.state = null
+    this.schedule = null
+    this.scheduleSeq = 0
+    this.diagnostics = {
+      ...this.diagnostics,
+      state: null,
+      scroll: null,
+      notes: null,
+      stateRecord: null,
+      scrollRecord: null,
+      notesRecord: null,
+    }
+  }
+
   acceptState(bytes: Uint8Array, diagnostics: BridgeChannelDiagnostics | null = null): void {
     const state = this.decoders.decodeState(bytes)
-    if (state && this.scroll?.scrollSeq === state.scrollSeq) {
-      this.state = {
-        ...state,
-        px: {
-          perBlick: this.scroll.perBlick,
-          perSemitone: this.scroll.perSemitone,
-          viewLeft: this.scroll.viewLeft,
-          viewRight: this.scroll.viewRight,
-          viewTop: this.scroll.viewTop,
-          viewBottom: this.scroll.viewBottom,
-        },
-      }
-      this.diagnostics = {
-        ...this.diagnostics,
-        state: diagnostics,
-        stateRecord: {
-          seq: state.seq,
-          notesSeq: state.notesSeq,
-          scrollSeq: state.scrollSeq,
-          rev: state.rev,
-        },
-      }
+    if (!state) {
+      return
     }
+    this.stateCandidate = { value: state, diagnostics }
+    this.compose()
   }
 
   readState(): BridgeState | null {
     return this.state
   }
 
+  acceptScroll(bytes: Uint8Array, diagnostics?: BridgeChannelDiagnostics | null): void
   acceptScroll(
-    scrollSeq: number,
+    _scrollSeq: number,
     bytes: Uint8Array,
-    diagnostics: BridgeChannelDiagnostics | null = null,
+    diagnostics?: BridgeChannelDiagnostics | null,
+  ): void
+  acceptScroll(
+    bytesOrScrollSeq: Uint8Array | number,
+    bytesOrDiagnostics: Uint8Array | BridgeChannelDiagnostics | null = null,
+    legacyDiagnostics: BridgeChannelDiagnostics | null = null,
   ): void {
+    const bytes =
+      typeof bytesOrScrollSeq === "number" ? (bytesOrDiagnostics as Uint8Array) : bytesOrScrollSeq
+    const diagnostics =
+      typeof bytesOrScrollSeq === "number"
+        ? legacyDiagnostics
+        : (bytesOrDiagnostics as BridgeChannelDiagnostics | null)
     const scroll = this.decoders.decodeScroll(bytes)
-    if (!scroll || scroll.scrollSeq !== scrollSeq) {
+    if (!scroll) {
       return
     }
-    this.scroll = scroll
-    this.diagnostics = {
-      ...this.diagnostics,
-      scroll: diagnostics,
-      scrollRecord: { scrollSeq },
-    }
+    this.scrollCandidate = { value: scroll, diagnostics }
+    this.compose()
   }
 
+  acceptSchedule(bytes: Uint8Array, diagnostics?: BridgeChannelDiagnostics | null): void
   acceptSchedule(
-    notesSeq: number,
+    _notesSeq: number,
     bytes: Uint8Array,
-    diagnostics: BridgeChannelDiagnostics | null = null,
+    diagnostics?: BridgeChannelDiagnostics | null,
+  ): void
+  acceptSchedule(
+    bytesOrNotesSeq: Uint8Array | number,
+    bytesOrDiagnostics: Uint8Array | BridgeChannelDiagnostics | null = null,
+    legacyDiagnostics: BridgeChannelDiagnostics | null = null,
   ): void {
-    if (notesSeq <= this.scheduleSeq) {
-      return
-    }
+    const bytes =
+      typeof bytesOrNotesSeq === "number" ? (bytesOrDiagnostics as Uint8Array) : bytesOrNotesSeq
+    const diagnostics =
+      typeof bytesOrNotesSeq === "number"
+        ? legacyDiagnostics
+        : (bytesOrDiagnostics as BridgeChannelDiagnostics | null)
     const schedule = this.decoders.decodeNotes(bytes)
     if (!schedule) {
       return
     }
-    this.scheduleSeq = notesSeq
-    this.schedule = schedule
-    this.diagnostics = {
-      ...this.diagnostics,
-      notes: diagnostics,
-      notesRecord: {
-        notesSeq,
-        rev: schedule.rev,
-      },
-    }
+    this.notesCandidate = { value: schedule, diagnostics }
+    this.compose()
   }
 
   readSchedule(notesSeq: number): BridgeSchedule | null {
@@ -130,14 +158,83 @@ export class BridgeRuntime {
   }
 
   readDiagnostics(): BridgeDiagnostics {
-    return this.diagnostics
+    return {
+      ...this.diagnostics,
+      counters: {
+        ...this.samplerDiagnostics.counters,
+        revMismatch: this.samplerDiagnostics.counters.revMismatch + this.revisionMismatches,
+      },
+      costs: this.samplerDiagnostics.costs,
+    }
   }
 
   acceptSamplerDiagnostics(diagnostics: BridgeSamplerDiagnostics): void {
+    this.samplerDiagnostics = diagnostics
+  }
+
+  private compose(): void {
+    const stateCandidate = this.stateCandidate
+    const scrollCandidate = this.scrollCandidate
+    if (
+      !stateCandidate ||
+      !scrollCandidate ||
+      scrollCandidate.value.scrollSeq !== stateCandidate.value.scrollSeq
+    ) {
+      return
+    }
+
+    const notesCandidate = this.notesCandidate
+    let matchingNotesCandidate: Accepted<BridgeSchedule> | null = null
+    if (stateCandidate.value.notesSeq !== 0) {
+      if (!notesCandidate || notesCandidate.value.notesSeq !== stateCandidate.value.notesSeq) {
+        return
+      }
+      if (notesCandidate.value.rev !== stateCandidate.value.rev) {
+        if (
+          this.lastRevisionMismatch?.state !== stateCandidate.value ||
+          this.lastRevisionMismatch.schedule !== notesCandidate.value
+        ) {
+          this.revisionMismatches += 1
+          this.lastRevisionMismatch = {
+            state: stateCandidate.value,
+            schedule: notesCandidate.value,
+          }
+        }
+        return
+      }
+      matchingNotesCandidate = notesCandidate
+    }
+
+    const scroll = scrollCandidate.value
+    this.state = {
+      ...stateCandidate.value,
+      px: {
+        perBlick: scroll.perBlick,
+        perSemitone: scroll.perSemitone,
+        viewLeft: scroll.viewLeft,
+        viewRight: scroll.viewRight,
+        viewTop: scroll.viewTop,
+        viewBottom: scroll.viewBottom,
+      },
+    }
+    this.schedule = matchingNotesCandidate?.value ?? null
+    this.scheduleSeq = this.schedule?.notesSeq ?? 0
     this.diagnostics = {
       ...this.diagnostics,
-      counters: diagnostics.counters,
-      costs: diagnostics.costs,
+      state: stateCandidate.diagnostics,
+      scroll: scrollCandidate.diagnostics,
+      notes: matchingNotesCandidate?.diagnostics ?? null,
+      stateRecord: {
+        seq: stateCandidate.value.seq,
+        notesSeq: stateCandidate.value.notesSeq,
+        scrollSeq: stateCandidate.value.scrollSeq,
+        rev: stateCandidate.value.rev,
+      },
+      scrollRecord: { scrollSeq: scroll.scrollSeq },
+      notesRecord:
+        this.schedule === null
+          ? null
+          : { notesSeq: this.schedule.notesSeq, rev: this.schedule.rev },
     }
   }
 }

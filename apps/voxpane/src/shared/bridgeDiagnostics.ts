@@ -34,13 +34,29 @@ export interface BridgeRecordRead {
   diagnostics: BridgeFileDiagnostics | null
 }
 
+export interface BridgeStateRecordDiagnostics {
+  seq: number
+  notesSeq: number
+  scrollSeq: number
+  rev: string
+}
+
+export interface BridgeScrollRecordDiagnostics {
+  scrollSeq: number
+}
+
+export interface BridgeNotesRecordDiagnostics {
+  notesSeq: number
+  rev: string
+}
+
 export interface BridgeDiagnostics {
   state: BridgeChannelDiagnostics | null
   scroll: BridgeChannelDiagnostics | null
   notes: BridgeChannelDiagnostics | null
-  stateRecord: { seq: number; notesSeq: number; scrollSeq: number; rev: string } | null
-  scrollRecord: { scrollSeq: number } | null
-  notesRecord: { notesSeq: number; rev: string } | null
+  stateRecord: BridgeStateRecordDiagnostics | null
+  scrollRecord: BridgeScrollRecordDiagnostics | null
+  notesRecord: BridgeNotesRecordDiagnostics | null
   counters: BridgeDiagnosticsCounters
   costs: BridgeReadCosts
 }
