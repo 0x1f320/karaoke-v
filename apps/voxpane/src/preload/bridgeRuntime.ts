@@ -43,6 +43,17 @@ const EMPTY_SAMPLER_DIAGNOSTICS: BridgeSamplerDiagnostics = {
   },
 }
 
+function revisionMismatchKey(state: BridgeStateRecord, schedule: BridgeSchedule): string {
+  return JSON.stringify([
+    state.seq,
+    state.notesSeq,
+    state.scrollSeq,
+    state.rev,
+    schedule.notesSeq,
+    schedule.rev,
+  ])
+}
+
 export class BridgeRuntime {
   private state: BridgeState | null = null
   private stateCandidate: Accepted<BridgeStateRecord> | null = null
@@ -52,10 +63,7 @@ export class BridgeRuntime {
   private schedule: BridgeSchedule | null = null
   private samplerDiagnostics: BridgeSamplerDiagnostics = EMPTY_SAMPLER_DIAGNOSTICS
   private revisionMismatches = 0
-  private lastRevisionMismatch: {
-    state: BridgeStateRecord
-    schedule: BridgeSchedule
-  } | null = null
+  private lastRevisionMismatchKey: string | null = null
   private diagnostics: BridgeDiagnostics = {
     state: null,
     scroll: null,
@@ -75,7 +83,8 @@ export class BridgeRuntime {
     this.stateCandidate = null
     this.scrollCandidate = null
     this.notesCandidate = null
-    this.lastRevisionMismatch = null
+    this.lastRevisionMismatchKey = null
+    this.revisionMismatches = 0
     this.state = null
     this.schedule = null
     this.scheduleSeq = 0
@@ -187,23 +196,21 @@ export class BridgeRuntime {
     let matchingNotesCandidate: Accepted<BridgeSchedule> | null = null
     if (stateCandidate.value.notesSeq !== 0) {
       if (!notesCandidate || notesCandidate.value.notesSeq !== stateCandidate.value.notesSeq) {
+        this.lastRevisionMismatchKey = null
         return
       }
       if (notesCandidate.value.rev !== stateCandidate.value.rev) {
-        if (
-          this.lastRevisionMismatch?.state !== stateCandidate.value ||
-          this.lastRevisionMismatch.schedule !== notesCandidate.value
-        ) {
+        const mismatchKey = revisionMismatchKey(stateCandidate.value, notesCandidate.value)
+        if (this.lastRevisionMismatchKey !== mismatchKey) {
           this.revisionMismatches += 1
-          this.lastRevisionMismatch = {
-            state: stateCandidate.value,
-            schedule: notesCandidate.value,
-          }
+          this.lastRevisionMismatchKey = mismatchKey
         }
         return
       }
       matchingNotesCandidate = notesCandidate
     }
+
+    this.lastRevisionMismatchKey = null
 
     const scroll = scrollCandidate.value
     this.state = {
