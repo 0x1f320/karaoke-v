@@ -86,7 +86,7 @@ writer doing it anyway. **Speed is taken before the bound**, because intensity s
 the voice, not the place the drawing was allowed to reach.
 
 See [synthv.md](synthv.md#notes-and-pitch) for why the curve behaves the way it
-does, and [bridge.md](bridge.md#the-record-layout) for how it travels.
+does, and [bridge.md](bridge.md#frame-boundaries) for how it travels.
 
 ## Techniques
 

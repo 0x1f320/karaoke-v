@@ -126,7 +126,7 @@ track switched — means match again from scratch.
 enough for drawing, but during a fast scroll it can still be old enough for a
 mapping-built prediction to identify the wrong note. So that prediction can only ever be a
 guess about *which* note it is looking at. Re-measure that age with the latency probe in
-[debugging](debugging.md#4-turn-on-debug-mode) before tuning the thresholds.
+[debugging](debugging.md#debug-mode) before tuning the thresholds.
 
 A read can answer that question about itself instead. Every note on a piano roll sits on one
 straight line from blicks to pixels — so a **single matched rectangle fixes that line for the

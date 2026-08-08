@@ -36,21 +36,27 @@ arrival order는 ordering guarantee가 아니다.
 
 ```mermaid
 flowchart TD
-    main["Electron main\nwindow lifecycle, script install, graceful quit"]
+    main["Electron main\nwindow lifecycle, bridge stop supervision"]
+    preload["overlay preload\nconstructs worker and BridgeRuntime"]
     worker["preload worker\nendpoints, rendezvous, parser, recovery"]
-    overlay["overlay renderer\ncache consumer"]
+    runtime["preload BridgeRuntime\ndecode, compose, cache"]
+    overlay["overlay renderer\nreads bridge cache/API"]
     native["native helper\nwindow and canvas anchor"]
-    main --> worker
-    main --> overlay
+    main -- "overlay lifecycle / shutdown IPC" --> preload
+    preload --> worker
+    preload --> runtime
+    worker -- "accepted records" --> runtime
+    runtime -- "cache/API" --> overlay
     native --> main
-    worker --> overlay
 ```
 
 Main은 permissions, tray, preferences, `overlay-bridge.lua` 설치와 rescan, window following, graceful
-shutdown처럼 수명이 긴 Electron 작업을 소유한다. preload worker는 pipe server, framed parser, session gate,
-reconnect/recovery lifecycle을 소유한다. worker는 accepted frame record를 preload로 post하고, preload의
-`BridgeRuntime`이 그 record를 decode하여 matching generation을 snapshot으로 compose한다. renderer
-`requestAnimationFrame`은 main이나 pipe를 기다리지 않는다.
+shutdown처럼 수명이 긴 Electron 작업을 소유한다. Main은 overlay를 start/supervise한 뒤 preload bridge
+owner에게 shutdown request를 보낸다. preload는 worker와 `BridgeRuntime`을 construct한다. worker는 pipe
+server, framed parser, session gate, reconnect/recovery lifecycle을 소유하고 accepted frame record를
+`BridgeRuntime`으로 post한다. `BridgeRuntime`은 그 record를 decode하고 matching generation을 snapshot cache로
+compose하며, 그 cache/API를 renderer에 expose한다. renderer `requestAnimationFrame`은 main이나 pipe를
+기다리지 않는다.
 
 정상 shutdown에서는 main이 먼저 receiver stop을 요청하고, 그 다음 자기 `pipe-session`과 FIFO endpoint를
 withdraw한다. Darwin server는 bounded reader teardown 전에 300 ms drain grace를 둔다. force-kill은 이

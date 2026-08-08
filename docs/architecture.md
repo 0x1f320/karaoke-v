@@ -39,21 +39,27 @@ ordering guarantee.
 
 ```mermaid
 flowchart TD
-    main["Electron main\nwindow lifecycle, script install, graceful quit"]
+    main["Electron main\nwindow lifecycle, bridge stop supervision"]
+    preload["overlay preload\nconstructs worker and BridgeRuntime"]
     worker["preload worker\nendpoints, rendezvous, parser, recovery"]
-    overlay["overlay renderer\ncache consumer"]
+    runtime["preload BridgeRuntime\ndecode, compose, cache"]
+    overlay["overlay renderer\nreads bridge cache/API"]
     native["native helper\nwindow and canvas anchor"]
-    main --> worker
-    main --> overlay
+    main -- "overlay lifecycle / shutdown IPC" --> preload
+    preload --> worker
+    preload --> runtime
+    worker -- "accepted records" --> runtime
+    runtime -- "cache/API" --> overlay
     native --> main
-    worker --> overlay
 ```
 
 Main owns long-lived Electron work: permissions, the tray, preferences, installing and
-rescanning `overlay-bridge.lua`, window following, and graceful shutdown. The preload
-worker owns the pipe servers, framed parsing, session gate, and reconnect/recovery
-lifecycle. It posts accepted frame records to preload; `BridgeRuntime` in preload decodes
-those records and composes matching generations into the snapshot. Renderer
+rescanning `overlay-bridge.lua`, window following, and graceful shutdown. It starts and
+supervises the overlay, then sends a shutdown request to its preload bridge owner. The
+preload constructs the worker and `BridgeRuntime`. The worker owns the pipe servers, framed
+parsing, session gate, and reconnect/recovery lifecycle, then posts accepted frame records
+to `BridgeRuntime`. `BridgeRuntime` decodes those records, composes matching generations into
+the snapshot cache, and exposes that cache/API to the renderer. Renderer
 `requestAnimationFrame` never waits for main or a pipe.
 
 On a clean shutdown, main asks the receiver to stop before it withdraws its owned
