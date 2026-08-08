@@ -51,12 +51,13 @@ classify a checksum-valid older record as stale; that indicates an app that stop
 crashed, not a malformed record.
 
 The inspector first `lstat`s `pipe-session`. `ENOENT` is unavailable; a symlink or any
-non-regular node is malformed and is never read. Each heartbeat opens the same regular file
-with `r+`, writes one positioned 128-byte record at offset zero, and truncates the file to
-that length. Recovery may instead unlink and recreate it. Consequently, the normal
-heartbeat keeps the inspected path regular; if recovery wins the `lstat`/read race, `ENOENT`
-is unavailable and a short or invalid read is malformed. The inspector does not treat this
-local operational check as a defense against arbitrary external path mutation.
+non-regular node is malformed and is never read. The writer applies the same regular-or-absent
+gate, creates an absent file exclusively, and opens without truncation using nonblocking and
+no-follow flags where Node exposes them. It compares the opened handle's `fstat` identity with
+the path's `lstat` identity before one positioned 128-byte write and truncate. Recovery may
+unlink and recreate the file. If recovery wins the inspector's `lstat`/read race, `ENOENT` is
+unavailable and a short or invalid read is malformed. The inspector does not treat this local
+operational check as a defense against arbitrary external path mutation.
 
 Endpoint names are deterministic from `appSession`:
 
@@ -82,9 +83,12 @@ after a clean disconnect. There is no PowerShell helper and no two-second launch
 Lua uses `io.open(path, "wb")` for endpoint handles and only calls `write`, `close`, and
 `setvbuf("no")` on them. The platform's `wb` open includes the `O_CREAT` tradeoff: the
 ordered rendezvous withdrawal and 240 ms connected-session validation bound normal late
-opens, but a stale regular entry or symlink is never pruned as a convenience. A force-kill
-between validation and open remains unavoidable. Lua never reads a channel pipe;
-`pipe-session` is its only regular read.
+opens, but a stale regular entry or symlink is never pruned as a convenience. Before a cold
+open, Lua must observe the same app session at a strictly newer heartbeat. An open or write
+failure quarantines that `(appSession, heartbeat)` until the session changes or its heartbeat
+advances. This prevents an unchanged fresh-but-dead record from reopening a readerless FIFO;
+a force-kill after the newer heartbeat was observed but before open remains unavoidable. Lua
+never reads a channel pipe; `pipe-session` is its only regular read.
 
 ## Session gate and recovery
 
@@ -97,9 +101,11 @@ connection creates a fresh `scriptSession` and publishes session, notes, scroll,
 
 An invalid session, parser failure, or endpoint failure instead starts receiver recovery,
 which tears down the current resources and creates fresh endpoints and a fresh `appSession`.
-The three streams are not cross-channel ordered, so `BridgeRuntime` decodes posted records
-and composes only matching `scrollSeq`, `notesSeq`, and `rev`; it keeps the last valid
-snapshot while candidates disagree.
+The transport's `starting` record for a different non-null `appSession` clears the previous
+runtime cache immediately, before Lua reconnects. The three streams are not cross-channel
+ordered, so `BridgeRuntime` decodes posted records and composes only matching `scrollSeq`,
+`notesSeq`, and `rev`; it keeps the last valid snapshot while candidates disagree only within
+the same app session.
 
 `appSession` identifies one app endpoint generation. `scriptSession` identifies one Lua
 publication generation within that app session. They are not interchangeable.

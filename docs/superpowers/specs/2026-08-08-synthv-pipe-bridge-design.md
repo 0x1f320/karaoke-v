@@ -120,15 +120,17 @@ VPR1
 ```
 
 The checksum is FNV-1a over the bytes from `VPR1` through the newline after the session ID. The
-app pads the remaining bytes with spaces and updates the record with one 128-byte write at offset
-zero. SynthV validates the complete shape, checksum, session ID, and heartbeat freshness before
-opening any endpoint. A malformed, torn, future, or stale record is treated as no app. The
-session ID is 16 random bytes from `node:crypto`, encoded as lowercase hex. A heartbeat is written
-every 500 ms and is fresh for two seconds. SynthV revalidates the record on a 240 ms logical-time
-cadence while both disconnected and connected rather than touching it on every 4 ms state tick.
-A fresh record for the same app session preserves the existing handles. A missing, malformed,
-stale, future, or different-session record closes the complete handle set before another
-connection is attempted.
+app pads the remaining bytes with spaces and updates the record with one positioned 128-byte write
+at offset zero. It accepts only a regular-or-absent path, creates an absent file exclusively, opens
+without truncation with available nonblocking/no-follow flags, and verifies opened `fstat` against
+path `lstat` identity before writing and truncating. SynthV validates the complete shape, checksum,
+session ID, and heartbeat freshness before opening any endpoint. A malformed, torn, future, or
+stale record is treated as no app. The session ID is 16 random bytes from `node:crypto`, encoded as
+lowercase hex. A heartbeat is written every 500 ms and is fresh for two seconds. SynthV revalidates
+the record on a 240 ms logical-time cadence while both disconnected and connected rather than
+touching it on every 4 ms state tick. A fresh record for the same connected app session preserves
+the existing handles. A missing, malformed, stale, future, or different-session record closes the
+complete handle set before another connection is attempted.
 
 Endpoint names are derived rather than stored in the rendezvous:
 
@@ -158,18 +160,23 @@ paths.
 `wb` can create a regular file if an endpoint open lands after its FIFO pathname was withdrawn.
 That rare late-open artifact is the accepted cost of keeping endpoint handles genuinely
 write-only: `O_RDWR` makes the writer its own FIFO reader, so it can block forever instead of
-receiving `EPIPE` after the app reader disappears. Connected rendezvous validation closes the
-handle set within 240 logical milliseconds, new app sessions use unique paths, and stale pruning
-continues to refuse regular files and symbolic links. The 300 ms receiver grace lets orderly
-shutdown drain writers that are already open; it is not proof against a force-kill or a Lua thread
-already stalled in a synchronous write. Lua provides no primitive that removes those final races
-without reintroducing a native or subprocess bridge inside SynthV.
+receiving `EPIPE` after the app reader disappears. Before a cold open, Lua requires the same app
+session to advertise a strictly newer heartbeat. An open or write failure quarantines its
+`(appSession, heartbeat)` until the session changes or the heartbeat advances. This prevents an
+unchanged fresh-but-dead rendezvous from repeatedly opening a readerless FIFO. Connected
+rendezvous validation still closes the handle set within 240 logical milliseconds, new app
+sessions use unique paths, and stale pruning continues to refuse regular files and symbolic
+links. The 300 ms receiver grace lets orderly shutdown drain writers that are already open; it is
+not proof against a force-kill after liveness was observed or a Lua thread already stalled in a
+synchronous write. Lua provides no primitive that removes those final races without reintroducing
+a native or subprocess bridge inside SynthV.
 
 ## Connection Lifecycle
 
 The writer treats all three handles as one connection:
 
-1. Read and validate a fresh rendezvous while disconnected.
+1. Read and validate a fresh rendezvous while disconnected. Retain a first-seen app session as a
+   candidate and wait until that session advertises a strictly newer heartbeat.
 2. Open each existing endpoint in deterministic `state`, `scroll`, `notes` order with
    `io.open(path, "wb")`, then disable stdio buffering on every handle. A nil or thrown `setvbuf`
    result fails the complete open. Endpoint handles use only `write`, `setvbuf`, and `close`; they
@@ -185,18 +192,21 @@ The full note collection on step 4 is intentional. Cached notes may be up to one
 interval old, so reusing them would not satisfy automatic exact recovery after an app restart.
 
 A write failure on any stream closes all three handles. A failed indexed-channel write does not
-advance the generation advertised by state. Failed disconnected attempts back off for 240
-logical milliseconds. While connected, the same 240 ms rendezvous cadence detects withdrawal or
-session replacement. Notes encoding is followed by another cadence-gated validation immediately
-before its large write; it shares the current cadence's rendezvous read rather than opening or
-reading again. The next fresh rendezvous reconnects the set and causes another complete snapshot.
-Partial channel recovery is deliberately excluded because it would add a second
-session-consistency protocol. Explicit disable resets the deadline so re-enable can attempt
-immediately, while transport and exact-snapshot failures retain backoff.
+advance the generation advertised by state. Failed open, write, and exact-snapshot advertisements
+are quarantined until their app session changes or their heartbeat strictly advances. Failed
+disconnected attempts back off for 240 logical milliseconds. While connected, the same 240 ms
+rendezvous cadence detects withdrawal or session replacement. Notes encoding is followed by
+another cadence-gated validation immediately before its large write; it shares the current
+cadence's rendezvous read rather than opening or reading again. A liveness-proven advertisement
+reconnects the set and causes another complete snapshot. Partial channel recovery is deliberately
+excluded because it would add a second session-consistency protocol. Explicit disable resets the
+deadline so re-enable can observe liveness immediately, while transport and exact-snapshot
+failures retain backoff and quarantine.
 
-The app clears all bridge caches when its receiver session starts. It keeps the last valid
-composed snapshot while a newer state waits for matching indexed records, but data from a prior
-app session is never composed with the new one.
+The app clears all bridge caches as soon as transport diagnostics announce a different non-null
+receiver app session, before Lua supplies that session's frame. It keeps the last valid composed
+snapshot while a newer state waits for matching indexed records within the same app session, but
+data from a prior app session is never exposed or composed with the new one.
 
 The three pipes do not provide cross-pipe arrival order. Before the first session frame for a
 physical handle set, the receiver retains only the latest complete scroll frame and latest

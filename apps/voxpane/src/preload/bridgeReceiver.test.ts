@@ -1,11 +1,15 @@
+import { execFileSync } from "node:child_process"
 import {
   closeSync,
   existsSync,
   lstatSync,
+  mkdirSync,
   mkdtempSync,
   openSync,
   readFileSync,
   rmSync,
+  symlinkSync,
+  writeFileSync,
   writeSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -100,6 +104,7 @@ class MemoryFileSystem implements BridgeReceiverFileSystem {
   readonly lstatCalls: string[] = []
   readonly lstatGates = new Map<string, Deferred<void>>()
   readonly writeGates = new Map<number, Deferred<void>>()
+  onRead: ((path: string) => void) | null = null
   onUnlink: ((path: string) => void) | null = null
 
   async list(directory: string): Promise<string[]> {
@@ -126,10 +131,17 @@ class MemoryFileSystem implements BridgeReceiverFileSystem {
     this.onUnlink?.(path)
   }
 
-  async read(path: string): Promise<Uint8Array | null> {
+  async unlinkIfSame(path: string, identity: unknown): Promise<void> {
+    if (this.entries.get(path) === identity) {
+      await this.unlink(path)
+    }
+  }
+
+  async read(path: string) {
     this.reads.push(path)
     const entry = this.entries.get(path)
-    return entry ? Uint8Array.from(entry.bytes) : null
+    this.onRead?.(path)
+    return entry ? { bytes: Uint8Array.from(entry.bytes), identity: entry } : null
   }
 
   async writeRendezvous(
@@ -304,6 +316,51 @@ function endpoint(values: Harness, session: string, channel: PipeChannel): FakeE
 function rendezvous(files: MemoryFileSystem, nowMs = START_MS) {
   const bytes = files.entries.get("/bridge/pipe-session")?.bytes
   return bytes ? decodeRendezvous(bytes, Math.floor(nowMs / 1_000)) : null
+}
+
+function realFileReceiver(directory: string): {
+  receiver: BridgeReceiver
+  files: BridgeReceiverFileSystem
+  messages: BridgeReceiverMessage[]
+} {
+  const messages: BridgeReceiverMessage[] = []
+  const receiver = new BridgeReceiver({
+    directory,
+    platform: "linux",
+    createSession: () => FIRST_SESSION,
+    endpointFactory: () => new FakeEndpoint(),
+    publish: (message) => messages.push(message),
+  })
+  const files = (receiver as unknown as { files: BridgeReceiverFileSystem }).files
+  return { receiver, files, messages }
+}
+
+async function expectUnsafeRendezvousNode(
+  receiver: BridgeReceiver,
+  messages: BridgeReceiverMessage[],
+  assertUnchanged: () => void,
+): Promise<void> {
+  let started = false
+  const starting = receiver.start().then(() => {
+    started = true
+  })
+
+  try {
+    await waitFor(
+      () =>
+        started ||
+        messages.some((message) => message.type === "transport" && message.status === "error"),
+      "unsafe rendezvous node rejection",
+    )
+    assertUnchanged()
+    expect(started).toBe(false)
+    expect(
+      messages.some((message) => message.type === "transport" && message.status === "error"),
+    ).toBe(true)
+  } finally {
+    await receiver.stop()
+    await starting
+  }
 }
 
 afterEach(() => {
@@ -1062,6 +1119,28 @@ describe("BridgeReceiver", () => {
     expect(values.files.entries.get("/bridge/pipe-session")?.bytes).toEqual(otherRecord)
   })
 
+  it("does not remove a replacement rendezvous after reading its own record", async () => {
+    const files = new MemoryFileSystem()
+    const values = harness({ files })
+    await values.receiver.start()
+    const replacement = encodeRendezvous({
+      heartbeatSeconds: Math.floor(START_MS / 1_000),
+      session: OTHER_SESSION,
+    })
+    let replaced = false
+    files.onRead = (path) => {
+      if (!replaced && path === "/bridge/pipe-session") {
+        replaced = true
+        files.set(path, "file", replacement)
+      }
+    }
+
+    await values.receiver.stop()
+
+    expect(replaced).toBe(true)
+    expect(files.entries.get("/bridge/pipe-session")?.bytes).toEqual(replacement)
+  })
+
   it("removes its own rendezvous even when its heartbeat is stale", async () => {
     const values = harness()
     await values.receiver.start()
@@ -1119,6 +1198,80 @@ describe("BridgeReceiver", () => {
     expect(values.files.reads).toEqual(["/bridge/pipe-session"])
     await values.receiver.stop()
   })
+})
+
+describe("BridgeReceiver rendezvous writer", () => {
+  it("does not follow a symlink while reading a rendezvous record", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "voxpane-rendezvous-"))
+    temporaryDirectories.push(directory)
+    const path = join(directory, "pipe-session")
+    const target = join(directory, "target")
+    const expected = Buffer.from("must-not-read")
+    writeFileSync(target, expected)
+    symlinkSync(target, path)
+    const { files } = realFileReceiver(directory)
+
+    expect(await files.read(path)).toBeNull()
+    expect(readFileSync(target)).toEqual(expected)
+    expect(lstatSync(path).isSymbolicLink()).toBe(true)
+  })
+
+  it.skipIf(process.platform === "win32")(
+    "does not open a FIFO while reading a rendezvous record",
+    async () => {
+      const directory = mkdtempSync(join(tmpdir(), "voxpane-rendezvous-"))
+      temporaryDirectories.push(directory)
+      const path = join(directory, "pipe-session")
+      execFileSync("mkfifo", [path])
+      const { files } = realFileReceiver(directory)
+
+      expect(await files.read(path)).toBeNull()
+      expect(lstatSync(path).isFIFO()).toBe(true)
+    },
+  )
+
+  it("rejects a symlink rendezvous without changing its target", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "voxpane-rendezvous-"))
+    temporaryDirectories.push(directory)
+    const path = join(directory, "pipe-session")
+    const target = join(directory, "target")
+    const expected = Buffer.from("must-not-change")
+    writeFileSync(target, expected)
+    symlinkSync(target, path)
+    const { receiver, messages } = realFileReceiver(directory)
+
+    await expectUnsafeRendezvousNode(receiver, messages, () => {
+      expect(readFileSync(target)).toEqual(expected)
+      expect(lstatSync(path).isSymbolicLink()).toBe(true)
+    })
+  })
+
+  it("rejects a directory rendezvous node", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "voxpane-rendezvous-"))
+    temporaryDirectories.push(directory)
+    const path = join(directory, "pipe-session")
+    mkdirSync(path)
+    const { receiver, messages } = realFileReceiver(directory)
+
+    await expectUnsafeRendezvousNode(receiver, messages, () => {
+      expect(lstatSync(path).isDirectory()).toBe(true)
+    })
+  })
+
+  it.skipIf(process.platform === "win32")(
+    "rejects a FIFO rendezvous node without opening it",
+    async () => {
+      const directory = mkdtempSync(join(tmpdir(), "voxpane-rendezvous-"))
+      temporaryDirectories.push(directory)
+      const path = join(directory, "pipe-session")
+      execFileSync("mkfifo", [path])
+      const { receiver, messages } = realFileReceiver(directory)
+
+      await expectUnsafeRendezvousNode(receiver, messages, () => {
+        expect(lstatSync(path).isFIFO()).toBe(true)
+      })
+    },
+  )
 })
 
 describe.skipIf(process.platform !== "darwin")("BridgeReceiver macOS integration", () => {

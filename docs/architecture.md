@@ -64,8 +64,10 @@ the snapshot cache, and exposes that cache/API to the renderer. Renderer
 
 On a clean shutdown, main asks the receiver to stop before it withdraws its owned
 `pipe-session` and FIFO endpoints. The Darwin servers allow a 300 ms drain grace before
-their bounded reader teardown. A force-kill cannot make that ordering atomic, so a late
-Lua open remains an unavoidable race and is handled as a reconnect.
+their bounded reader teardown. Lua requires heartbeat advancement before a cold open and
+quarantines a failed advertisement until it advances, so a force-kill cannot cause repeated
+opens against one unchanged stale FIFO. The smaller race after a proven-live heartbeat and
+before the endpoint open remains unavoidable and is handled as a reconnect.
 
 ## Geometry path
 

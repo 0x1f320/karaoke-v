@@ -30,8 +30,10 @@ Open SynthV's **Overlay Bridge** side panel. It shows the loaded version, whethe
 is on, the connection and app session, current sequence counters, transport state, note
 count, inferred loop bounds, and last error. `rendezvous unavailable` means the app has not
 advertised endpoints; an endpoint open/write failure or `EPIPE` means Lua closed the set and
-will retry. A non-advancing sequence with a connected app points to a stopped Lua tick or
-its displayed last error.
+will wait for a different app session or a newer heartbeat before retrying. A first connection
+also waits for the same session's heartbeat to advance, so `disconnected` can remain visible
+until a later 240 ms validation observes the next heartbeat second. A non-advancing sequence
+with a connected app points to a stopped Lua tick or its displayed last error.
 
 Use **Resend schedule** to request a full schedule deliberately. On a clean client reconnect
 the script also sends an exact notes/scroll/state snapshot automatically.
@@ -46,12 +48,13 @@ pnpm --filter @voxpane/synthv-script run dump -- /path/to/bridge
 `dump` first `lstat`s `pipe-session`; `ENOENT` is unavailable, while a symlink or any
 non-regular node is malformed and is never read. It then decodes the exact 128-byte VPR1
 record and checksum, prints the app session, heartbeat age, freshness, and all three derived
-endpoint names. Each heartbeat reopens the same regular file with `r+`, writes the one
-positioned 128-byte record at offset zero, and truncates it; recovery may unlink then
-recreate the file. The regular-or-absent gate therefore treats a recovery `ENOENT` as
-unavailable and any short or invalid record as malformed. On macOS it uses `lstat` only for
-endpoints and reports `fifo`, `missing`, `non-fifo`, or `symlink`; it never opens them. On
-Windows it prints derived Named Pipe names and does not probe by connecting.
+endpoint names. The app opens the regular record without truncation, verifies that the opened
+handle and path identify the same regular file, performs one positioned 128-byte write, and
+only then truncates it. An absent record is created exclusively; recovery may unlink then
+recreate it. The regular-or-absent gate therefore treats a recovery `ENOENT` as unavailable
+and any short or invalid record as malformed. On macOS `dump` uses `lstat` only for endpoints
+and reports `fifo`, `missing`, `non-fifo`, or `symlink`; it never opens them. On Windows it
+prints derived Named Pipe names and does not probe by connecting.
 
 | Output | Meaning | Exit |
 | --- | --- | --- |

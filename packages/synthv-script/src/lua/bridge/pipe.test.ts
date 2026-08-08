@@ -18,9 +18,12 @@ import { createPipeClient } from "./pipe"
 const APP_A = "0123456789abcdef0123456789abcdef"
 const APP_B = "fedcba9876543210fedcba9876543210"
 
-function endpoints(session = APP_A): PipeEndpoints {
+type AdvertisedEndpoints = PipeEndpoints & { heartbeatSeconds: number }
+
+function endpoints(session = APP_A, heartbeatSeconds = 100): AdvertisedEndpoints {
   return {
     session,
+    heartbeatSeconds,
     state: `/bridge/pipe-${session}-state`,
     scroll: `/bridge/pipe-${session}-scroll`,
     notes: `/bridge/pipe-${session}-notes`,
@@ -63,6 +66,22 @@ function queueHandles(...handles: Array<FakeHandle | Error | undefined>): void {
   openResults.push(...handles)
 }
 
+function establishConnection(
+  client: ReturnType<typeof createPipeClient>,
+  at = 0,
+  session = APP_A,
+  heartbeatSeconds = 100,
+) {
+  expect(client.connect(at)).toBeUndefined()
+  rendezvous.result = endpoints(session, heartbeatSeconds + 1)
+  const connection = client.connect(at + 240)
+  expect(connection).toBeDefined()
+  if (connection === undefined) {
+    throw new Error("expected a connection after a newer heartbeat")
+  }
+  return connection
+}
+
 beforeEach(() => {
   rendezvous.calls = 0
   rendezvous.result = endpoints()
@@ -84,6 +103,70 @@ beforeEach(() => {
 })
 
 describe("createPipeClient", () => {
+  it("waits for a first-seen app session to advertise a newer heartbeat before opening endpoints", () => {
+    queueHandles(new FakeHandle(), new FakeHandle(), new FakeHandle())
+    const client = createPipeClient("/bridge")
+
+    expect(client.connect(0)).toBeUndefined()
+    expect(opened).toEqual([])
+
+    rendezvous.result = endpoints(APP_A, 101)
+    expect(client.connect(240)).toEqual({ session: APP_A, serial: 1 })
+    expect(opened).toHaveLength(3)
+  })
+
+  it("quarantines a failed heartbeat until the same session advertises a newer one", () => {
+    const failedState = new FakeHandle()
+    failedState.writeResult = "undefined"
+    queueHandles(
+      failedState,
+      new FakeHandle(),
+      new FakeHandle(),
+      new FakeHandle(),
+      new FakeHandle(),
+      new FakeHandle(),
+    )
+    const client = createPipeClient("/bridge")
+
+    establishConnection(client)
+    expect(client.write("state", "frame")).toBe(false)
+
+    expect(client.connect(480)).toBeUndefined()
+    expect(opened).toHaveLength(3)
+
+    rendezvous.result = endpoints(APP_A, 102)
+    expect(client.connect(720)).toEqual({ session: APP_A, serial: 2 })
+    expect(opened).toHaveLength(6)
+  })
+
+  it("retains a write failure watermark when publisher invalidation follows it", () => {
+    const failedState = new FakeHandle()
+    failedState.writeResult = "undefined"
+    queueHandles(
+      failedState,
+      new FakeHandle(),
+      new FakeHandle(),
+      new FakeHandle(),
+      new FakeHandle(),
+      new FakeHandle(),
+    )
+    const client = createPipeClient("/bridge")
+
+    establishConnection(client)
+    expect(client.write("state", "frame")).toBe(false)
+    client.invalidate("session write failed")
+
+    rendezvous.result = endpoints(APP_A, 100)
+    expect(client.connect(480)).toBeUndefined()
+    rendezvous.result = endpoints(APP_A, 101)
+    expect(client.connect(720)).toBeUndefined()
+    expect(opened).toHaveLength(3)
+
+    rendezvous.result = endpoints(APP_A, 102)
+    expect(client.connect(960)).toEqual({ session: APP_A, serial: 2 })
+    expect(opened).toHaveLength(6)
+  })
+
   it("opens the complete handle set in deterministic wb order with buffering disabled", () => {
     const state = new FakeHandle()
     const scroll = new FakeHandle()
@@ -91,7 +174,7 @@ describe("createPipeClient", () => {
     queueHandles(state, scroll, notes)
     const client = createPipeClient("/bridge")
 
-    expect(client.connect(0)).toEqual({ session: APP_A, serial: 1 })
+    expect(establishConnection(client)).toEqual({ session: APP_A, serial: 1 })
     expect(opened).toEqual([
       { path: endpoints().state, mode: "wb" },
       { path: endpoints().scroll, mode: "wb" },
@@ -117,6 +200,8 @@ describe("createPipeClient", () => {
     const client = createPipeClient("/bridge")
 
     expect(client.connect(0)).toBeUndefined()
+    rendezvous.result = endpoints(APP_A, 101)
+    expect(client.connect(240)).toBeUndefined()
     expect(state.closed).toBe(1)
     expect(opened).toHaveLength(2)
     expect(client.describe()).toContain("open scroll")
@@ -132,6 +217,8 @@ describe("createPipeClient", () => {
       const client = createPipeClient("/bridge")
 
       expect(client.connect(0)).toBeUndefined()
+      rendezvous.result = endpoints(APP_A, 101)
+      expect(client.connect(240)).toBeUndefined()
       expect(state.closed).toBe(1)
       expect(scroll.closed).toBe(1)
       expect(client.describe()).toContain(
@@ -150,11 +237,17 @@ describe("createPipeClient", () => {
 
     expect(client.connect(0)).toBeUndefined()
     expect(client.connect(239)).toBeUndefined()
-    expect(opened).toHaveLength(2)
+    expect(opened).toHaveLength(0)
     expect(rendezvous.calls).toBe(1)
-    expect(client.connect(240)).toEqual({ session: APP_A, serial: 1 })
-    expect(opened).toHaveLength(5)
+    rendezvous.result = endpoints(APP_A, 101)
+    expect(client.connect(240)).toBeUndefined()
+    expect(client.connect(479)).toBeUndefined()
+    expect(opened).toHaveLength(2)
     expect(rendezvous.calls).toBe(2)
+    rendezvous.result = endpoints(APP_A, 102)
+    expect(client.connect(480)).toEqual({ session: APP_A, serial: 1 })
+    expect(opened).toHaveLength(5)
+    expect(rendezvous.calls).toBe(3)
   })
 
   it("preserves handles and identity when connected validation sees the same session", () => {
@@ -162,11 +255,11 @@ describe("createPipeClient", () => {
     queueHandles(...handles)
     const client = createPipeClient("/bridge")
 
-    const connection = client.connect(0)
-    expect(client.connect(239)).toBe(connection)
-    expect(client.connect(240)).toBe(connection)
+    const connection = establishConnection(client)
+    expect(client.connect(479)).toBe(connection)
+    expect(client.connect(480)).toBe(connection)
     expect(opened).toHaveLength(3)
-    expect(rendezvous.calls).toBe(2)
+    expect(rendezvous.calls).toBe(3)
     expect(handles.every((handle) => handle.closed === 0)).toBe(true)
   })
 
@@ -174,13 +267,13 @@ describe("createPipeClient", () => {
     queueHandles(new FakeHandle(), new FakeHandle(), new FakeHandle())
     const client = createPipeClient("/bridge")
 
-    expect(client.connect(0)).toEqual({ session: APP_A, serial: 1 })
-    expect(client.validate(0, 1)).toBe(true)
-    expect(client.validate(239, 1)).toBe(true)
-    expect(rendezvous.calls).toBe(1)
-
-    expect(client.validate(240, 1)).toBe(true)
+    const connection = establishConnection(client)
+    expect(client.validate(240, connection.serial)).toBe(true)
+    expect(client.validate(479, connection.serial)).toBe(true)
     expect(rendezvous.calls).toBe(2)
+
+    expect(client.validate(480, connection.serial)).toBe(true)
+    expect(rendezvous.calls).toBe(3)
     expect(opened).toHaveLength(3)
   })
 
@@ -191,35 +284,38 @@ describe("createPipeClient", () => {
       queueHandles(...handles)
       const client = createPipeClient("/bridge")
 
-      expect(client.connect(0)).toEqual({ session: APP_A, serial: 1 })
+      const connection = establishConnection(client)
       rendezvous.result = undefined
-      expect(client.connect(239)).toEqual({ session: APP_A, serial: 1 })
-      expect(client.connect(240)).toBeUndefined()
+      expect(client.connect(479)).toBe(connection)
+      expect(client.connect(480)).toBeUndefined()
       expect(handles.every((handle) => handle.closed === 1)).toBe(true)
       expect(opened).toHaveLength(3)
     },
   )
 
-  it("replaces all handles in one controlled attempt when the app session changes", () => {
+  it("replaces all handles only after a new app session proves liveness", () => {
     const oldHandles = [new FakeHandle(), new FakeHandle(), new FakeHandle()] as const
     const newHandles = [new FakeHandle(), new FakeHandle(), new FakeHandle()] as const
     queueHandles(...oldHandles, ...newHandles)
     const client = createPipeClient("/bridge")
 
-    expect(client.connect(0)).toEqual({ session: APP_A, serial: 1 })
-    rendezvous.result = endpoints(APP_B)
-    expect(client.connect(240)).toEqual({ session: APP_B, serial: 2 })
+    expect(establishConnection(client)).toEqual({ session: APP_A, serial: 1 })
+    rendezvous.result = endpoints(APP_B, 100)
+    expect(client.connect(480)).toBeUndefined()
     expect(oldHandles.every((handle) => handle.closed === 1)).toBe(true)
+    expect(opened).toHaveLength(3)
+    rendezvous.result = endpoints(APP_B, 101)
+    expect(client.connect(720)).toEqual({ session: APP_B, serial: 2 })
     expect(newHandles.every((handle) => handle.closed === 0)).toBe(true)
     expect(opened).toHaveLength(6)
-    expect(rendezvous.calls).toBe(2)
+    expect(rendezvous.calls).toBe(4)
   })
 
   it("performs exactly one handle write for a channel frame", () => {
     const state = new FakeHandle()
     queueHandles(state, new FakeHandle(), new FakeHandle())
     const client = createPipeClient("/bridge")
-    client.connect(0)
+    establishConnection(client)
 
     expect(client.write("state", "whole-frame")).toBe(true)
     expect(state.writes).toEqual(["whole-frame"])
@@ -234,7 +330,7 @@ describe("createPipeClient", () => {
       state.writeResult = failure
       queueHandles(state, scroll, notes)
       const client = createPipeClient("/bridge")
-      client.connect(0)
+      establishConnection(client)
 
       expect(client.write("state", "frame")).toBe(false)
       expect(state.writes).toEqual(["frame"])
@@ -245,41 +341,46 @@ describe("createPipeClient", () => {
     },
   )
 
-  it("backs off reconnect after a write failure without opening storms", () => {
+  it("does not reopen a quarantined advertisement during the reconnect backoff", () => {
     const failedState = new FakeHandle()
     failedState.writeResult = "undefined"
     const replacement = [new FakeHandle(), new FakeHandle(), new FakeHandle()] as const
     queueHandles(failedState, new FakeHandle(), new FakeHandle(), ...replacement)
     const client = createPipeClient("/bridge")
-    client.connect(0)
+    establishConnection(client)
 
     expect(client.write("state", "frame")).toBe(false)
-    expect(client.connect(239)).toBeUndefined()
+    expect(client.connect(479)).toBeUndefined()
     expect(opened).toHaveLength(3)
-    expect(client.connect(240)).toEqual({ session: APP_A, serial: 2 })
+    expect(client.connect(480)).toBeUndefined()
+    expect(opened).toHaveLength(3)
+    rendezvous.result = endpoints(APP_A, 102)
+    expect(client.connect(720)).toEqual({ session: APP_A, serial: 2 })
     expect(opened).toHaveLength(6)
   })
 
-  it("backs off an explicitly invalidated incomplete snapshot", () => {
+  it("quarantines an explicitly invalidated incomplete snapshot", () => {
     const first = [new FakeHandle(), new FakeHandle(), new FakeHandle()] as const
     const second = [new FakeHandle(), new FakeHandle(), new FakeHandle()] as const
     queueHandles(...first, ...second)
     const client = createPipeClient("/bridge")
 
-    expect(client.connect(0)).toEqual({ session: APP_A, serial: 1 })
+    expect(establishConnection(client)).toEqual({ session: APP_A, serial: 1 })
     client.invalidate("snapshot failed")
-    expect(client.connect(239)).toBeUndefined()
-    expect(client.connect(240)).toEqual({ session: APP_A, serial: 2 })
+    expect(client.connect(479)).toBeUndefined()
+    expect(client.connect(480)).toBeUndefined()
+    rendezvous.result = endpoints(APP_A, 102)
+    expect(client.connect(720)).toEqual({ session: APP_A, serial: 2 })
 
     expect(first.every((handle) => handle.closed === 1)).toBe(true)
-    expect(rendezvous.calls).toBe(2)
+    expect(rendezvous.calls).toBe(4)
   })
 
   it("disconnects idempotently and reports connection state", () => {
     const handles = [new FakeHandle(), new FakeHandle(), new FakeHandle()] as const
     queueHandles(...handles)
     const client = createPipeClient("/bridge")
-    client.connect(0)
+    establishConnection(client)
 
     expect(client.describe()).toContain(`connected (app ${APP_A})`)
     client.disconnect()
@@ -289,17 +390,19 @@ describe("createPipeClient", () => {
     expect(client.describe()).toContain("disconnected")
   })
 
-  it("reconnects immediately after an explicit disconnect and advances identity", () => {
+  it("requires a new liveness proof after an explicit disconnect", () => {
     const first = [new FakeHandle(), new FakeHandle(), new FakeHandle()] as const
     const second = [new FakeHandle(), new FakeHandle(), new FakeHandle()] as const
     queueHandles(...first, ...second)
     const client = createPipeClient("/bridge")
 
-    expect(client.connect(0)).toEqual({ session: APP_A, serial: 1 })
+    expect(establishConnection(client)).toEqual({ session: APP_A, serial: 1 })
     client.disconnect()
-    expect(client.connect(4)).toEqual({ session: APP_A, serial: 2 })
+    expect(client.connect(4)).toBeUndefined()
+    rendezvous.result = endpoints(APP_A, 102)
+    expect(client.connect(244)).toEqual({ session: APP_A, serial: 2 })
 
-    expect(rendezvous.calls).toBe(2)
+    expect(rendezvous.calls).toBe(4)
     expect(first.every((handle) => handle.closed === 1)).toBe(true)
     expect(second.every((handle) => handle.closed === 0)).toBe(true)
   })
@@ -309,7 +412,7 @@ describe("createPipeClient", () => {
     state.writeResult = "undefined"
     queueHandles(state, new FakeHandle(), new FakeHandle())
     const client = createPipeClient("/bridge")
-    client.connect(0)
+    establishConnection(client)
 
     client.write("state", "frame")
 

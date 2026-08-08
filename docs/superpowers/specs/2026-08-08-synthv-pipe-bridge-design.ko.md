@@ -115,15 +115,16 @@ VPR1
 <8-lowercase-hex-checksum>
 ```
 
-Checksum은 `VPR1`부터 session ID 다음 newline까지의 byte에 대한 FNV-1a다. 앱은 남은 byte를
-space로 padding하고 offset 0에 한 번의 128-byte write로 record를 갱신한다. SynthV는 endpoint를
-열기 전에 완전한 shape, checksum, session ID, heartbeat freshness를 검증한다. Malformed, torn,
-future, stale record는 앱이 없는 상태로 취급한다. Session ID는 `node:crypto`의 random byte 16개를
-lowercase hex로 encode한다. Heartbeat는 500 ms마다 쓰고 2초 동안 fresh하다. SynthV는 disconnected
-상태와 connected 상태 모두에서 240 ms logical-time cadence로 record를 다시 검증하며 매 4 ms state
-tick에서는 접근하지 않는다. 같은 app session의 fresh record는 기존 handle을 보존한다. Missing,
-malformed, stale, future, different-session record는 다른 connection을 시도하기 전에 complete handle
-set을 닫는다.
+Checksum은 `VPR1`부터 session ID 다음 newline까지의 byte에 대한 FNV-1a다. 앱은 남은 byte를 space로
+padding하고 offset 0에 한 번의 positioned 128-byte write로 record를 갱신한다. Regular-or-absent path만
+받고, absent file은 exclusively create하며, available nonblocking/no-follow flag로 truncate 없이 연 뒤
+opened `fstat`과 path `lstat` identity를 검증하고 write/truncate한다. SynthV는 endpoint를 열기 전에 완전한
+shape, checksum, session ID, heartbeat freshness를 검증한다. Malformed, torn, future, stale record는 앱이
+없는 상태로 취급한다. Session ID는 `node:crypto`의 random byte 16개를 lowercase hex로 encode한다.
+Heartbeat는 500 ms마다 쓰고 2초 동안 fresh하다. SynthV는 disconnected 상태와 connected 상태 모두에서
+240 ms logical-time cadence로 record를 다시 검증하며 매 4 ms state tick에서는 접근하지 않는다. 같은
+connected app session의 fresh record는 기존 handle을 보존한다. Missing, malformed, stale, future,
+different-session record는 다른 connection을 시도하기 전에 complete handle set을 닫는다.
 
 Endpoint name은 rendezvous에 저장하지 않고 결정적으로 만든다.
 
@@ -149,21 +150,24 @@ rejection을 일으킨다. Forceful destruction을 확인할 수 없으면 live 
 handshake와 owner-quiescence fallback을 모두 건너뛸 수 있으므로 crash recovery는 계속 heartbeat
 expiry와 unique session path에 의존한다.
 
-FIFO pathname withdrawal 이후 endpoint open이 도착하면 `wb`가 regular file을 만들 수 있다. 이
-드문 late-open artifact는 endpoint handle을 진짜 write-only로 유지하기 위해 감수하는 비용이다.
-`O_RDWR`는 writer 자신을 FIFO reader로 만들어 app reader가 사라진 뒤 `EPIPE`를 받는 대신 영원히
-block될 수 있다. Connected rendezvous validation은 240 logical millisecond 안에 handle set을 닫고,
-새 app session은 unique path를 사용하며, stale pruning은 regular file과 symbolic link를 계속
-거부한다. 300 ms receiver grace는 정상 종료 중 이미 open된 writer를 drain하기 위한 동작이며,
-force-kill이나 synchronous write에서 이미 멈춘 Lua thread까지 안전하다는 증명은 아니다. SynthV
-내부에 native 또는 subprocess bridge를 다시 넣지 않는 한 Lua primitive만으로 이 마지막 race를
-제거할 수 없다.
+FIFO pathname withdrawal 이후 endpoint open이 도착하면 `wb`가 regular file을 만들 수 있다. 이 드문
+late-open artifact는 endpoint handle을 진짜 write-only로 유지하기 위해 감수하는 비용이다. `O_RDWR`는
+writer 자신을 FIFO reader로 만들어 app reader가 사라진 뒤 `EPIPE`를 받는 대신 영원히 block될 수 있다.
+Cold open 전 Lua는 같은 app session의 strictly newer heartbeat를 요구한다. open/write failure의
+`(appSession, heartbeat)`는 session이 바뀌거나 heartbeat가 전진할 때까지 quarantine한다. 따라서
+unchanged fresh-but-dead rendezvous로 readerless FIFO를 반복해서 열지는 않는다. Connected rendezvous
+validation은 240 logical millisecond 안에 handle set을 닫고, 새 app session은 unique path를 사용하며,
+stale pruning은 regular file과 symbolic link를 계속 거부한다. 300 ms receiver grace는 정상 종료 중 이미
+open된 writer를 drain하기 위한 동작이며, liveness 관찰 뒤 force-kill이나 synchronous write에서 이미 멈춘
+Lua thread까지 안전하다는 증명은 아니다. SynthV 내부에 native 또는 subprocess bridge를 다시 넣지 않는
+한 Lua primitive만으로 이 마지막 race를 제거할 수 없다.
 
 ## Connection Lifecycle
 
 Writer는 세 handle을 하나의 connection으로 취급한다.
 
-1. Disconnected 상태에서 fresh rendezvous를 읽고 검증한다.
+1. Disconnected 상태에서 fresh rendezvous를 읽고 검증한다. 처음 본 app session은 candidate로 보관하고
+   같은 session이 strictly newer heartbeat를 advertise할 때까지 기다린다.
 2. 기존 endpoint를 `state`, `scroll`, `notes` 순서로 `io.open(path, "wb")`를 사용해 열고 각
    handle의 stdio buffering을 끈다. `setvbuf`가 nil을 반환하거나 throw하면 complete open을
    실패시킨다. Endpoint handle은 `write`, `setvbuf`, `close`만 사용하며 `read`, `seek`, `flush`는
@@ -179,18 +183,20 @@ Writer는 세 handle을 하나의 connection으로 취급한다.
 있으므로 재사용하면 앱 재시작 후 자동 정확 복구 요구를 충족하지 못한다.
 
 어느 stream에서든 write가 실패하면 세 handle을 모두 닫는다. 실패한 indexed-channel write는 state가
-광고하는 generation을 증가시키지 않는다. 실패한 disconnected attempt는 240 logical millisecond 동안
-backoff한다. Connected 상태에서는 동일한 240 ms rendezvous cadence가 withdrawal 또는 session
-replacement를 감지한다. Notes encode 뒤 large write 직전에 cadence-gated validation을 한 번 더 하되,
-현재 cadence의 rendezvous read를 공유하여 다시 open하거나 read하지 않는다. 다음 fresh
-rendezvous에서 set을 다시 연결하고 완전한 snapshot을 재전송한다. Partial channel recovery는 별도의
+광고하는 generation을 증가시키지 않는다. Failed open/write/exact-snapshot advertisement는 app session이
+바뀌거나 heartbeat가 strictly advance할 때까지 quarantine한다. 실패한 disconnected attempt는 240 logical
+millisecond 동안 backoff한다. Connected 상태에서는 동일한 240 ms rendezvous cadence가 withdrawal 또는
+session replacement를 감지한다. Notes encode 뒤 large write 직전에 cadence-gated validation을 한 번 더
+하되, 현재 cadence의 rendezvous read를 공유하여 다시 open하거나 read하지 않는다. Liveness-proven
+advertisement에서 set을 다시 연결하고 완전한 snapshot을 재전송한다. Partial channel recovery는 별도의
 session-consistency protocol을 추가하므로 의도적으로 제외한다. 명시적 disable은 deadline을 reset해
-re-enable이 즉시 시도할 수 있게 하지만 transport failure와 exact-snapshot failure에는 backoff를
-유지한다.
+re-enable이 liveness를 즉시 관찰할 수 있게 하지만 transport failure와 exact-snapshot failure에는
+backoff와 quarantine을 유지한다.
 
-앱은 receiver session이 시작될 때 모든 bridge cache를 비운다. 새로운 state가 indexed record를
-기다리는 동안에는 마지막 valid composed snapshot을 유지하지만, 이전 app session data를 새 data와
-조합하지 않는다.
+앱은 transport diagnostics가 다른 non-null receiver app session을 알리는 즉시, Lua가 그 session frame을
+보내기 전에 모든 bridge cache를 비운다. 같은 app session 안에서 새로운 state가 indexed record를 기다리는
+동안에는 마지막 valid composed snapshot을 유지하지만, 이전 app session data를 새 data와 조합하거나
+노출하지 않는다.
 
 세 pipe는 cross-pipe arrival order를 제공하지 않는다. Physical handle set의 첫 session frame 전에는
 receiver가 latest complete scroll frame과 latest complete notes frame을 각각 하나만 보관하고 state는

@@ -22,6 +22,7 @@ const NOTES_BYTES = Uint8Array.of(6)
 const NEWER_NOTES_BYTES = Uint8Array.of(7)
 const MISMATCHED_NOTES_BYTES = Uint8Array.of(8)
 const SESSION_BYTES = Uint8Array.of(9)
+const SECOND_SESSION_BYTES = Uint8Array.of(10)
 const INVALID_BYTES = Uint8Array.of(255)
 const STATE_RECORD: BridgeStateRecord = {
   seq: 9,
@@ -55,6 +56,11 @@ const SESSION: BridgeSession = {
   v: 1,
   layout: 5,
   appSession: "0123456789abcdef0123456789abcdef",
+}
+const SECOND_SESSION: BridgeSession = {
+  v: 1,
+  layout: 5,
+  appSession: "fedcba9876543210fedcba9876543210",
 }
 const ORDERS = [
   ["state", "scroll", "notes"],
@@ -97,7 +103,11 @@ function runtime() {
       const value = SCHEDULE_RECORDS.get(bytes[0])
       return value ? { ...value, notes: value.notes.map(cloneNote) } : null
     },
-    decodeSession: (bytes) => (bytes[0] === SESSION_BYTES[0] ? { ...SESSION } : null),
+    decodeSession: (bytes) => {
+      if (bytes[0] === SESSION_BYTES[0]) return { ...SESSION }
+      if (bytes[0] === SECOND_SESSION_BYTES[0]) return { ...SECOND_SESSION }
+      return null
+    },
   })
 }
 
@@ -323,5 +333,72 @@ describe("BridgeRuntime", () => {
       diagnostics.transport.disconnects.state = 99
     }
     expect(bridge.readDiagnostics().transport?.disconnects.state).toBe(3)
+  })
+
+  it("clears runtime state when transport switches app sessions", () => {
+    const bridge = runtime()
+    const firstTransport: BridgeTransportDiagnostics = {
+      status: "ready",
+      session: SESSION.appSession,
+      recoveries: 2,
+      malformedFrames: 1,
+      endpointFailures: 1,
+      disconnects: { state: 3, scroll: 4, notes: 5 },
+    }
+    const secondTransport: BridgeTransportDiagnostics = {
+      status: "starting",
+      session: SECOND_SESSION.appSession,
+      recoveries: 3,
+      malformedFrames: 2,
+      endpointFailures: 2,
+      disconnects: { state: 4, scroll: 5, notes: 6 },
+    }
+
+    bridge.acceptTransportDiagnostics(firstTransport)
+    publish(bridge, ["state", "scroll", "notes"])
+    bridge.acceptTransportDiagnostics({ ...firstTransport, status: "connected" })
+    expectSnapshot(bridge)
+
+    bridge.acceptSchedule(MISMATCHED_NOTES_BYTES)
+    expect(bridge.readDiagnostics().counters.revMismatch).toBe(1)
+
+    bridge.acceptTransportDiagnostics(secondTransport)
+
+    expect(bridge.readState()).toBeNull()
+    expect(bridge.readSchedule(3)).toBeNull()
+    expect(bridge.readDiagnostics()).toMatchObject({
+      state: null,
+      scroll: null,
+      notes: null,
+      stateRecord: null,
+      scrollRecord: null,
+      notesRecord: null,
+      counters: {
+        stateInvalid: 0,
+        scrollInvalid: 0,
+        scrollSeqMismatch: 0,
+        notesInvalid: 0,
+        notesSeqMismatch: 0,
+        revMismatch: 0,
+      },
+      transport: secondTransport,
+    })
+
+    bridge.acceptSession(SECOND_SESSION_BYTES)
+    bridge.acceptState(NEWER_STATE_BYTES)
+    bridge.acceptScroll(NEWER_SCROLL_BYTES)
+    expect(bridge.readState()).toBeNull()
+
+    bridge.acceptSchedule(NEWER_NOTES_BYTES)
+
+    expect(bridge.readState()).toEqual({
+      ...STATE,
+      seq: 11,
+      notesSeq: 4,
+      scrollSeq: 6,
+      rev: "next",
+      px: { ...MAPPING, viewLeft: 10, viewRight: 110 },
+    })
+    expect(bridge.readSchedule(4)).toEqual({ notesSeq: 4, rev: "next", notes: [] })
   })
 })

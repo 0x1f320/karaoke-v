@@ -1,4 +1,4 @@
-import type { PipeEndpoints } from "./rendezvous"
+import type { ResolvedRendezvous } from "./rendezvous"
 import { readRendezvous } from "./rendezvous"
 
 const RETRY_INTERVAL_MS = 240
@@ -97,6 +97,9 @@ function openAll(paths: {
 export function createPipeClient(directory: string): PipeClient {
   let handles: PipeHandles | undefined
   let connection: PipeConnection | undefined
+  let connectedAdvertisement: ResolvedRendezvous | undefined
+  let candidate: ResolvedRendezvous | undefined
+  let quarantined: ResolvedRendezvous | undefined
   let serial = 0
   let lastSession = "none"
   let nextAttemptMs = 0
@@ -107,6 +110,7 @@ export function createPipeClient(directory: string): PipeClient {
     const current = handles
     handles = undefined
     connection = undefined
+    connectedAdvertisement = undefined
     if (current === undefined) {
       return
     }
@@ -117,9 +121,34 @@ export function createPipeClient(directory: string): PipeClient {
 
   function failWrite(message: string): false {
     lastError = message
+    quarantined = connectedAdvertisement
     closeAll()
     nextAttemptMs = lastElapsedMs + RETRY_INTERVAL_MS
     return false
+  }
+
+  function canOpen(advertised: ResolvedRendezvous): boolean {
+    if (quarantined !== undefined) {
+      if (advertised.session === quarantined.session) {
+        if (advertised.heartbeatSeconds <= quarantined.heartbeatSeconds) {
+          return false
+        }
+        quarantined = undefined
+        candidate = undefined
+        return true
+      }
+      quarantined = undefined
+    }
+
+    if (candidate === undefined || candidate.session !== advertised.session) {
+      candidate = advertised
+      return false
+    }
+    if (advertised.heartbeatSeconds <= candidate.heartbeatSeconds) {
+      return false
+    }
+    candidate = undefined
+    return true
   }
 
   function connect(elapsedMs: number): PipeConnection | undefined {
@@ -129,7 +158,7 @@ export function createPipeClient(directory: string): PipeClient {
     }
     nextAttemptMs = elapsedMs + RETRY_INTERVAL_MS
 
-    let advertised: PipeEndpoints | undefined
+    let advertised: ResolvedRendezvous | undefined
     try {
       advertised = readRendezvous(directory)
     } catch (error) {
@@ -139,6 +168,12 @@ export function createPipeClient(directory: string): PipeClient {
     }
 
     if (connection !== undefined && advertised?.session === connection.session) {
+      if (
+        connectedAdvertisement === undefined ||
+        advertised.heartbeatSeconds > connectedAdvertisement.heartbeatSeconds
+      ) {
+        connectedAdvertisement = advertised
+      }
       return connection
     }
 
@@ -151,15 +186,20 @@ export function createPipeClient(directory: string): PipeClient {
     }
 
     lastSession = advertised.session
+    if (!canOpen(advertised)) {
+      return undefined
+    }
     const opened = openAll(advertised)
     if ("error" in opened) {
       lastError = opened.error
+      quarantined = advertised
       return undefined
     }
 
     handles = opened
     serial = serial + 1
     connection = { session: advertised.session, serial }
+    connectedAdvertisement = advertised
     return connection
   }
 
@@ -188,12 +228,17 @@ export function createPipeClient(directory: string): PipeClient {
 
     invalidate(message) {
       lastError = message
+      if (connectedAdvertisement !== undefined) {
+        quarantined = connectedAdvertisement
+      }
       closeAll()
       nextAttemptMs = lastElapsedMs + RETRY_INTERVAL_MS
     },
 
     disconnect() {
       closeAll()
+      candidate = undefined
+      quarantined = undefined
       nextAttemptMs = 0
     },
 

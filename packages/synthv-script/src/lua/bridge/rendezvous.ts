@@ -11,6 +11,10 @@ export interface BridgeRendezvous {
   session: string
 }
 
+export interface ResolvedRendezvous extends PipeEndpoints {
+  heartbeatSeconds: number
+}
+
 function isLowerHex(value: string): boolean {
   const [matched] = string.find(value, "^[0-9a-f]+$", 1)
   return matched !== undefined
@@ -85,20 +89,32 @@ function decodeAndResolve(
   nowSeconds: number,
   osType: string,
   directory: string,
-): PipeEndpoints | undefined {
+): ResolvedRendezvous | undefined {
   const rendezvous = decodeRendezvous(record, nowSeconds)
-  return rendezvous === undefined ? undefined : endpointPaths(osType, directory, rendezvous.session)
+  if (rendezvous === undefined) {
+    return undefined
+  }
+  return {
+    ...endpointPaths(osType, directory, rendezvous.session),
+    heartbeatSeconds: rendezvous.heartbeatSeconds,
+  }
 }
 
 export function readRendezvous(
   directory: string,
   nowSeconds = os.time(),
-): PipeEndpoints | undefined {
+): ResolvedRendezvous | undefined {
   const [handle] = io.open(channelPath(directory, "pipe-session"), "rb")
   if (handle === undefined) {
     return undefined
   }
-  const record = handle.read(RENDEZVOUS_BYTES)
-  handle.close()
-  return decodeAndResolve(record, nowSeconds, SV.getHostInfo().osType, directory)
+  const [readSucceeded, recordOrError] = pcall(() => handle.read(RENDEZVOUS_BYTES))
+  const [closeSucceeded, closeError] = pcall(() => handle.close())
+  if (!readSucceeded) {
+    error(recordOrError)
+  }
+  if (!closeSucceeded) {
+    error(closeError)
+  }
+  return decodeAndResolve(recordOrError, nowSeconds, SV.getHostInfo().osType, directory)
 }

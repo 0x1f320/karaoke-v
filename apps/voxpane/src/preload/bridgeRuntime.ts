@@ -47,6 +47,7 @@ export class BridgeRuntime {
   private lastScrollMismatchKey: string | null = null
   private lastNotesMismatchKey: string | null = null
   private lastRevisionMismatchKey: string | null = null
+  private transportSession: string | null = null
   private diagnostics: BridgeDiagnostics = {
     state: null,
     scroll: null,
@@ -64,24 +65,7 @@ export class BridgeRuntime {
     if (!this.decoders.decodeSession(bytes)) {
       return
     }
-    this.stateCandidate = null
-    this.scrollCandidate = null
-    this.notesCandidate = null
-    this.counters = emptyCounters()
-    this.clearMismatchKeys()
-    this.state = null
-    this.schedule = null
-    this.scheduleSeq = 0
-    this.diagnostics = {
-      ...this.diagnostics,
-      state: null,
-      scroll: null,
-      notes: null,
-      stateRecord: null,
-      scrollRecord: null,
-      notesRecord: null,
-      counters: emptyCounters(),
-    }
+    this.resetRuntimeState()
   }
 
   acceptState(bytes: Uint8Array, diagnostics: BridgeChannelDiagnostics | null = null): void {
@@ -140,9 +124,34 @@ export class BridgeRuntime {
   }
 
   acceptTransportDiagnostics(diagnostics: BridgeTransportDiagnostics): void {
+    if (diagnostics.session !== null && diagnostics.session !== this.transportSession) {
+      this.transportSession = diagnostics.session
+      this.resetRuntimeState()
+    }
     this.diagnostics = {
       ...this.diagnostics,
       transport: { ...diagnostics, disconnects: { ...diagnostics.disconnects } },
+    }
+  }
+
+  private resetRuntimeState(): void {
+    this.stateCandidate = null
+    this.scrollCandidate = null
+    this.notesCandidate = null
+    this.counters = emptyCounters()
+    this.clearMismatchKeys()
+    this.state = null
+    this.schedule = null
+    this.scheduleSeq = 0
+    this.diagnostics = {
+      ...this.diagnostics,
+      state: null,
+      scroll: null,
+      notes: null,
+      stateRecord: null,
+      scrollRecord: null,
+      notesRecord: null,
+      counters: emptyCounters(),
     }
   }
 

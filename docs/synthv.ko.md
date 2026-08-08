@@ -25,10 +25,13 @@ synchronous다. app reader가 block되면 SynthV UI thread에 backpressure가 �
 ## Pipe client
 
 Lua는 `pipe-session`을 240 ms interval로 retry한다. fresh, checksum-valid VPR1 record만 받고 app session의
-endpoint name을 유도한 다음 세 endpoint를 모두 연다. `EPIPE`, write/open failure, advertised session 변경이면
-모든 endpoint를 닫는다. `wb` mode는 기대한 endpoint가 없을 때 ordinary file을 만들 수 있다. 앱은 advertise
-전에 reader를 만들고 teardown 전에 rendezvous를 withdraw해서 normal case를 막는다. stale regular file,
-symlink는 의도적으로 지우지 않으며 validation과 open 사이의 force-kill race도 protocol로 제거할 수 없다.
+endpoint name을 유도한다. 처음 본 session은 candidate일 뿐이며, 같은 session의 heartbeat가 strictly newer로
+전진한 것을 관찰한 뒤 세 endpoint를 모두 연다. `EPIPE`, write/open failure, advertised session 변경이면 모든
+endpoint를 닫는다. open/write failure의 `(appSession, heartbeat)`는 session이 바뀌거나 heartbeat가 전진할
+때까지 quarantine한다. `wb` mode는 기대한 endpoint가 없을 때 ordinary file을 만들 수 있다. 앱은 advertise
+전에 reader를 만들고 teardown 전에 rendezvous를 withdraw해서 normal case를 막는다. stale regular file과
+symlink는 의도적으로 지우지 않는다. Liveness proof는 unchanged fresh-but-dead advertisement 재사용을 막지만,
+heartbeat 전진 관찰 후 endpoint open 전 force-kill race까지 제거하지는 못한다.
 
 ## Publication
 

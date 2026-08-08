@@ -27,8 +27,10 @@ effect를 분리한다. debug note rect가 틀리면 schedule/scroll/native anch
 SynthV의 **Overlay Bridge** side panel을 연다. loaded version, bridge on/off, connection과 app session,
 현재 sequence counter, transport state, note count, inferred loop bound, last error를 보여준다.
 `rendezvous unavailable`은 앱이 endpoint를 advertise하지 않았다는 뜻이다. endpoint open/write failure 또는
-`EPIPE`는 Lua가 endpoint set을 닫고 retry한다는 뜻이다. app이 connected인데 sequence가 늘지 않으면 Lua
-tick이 멈췄거나 표시된 last error를 확인한다.
+`EPIPE`는 Lua가 endpoint set을 닫고 다른 app session 또는 newer heartbeat를 기다린다는 뜻이다. 첫
+connection도 같은 session의 heartbeat 전진을 기다리므로 이후 240 ms validation이 다음 heartbeat second를
+볼 때까지 `disconnected`가 보일 수 있다. app이 connected인데 sequence가 늘지 않으면 Lua tick이 멈췄거나
+표시된 last error를 확인한다.
 
 **Resend schedule**은 full schedule을 의도적으로 요청한다. clean client reconnect에서도 script가 exact
 notes/scroll/state snapshot을 자동으로 보낸다.
@@ -42,12 +44,13 @@ pnpm --filter @voxpane/synthv-script run dump -- /path/to/bridge
 
 `dump`는 먼저 `pipe-session`을 `lstat`한다. `ENOENT`는 unavailable이고 symlink 또는 non-regular node는
 malformed이며 읽지 않는다. 그다음 정확한 128-byte VPR1 record와 checksum을 decode하고 app session,
-heartbeat age, freshness, 세 derived endpoint name을 출력한다. heartbeat마다 같은 regular file을 `r+`로
-다시 열어 offset zero에 positioned 128-byte record 하나를 write하고 truncate한다. recovery는 file을 unlink한
-뒤 recreate할 수 있다. 따라서 regular-or-absent gate는 recovery `ENOENT`를 unavailable로, short 또는 invalid
-record를 malformed로 처리한다. macOS에서는 endpoint에 `lstat`만 써서 `fifo`, `missing`, `non-fifo`,
-`symlink`로 보고하며 열지 않는다. Windows에서는 derived Named Pipe name을 출력하고 connect probe를 하지
-않는다.
+heartbeat age, freshness, 세 derived endpoint name을 출력한다. 앱은 regular record를 truncate 없이 열고
+opened handle과 path가 같은 regular file을 가리키는지
+검증한 뒤 positioned 128-byte write를 수행하고 나서 truncate한다. absent record는 exclusively create하며
+recovery는 file을 unlink한 뒤 recreate할 수 있다. 따라서 regular-or-absent gate는 recovery `ENOENT`를
+unavailable로, short 또는 invalid record를 malformed로 처리한다. macOS에서 `dump`는 endpoint에 `lstat`만
+써서 `fifo`, `missing`, `non-fifo`, `symlink`로 보고하며 열지 않는다. Windows에서는 derived Named Pipe
+name을 출력하고 connect probe를 하지 않는다.
 
 | Output | Meaning | Exit |
 | --- | --- | --- |

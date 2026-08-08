@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto"
-import { open, readdir, readFile, lstat as realLstat, unlink } from "node:fs/promises"
+import { constants } from "node:fs"
+import { open, readdir, lstat as realLstat, unlink } from "node:fs/promises"
 import { join } from "node:path"
 import {
   BRIDGE_CHANNEL_NOTES,
@@ -32,6 +33,28 @@ const HEARTBEAT_INTERVAL_MS = 500
 const RECOVERY_DELAY_MS = 250
 const LEGACY_CHANNELS = ["session.json", "state", "scroll", "notes"] as const
 const STALE_FIFO = /^pipe-[0-9a-f]{32}-(?:state|scroll|notes)$/
+const RENDEZVOUS_SAFE_OPEN_FLAGS =
+  (typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0) |
+  (typeof constants.O_NONBLOCK === "number" ? constants.O_NONBLOCK : 0)
+const RENDEZVOUS_READ_OPEN_FLAGS = constants.O_RDONLY | RENDEZVOUS_SAFE_OPEN_FLAGS
+const RENDEZVOUS_WRITE_OPEN_FLAGS = constants.O_RDWR | RENDEZVOUS_SAFE_OPEN_FLAGS
+
+interface RendezvousFileIdentity {
+  dev: bigint
+  ino: bigint
+}
+
+function sameFileIdentity(first: RendezvousFileIdentity, second: RendezvousFileIdentity): boolean {
+  return first.dev === second.dev && first.ino === second.ino
+}
+
+function isRendezvousFileIdentity(value: unknown): value is RendezvousFileIdentity {
+  if (typeof value !== "object" || value === null) {
+    return false
+  }
+  const identity = value as Partial<RendezvousFileIdentity>
+  return typeof identity.dev === "bigint" && typeof identity.ino === "bigint"
+}
 
 const FRAME_POLICIES: Readonly<Record<PipeChannel, BridgeFramePolicy>> = {
   state: {
@@ -56,11 +79,17 @@ export interface BridgeReceiverStat {
   isFile(): boolean
 }
 
+export interface BridgeReceiverRead {
+  bytes: Uint8Array
+  identity: unknown
+}
+
 export interface BridgeReceiverFileSystem {
   list(directory: string): Promise<string[]>
   lstat(path: string): Promise<BridgeReceiverStat>
   unlink(path: string): Promise<void>
-  read(path: string): Promise<Uint8Array | null>
+  unlinkIfSame(path: string, identity: unknown): Promise<void>
+  read(path: string): Promise<BridgeReceiverRead | null>
   writeRendezvous(
     path: string,
     bytes: Uint8Array,
@@ -110,45 +139,137 @@ const REAL_FILES: BridgeReceiverFileSystem = {
   list: (directory) => readdir(directory),
   lstat: (path) => realLstat(path),
   unlink,
-  read: async (path) => {
+  unlinkIfSame: async (path, identity) => {
+    if (!isRendezvousFileIdentity(identity)) {
+      return
+    }
     try {
-      return await readFile(path)
+      const current = await realLstat(path, { bigint: true })
+      if (current.isFile() && sameFileIdentity(current, identity)) {
+        await unlink(path)
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error
+      }
+    }
+  },
+  read: async (path) => {
+    let before: Awaited<ReturnType<typeof realLstat>>
+    try {
+      before = await realLstat(path, { bigint: true })
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         return null
       }
       throw error
     }
+    if (!before.isFile()) {
+      return null
+    }
+
+    let handle: Awaited<ReturnType<typeof open>>
+    try {
+      handle = await open(path, RENDEZVOUS_READ_OPEN_FLAGS)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === "ENOENT" || code === "ELOOP" || code === "ENOTDIR") {
+        return null
+      }
+      throw error
+    }
+
+    try {
+      const opened = await handle.stat({ bigint: true })
+      if (!opened.isFile() || !sameFileIdentity(before, opened)) {
+        return null
+      }
+      let after: Awaited<ReturnType<typeof realLstat>>
+      try {
+        after = await realLstat(path, { bigint: true })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          return null
+        }
+        throw error
+      }
+      if (!after.isFile() || !sameFileIdentity(after, opened)) {
+        return null
+      }
+      return { bytes: await handle.readFile(), identity: { dev: opened.dev, ino: opened.ino } }
+    } finally {
+      await handle.close()
+    }
   },
   writeRendezvous: async (path, bytes, create, isCancelled) => {
     if (isCancelled()) {
       return
     }
-    let handle: Awaited<ReturnType<typeof open>>
     let openedWithCreate = create
-    try {
-      handle = await open(path, create ? "w" : "r+")
-    } catch (error) {
-      if (create || (error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw error
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let before: Awaited<ReturnType<typeof realLstat>> | null = null
+      try {
+        before = await realLstat(path, { bigint: true })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error
+        }
       }
       if (isCancelled()) {
         return
       }
-      openedWithCreate = true
-      handle = await open(path, "w")
-    }
-    try {
-      if (isCancelled() && !openedWithCreate) {
+
+      if (before && !before.isFile()) {
+        throw new Error(`Unsafe rendezvous node: ${path}`)
+      }
+
+      let handle: Awaited<ReturnType<typeof open>>
+      try {
+        if (before) {
+          handle = await open(path, RENDEZVOUS_WRITE_OPEN_FLAGS)
+        } else {
+          handle = await open(
+            path,
+            RENDEZVOUS_WRITE_OPEN_FLAGS | constants.O_CREAT | constants.O_EXCL,
+            0o600,
+          )
+          openedWithCreate = true
+        }
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code === "ENOENT" || (!before && code === "EEXIST")) {
+          continue
+        }
+        throw error
+      }
+
+      try {
+        const opened = await handle.stat({ bigint: true })
+        if (!opened.isFile()) {
+          throw new Error(`Unsafe rendezvous node: ${path}`)
+        }
+        if (before && !sameFileIdentity(before, opened)) {
+          throw new Error(`Rendezvous node changed while opening: ${path}`)
+        }
+        const after = await realLstat(path, { bigint: true })
+        if (!after.isFile() || !sameFileIdentity(after, opened)) {
+          throw new Error(`Rendezvous node changed while opening: ${path}`)
+        }
+        if (isCancelled() && !openedWithCreate) {
+          return
+        }
+        const result = await handle.write(bytes, 0, bytes.length, 0)
+        if (result.bytesWritten !== bytes.length) {
+          throw new Error(`Short rendezvous write: ${result.bytesWritten}/${bytes.length}`)
+        }
+        await handle.truncate(bytes.length)
         return
+      } finally {
+        await handle.close()
       }
-      const result = await handle.write(bytes, 0, bytes.length, 0)
-      if (result.bytesWritten !== bytes.length) {
-        throw new Error(`Short rendezvous write: ${result.bytesWritten}/${bytes.length}`)
-      }
-      await handle.truncate(bytes.length)
-    } finally {
-      await handle.close()
+    }
+    if (!isCancelled()) {
+      throw new Error(`Rendezvous node changed while opening: ${path}`)
     }
   },
 }
@@ -591,9 +712,9 @@ export class BridgeReceiver {
   private async removeOwnedRendezvous(session: string): Promise<void> {
     const path = rendezvousPath(this.directory)
     try {
-      const bytes = await this.files.read(path)
-      if (bytes && decodeRendezvousRecord(bytes)?.session === session) {
-        await this.files.unlink(path)
+      const record = await this.files.read(path)
+      if (record && decodeRendezvousRecord(record.bytes)?.session === session) {
+        await this.files.unlinkIfSame(path, record.identity)
       }
     } catch {}
   }
@@ -608,7 +729,7 @@ export class BridgeReceiver {
       names = await this.files.list(this.directory)
       const record = await this.files.read(rendezvousPath(this.directory))
       liveSession = record
-        ? (decodeRendezvous(record, Math.floor(this.nowMs() / 1_000))?.session ?? null)
+        ? (decodeRendezvous(record.bytes, Math.floor(this.nowMs() / 1_000))?.session ?? null)
         : null
     } catch {
       return

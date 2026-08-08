@@ -60,7 +60,9 @@ compose하며, 그 cache/API를 renderer에 expose한다. renderer `requestAnima
 
 정상 shutdown에서는 main이 먼저 receiver stop을 요청하고, 그 다음 자기 `pipe-session`과 FIFO endpoint를
 withdraw한다. Darwin server는 bounded reader teardown 전에 300 ms drain grace를 둔다. force-kill은 이
-순서를 atomic하게 만들 수 없으므로 late Lua open은 피할 수 없는 race이며 reconnect로 처리한다.
+순서를 atomic하게 만들 수 없다. Lua는 cold open 전에 heartbeat 전진을 요구하고 failed advertisement는
+전진할 때까지 quarantine하므로 unchanged stale FIFO를 반복해서 열지는 않는다. proven-live heartbeat 관찰
+후 endpoint open 전의 더 작은 race는 피할 수 없으며 reconnect로 처리한다.
 
 ## Geometry path
 

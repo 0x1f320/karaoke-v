@@ -27,12 +27,16 @@ panel's **Resend schedule** button is the deliberate manual gate for that work.
 ## Pipe client
 
 Lua retries `pipe-session` on a 240 ms interval. It accepts only a fresh, checksum-valid
-VPR1 record, derives the app-session endpoint names, and opens all three endpoints. It
-closes every endpoint on `EPIPE`, failed write, failed open, or a changed advertised
-session. Its `wb` mode can create an ordinary file when the expected endpoint is absent;
-the app prevents the normal case by creating readers before advertising and withdrawing
-the rendezvous before teardown. It intentionally does not remove stale regular files or
-symlinks, and no protocol can remove the force-kill race between validation and open.
+VPR1 record and derives the app-session endpoint names. A first-seen session is only a
+candidate: Lua opens all three endpoints after observing that same session at a strictly
+newer heartbeat. It closes every endpoint on `EPIPE`, failed write, failed open, or a changed
+advertised session. Open and write failures quarantine their `(appSession, heartbeat)` until
+the session changes or its heartbeat advances. Its `wb` mode can create an ordinary file
+when the expected endpoint is absent; the app prevents the normal case by creating readers
+before advertising and withdrawing the rendezvous before teardown. It intentionally does
+not remove stale regular files or symlinks. The liveness proof prevents reuse of an unchanged
+fresh-but-dead advertisement, but cannot remove a force-kill race after heartbeat advancement
+and before endpoint open.
 
 ## Publication
 

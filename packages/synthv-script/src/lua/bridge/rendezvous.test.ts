@@ -42,6 +42,16 @@ beforeEach(() => {
           : [match[1], match[2], match[3], match[4]]
       },
     },
+    pcall: (callback: () => unknown) => {
+      try {
+        return [true, callback()]
+      } catch (error) {
+        return [false, String(error)]
+      }
+    },
+    error: (message: string) => {
+      throw new Error(message)
+    },
     io: {
       open: () => [
         {
@@ -97,11 +107,69 @@ describe("endpointPaths", () => {
 describe("readRendezvous", () => {
   it("reads only the rendezvous file and closes it", () => {
     expect(readRendezvous("/bridge", NOW)).toEqual({
+      heartbeatSeconds: NOW,
       session: SESSION,
       state: `/bridge/pipe-${SESSION}-state`,
       scroll: `/bridge/pipe-${SESSION}-scroll`,
       notes: `/bridge/pipe-${SESSION}-notes`,
     })
     expect(closed).toBe(true)
+  })
+
+  it("closes the rendezvous handle once when reading throws", () => {
+    let closeCalls = 0
+    Object.assign(globalThis, {
+      io: {
+        open: () => [
+          {
+            read: () => {
+              throw new Error("read exploded")
+            },
+            close: () => {
+              closeCalls += 1
+            },
+          },
+        ],
+      },
+    })
+
+    expect(() => readRendezvous("/bridge", NOW)).toThrow("read exploded")
+    expect(closeCalls).toBe(1)
+  })
+
+  it("preserves a read failure when closing the rendezvous handle also fails", () => {
+    Object.assign(globalThis, {
+      io: {
+        open: () => [
+          {
+            read: () => {
+              throw new Error("read exploded")
+            },
+            close: () => {
+              throw new Error("close exploded")
+            },
+          },
+        ],
+      },
+    })
+
+    expect(() => readRendezvous("/bridge", NOW)).toThrow("read exploded")
+  })
+
+  it("propagates a close failure after a successful rendezvous read", () => {
+    Object.assign(globalThis, {
+      io: {
+        open: () => [
+          {
+            read: () => RECORD,
+            close: () => {
+              throw new Error("close exploded")
+            },
+          },
+        ],
+      },
+    })
+
+    expect(() => readRendezvous("/bridge", NOW)).toThrow("close exploded")
   })
 })

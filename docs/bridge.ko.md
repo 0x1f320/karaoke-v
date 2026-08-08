@@ -48,9 +48,10 @@ reader가 ready인 뒤에만 advertise한다. inspection command는 checksum-val
 classify할 수 있는데, 이는 malformed record가 아니라 app stopped/crashed를 뜻한다.
 
 inspector는 먼저 `pipe-session`을 `lstat`한다. `ENOENT`는 unavailable이고 symlink 또는 non-regular node는
-malformed이며 읽지 않는다. heartbeat마다 같은 regular file을 `r+`로 열고 offset zero에 positioned
-128-byte record 하나를 write한 뒤 그 길이로 truncate한다. recovery는 대신 unlink 후 recreate할 수 있다.
-따라서 normal heartbeat는 검사한 path를 regular로 유지한다. recovery가 `lstat`/read race에서 이기면
+malformed이며 읽지 않는다. Writer도 같은 regular-or-absent gate를 적용하고, absent file은 exclusively
+create하며, Node가 제공하는 경우 nonblocking/no-follow flag로 truncate 없이 연다. Positioned 128-byte
+write와 truncate 전에 opened handle의 `fstat` identity와 path의 `lstat` identity가 같은지 확인한다.
+recovery는 file을 unlink한 뒤 recreate할 수 있다. recovery가 inspector의 `lstat`/read race에서 이기면
 `ENOENT`는 unavailable이고 short 또는 invalid read는 malformed다. 이 inspector는 local operational
 check이지 임의 external path mutation 방어가 아니다.
 
@@ -77,8 +78,11 @@ two-second launch path도 없다.
 Lua endpoint handle은 `io.open(path, "wb")`로 열고 `write`, `close`, `setvbuf("no")`만 호출한다.
 platform의 `wb` open에는 `O_CREAT` tradeoff가 있다. ordered rendezvous withdrawal과 240 ms
 connected-session validation이 normal late open을 bound하지만, stale regular entry 또는 symlink는
-편의상 prune하지 않는다. validation과 open 사이의 force-kill race는 피할 수 없다. Lua는 channel
-pipe를 읽지 않으며 `pipe-session`만 regular read한다.
+편의상 prune하지 않는다. Cold open 전에는 같은 app session에서 strictly newer heartbeat를 관찰해야 한다.
+open/write failure가 난 `(appSession, heartbeat)`는 session이 바뀌거나 heartbeat가 전진할 때까지 quarantine한다.
+따라서 unchanged fresh-but-dead record로 readerless FIFO를 다시 여는 동작은 막는다. newer heartbeat 관찰
+후 open 전의 force-kill race는 피할 수 없다. Lua는 channel pipe를 읽지 않으며 `pipe-session`만 regular
+read한다.
 
 ## Session gate and recovery
 
@@ -89,9 +93,11 @@ reset하지만 current endpoint와 `appSession`은 유지한다. 다음 Lua conn
 session, notes, scroll, state 순서의 snapshot을 publish한다.
 
 invalid session, parser failure, endpoint failure는 receiver recovery를 시작한다. recovery는 current
-resource를 teardown하고 fresh endpoint와 fresh `appSession`을 만든다. 세 stream은 cross-channel order를
-보장하지 않으므로 `BridgeRuntime`은 post된 record를 decode하여 matching `scrollSeq`, `notesSeq`, `rev`만
-compose하고 candidate가 다르면 마지막 valid snapshot을 유지한다.
+resource를 teardown하고 fresh endpoint와 fresh `appSession`을 만든다. 다른 non-null `appSession`의
+transport `starting` record가 오면 Lua reconnect 전이라도 이전 runtime cache를 즉시 비운다. 세 stream은
+cross-channel order를 보장하지 않으므로 `BridgeRuntime`은 post된 record를 decode하여 matching
+`scrollSeq`, `notesSeq`, `rev`만 compose하고, 같은 app session 안에서 candidate가 다를 때만 마지막 valid
+snapshot을 유지한다.
 
 `appSession`은 하나의 app endpoint generation을 식별한다. `scriptSession`은 그 app session 안의 하나의
 Lua publication generation을 식별한다. 둘은 바꿔 쓸 수 없다.
