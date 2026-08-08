@@ -1,6 +1,5 @@
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs"
 import { join } from "node:path"
-import { SCROLL_BYTES, STATE_BYTES } from "../shared/bridgeChannels"
 import type { BridgeFileDiagnostics, BridgeRecordRead } from "../shared/bridgeDiagnostics"
 import { bridgeDirectory, CHANNEL_NOTES, CHANNEL_SCROLL, CHANNEL_STATE } from "../shared/bridgePath"
 
@@ -13,9 +12,6 @@ import { bridgeDirectory, CHANNEL_NOTES, CHANNEL_SCROLL, CHANNEL_STATE } from ".
 // Nothing here throws. The writer is SynthV, which may not be running, may have
 // been restarted, or may be replacing a record at the moment of the read; all of
 // those are "no data this sample".
-
-const stateBuffer = Buffer.allocUnsafe(STATE_BYTES)
-const scrollBuffer = Buffer.allocUnsafe(SCROLL_BYTES)
 
 class Channel {
   private readonly path: string
@@ -88,11 +84,13 @@ const scroll = new Channel(CHANNEL_SCROLL)
 const notes = new Channel(CHANNEL_NOTES)
 
 export function readStateRecord(diagnostics = false): BridgeRecordRead | null {
-  return state.read(stateBuffer, STATE_BYTES, diagnostics)
+  const size = state.size()
+  return size === 0 ? null : state.read(Buffer.allocUnsafeSlow(size), size, diagnostics)
 }
 
 export function readScrollRecord(diagnostics = false): BridgeRecordRead | null {
-  return scroll.read(scrollBuffer, SCROLL_BYTES, diagnostics)
+  const size = scroll.size()
+  return size === 0 ? null : scroll.read(Buffer.allocUnsafeSlow(size), size, diagnostics)
 }
 
 export function readScheduleRecord(diagnostics = false): BridgeRecordRead | null {

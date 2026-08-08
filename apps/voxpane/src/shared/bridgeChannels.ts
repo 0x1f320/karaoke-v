@@ -15,17 +15,12 @@
 // time.
 
 const MAGIC = 0x31425056 // "VPB1", little-endian
-// 4: the view transform moved from state into the scroll channel.
-const LAYOUT = 4
-const HEADER_BYTES = 12
-
-const CHANNEL_STATE = 1
-const CHANNEL_NOTES = 2
-const CHANNEL_SCROLL = 3
-
-/** The state record is padded to this, so a reader asks for exactly this much. */
-export const STATE_BYTES = 256
-export const SCROLL_BYTES = 64
+export const BRIDGE_LAYOUT = 5
+export const BRIDGE_HEADER_BYTES = 12
+export const BRIDGE_CHANNEL_SESSION = 0
+export const BRIDGE_CHANNEL_STATE = 1
+export const BRIDGE_CHANNEL_NOTES = 2
+export const BRIDGE_CHANNEL_SCROLL = 3
 
 const STATUSES = ["stopped", "playing", "looping"] as const
 
@@ -88,8 +83,16 @@ export interface BridgeNote {
 }
 
 export interface BridgeSchedule {
+  notesSeq: number
   rev: string
   notes: BridgeNote[]
+}
+
+export interface BridgeSession {
+  v: 1
+  layout: typeof BRIDGE_LAYOUT
+  appSession: string
+  [key: string]: unknown
 }
 
 class Cursor {
@@ -144,6 +147,12 @@ class Cursor {
     return value
   }
 
+  take(count: number): Uint8Array {
+    const value = this.bytes.subarray(this.offset, this.offset + count)
+    this.offset += count
+    return value
+  }
+
   i16s(count: number): Int16Array {
     const values = new Int16Array(count)
     for (let i = 0; i < count; i++) {
@@ -155,24 +164,25 @@ class Cursor {
 
 const TEXT = new TextDecoder()
 
-function header(cursor: Cursor, channel: number): boolean {
-  if (cursor.remaining < HEADER_BYTES) {
-    return false
+function header(cursor: Cursor, channel: number): number | null {
+  if (cursor.remaining < BRIDGE_HEADER_BYTES) {
+    return null
   }
   if (cursor.u32() !== MAGIC) {
-    return false
+    return null
   }
   // Refusing beats interpreting: a fixed layout read at the wrong version is
   // wrong silently, where JSON would merely have been missing a field.
-  if (cursor.u16() !== LAYOUT || cursor.u16() !== channel) {
-    return false
+  if (cursor.u16() !== BRIDGE_LAYOUT || cursor.u16() !== channel) {
+    return null
   }
-  return cursor.u32() <= cursor.remaining
+  const length = cursor.u32()
+  return length <= cursor.remaining ? length : null
 }
 
 export function decodeState(bytes: Uint8Array): BridgeStateRecord | null {
   const cursor = new Cursor(bytes)
-  if (!header(cursor, CHANNEL_STATE)) {
+  if (header(cursor, BRIDGE_CHANNEL_STATE) === null) {
     return null
   }
   const seq = cursor.u32()
@@ -199,7 +209,7 @@ export function decodeState(bytes: Uint8Array): BridgeStateRecord | null {
 
 export function decodeScroll(bytes: Uint8Array): BridgeScrollRecord | null {
   const cursor = new Cursor(bytes)
-  if (!header(cursor, CHANNEL_SCROLL)) {
+  if (header(cursor, BRIDGE_CHANNEL_SCROLL) === null) {
     return null
   }
   return {
@@ -215,9 +225,10 @@ export function decodeScroll(bytes: Uint8Array): BridgeScrollRecord | null {
 
 export function decodeNotes(bytes: Uint8Array): BridgeSchedule | null {
   const cursor = new Cursor(bytes)
-  if (!header(cursor, CHANNEL_NOTES)) {
+  if (header(cursor, BRIDGE_CHANNEL_NOTES) === null) {
     return null
   }
+  const notesSeq = cursor.u32()
   const rev = cursor.text()
   const count = cursor.u32()
   const notes: BridgeNote[] = []
@@ -239,5 +250,30 @@ export function decodeNotes(bytes: Uint8Array): BridgeSchedule | null {
     }
     notes.push({ onB, offB, onS, offS, pitch, lyric, bend: cursor.i16s(bendCount) })
   }
-  return { rev, notes }
+  return { notesSeq, rev, notes }
+}
+
+export function decodeSession(bytes: Uint8Array): BridgeSession | null {
+  const cursor = new Cursor(bytes)
+  const length = header(cursor, BRIDGE_CHANNEL_SESSION)
+  if (length === null) {
+    return null
+  }
+  try {
+    const value: unknown = JSON.parse(TEXT.decode(cursor.take(length)))
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return null
+    }
+    const session = value as Record<string, unknown>
+    if (
+      session.v !== 1 ||
+      session.layout !== BRIDGE_LAYOUT ||
+      typeof session.appSession !== "string"
+    ) {
+      return null
+    }
+    return session as BridgeSession
+  } catch {
+    return null
+  }
 }

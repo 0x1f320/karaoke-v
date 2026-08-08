@@ -86,7 +86,7 @@ function harness(options: { viewport?: Viewport | null } = {}) {
     },
 
     publish(notes: BridgeNote[]) {
-      schedule = { rev: "r", notes }
+      schedule = { notesSeq: 1, rev: "r", notes }
     },
 
     /** A schedule that cannot be decoded — a record caught mid-replacement. */

@@ -10,8 +10,8 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 
 const MAGIC = "VPB1"
-const LAYOUT = 4
-const CHANNEL = { STATE: 1, NOTES: 2, SCROLL: 3 }
+const LAYOUT = 5
+const CHANNEL = { SESSION: 0, STATE: 1, NOTES: 2, SCROLL: 3 }
 const STATUS = ["stopped", "playing", "looping"]
 
 function defaultDirectory() {
@@ -145,6 +145,7 @@ function decodeNotes(buffer) {
   if (channel !== CHANNEL.NOTES) {
     throw new Error(`expected the notes channel, got ${channel}`)
   }
+  const notesSeq = cursor.u32()
   const rev = cursor.str()
   const count = cursor.u32()
   const notes = []
@@ -162,7 +163,7 @@ function decodeNotes(buffer) {
     }
     notes.push({ onB, offB, onS, offS, pitch, lyric, bend })
   }
-  return { rev, count, notes }
+  return { notesSeq, rev, count, notes }
 }
 
 console.log(`directory: ${directory}\n`)
@@ -187,8 +188,8 @@ try {
 }
 
 try {
-  const { rev, count, notes } = decodeNotes(readChannel("notes"))
-  console.log(`\nnotes: rev ${rev}, ${count} notes`)
+  const { notesSeq, rev, count, notes } = decodeNotes(readChannel("notes"))
+  console.log(`\nnotes: notesSeq ${notesSeq}, rev ${rev}, ${count} notes`)
   for (const note of notes.slice(0, 8)) {
     const bend =
       note.bend.length === 0

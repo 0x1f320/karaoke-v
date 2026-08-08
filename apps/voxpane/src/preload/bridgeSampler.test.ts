@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { SCROLL_BYTES, STATE_BYTES } from "../shared/bridgeChannels"
 import type { BridgeRecordRead } from "../shared/bridgeDiagnostics"
 import { BridgeSampler } from "./bridgeSampler"
 
 const MAGIC = 0x31425056
+const STATE_RECORD_BYTES = 256
+const SCROLL_RECORD_BYTES = 64
 
 class Writer {
   private readonly bytes: number[] = []
@@ -45,8 +46,12 @@ class Writer {
 }
 
 function record(channel: number, body: Uint8Array, padded = false): Uint8Array {
-  const head = new Writer().u32(MAGIC).u16(4).u16(channel).u32(body.length).done()
-  const size = padded ? (channel === 1 ? STATE_BYTES : SCROLL_BYTES) : head.length + body.length
+  const head = new Writer().u32(MAGIC).u16(5).u16(channel).u32(body.length).done()
+  const size = padded
+    ? channel === 1
+      ? STATE_RECORD_BYTES
+      : SCROLL_RECORD_BYTES
+    : head.length + body.length
   const out = new Uint8Array(size)
   out.set(head)
   out.set(body, head.length)
@@ -77,8 +82,8 @@ function scroll(scrollSeq: number): Uint8Array {
   )
 }
 
-function notes(rev: string): Uint8Array {
-  return record(2, new Writer().text(rev).u32(0).done())
+function notes(rev: string, notesSeq = 0): Uint8Array {
+  return record(2, new Writer().u32(notesSeq).text(rev).u32(0).done())
 }
 
 function readable(bytes: Uint8Array | null | undefined): BridgeRecordRead | null {
@@ -136,7 +141,7 @@ function harness(
 describe("BridgeSampler", () => {
   it("publishes only valid state records", () => {
     const valid = state(0, "r")
-    const { sampler, publishedStates } = harness([new Uint8Array(STATE_BYTES), valid])
+    const { sampler, publishedStates } = harness([new Uint8Array(STATE_RECORD_BYTES), valid])
 
     sampler.sample()
     sampler.sample()
@@ -241,7 +246,7 @@ describe("BridgeSampler", () => {
     const { sampler, diagnostics } = harness(
       [
         null,
-        new Uint8Array(STATE_BYTES),
+        new Uint8Array(STATE_RECORD_BYTES),
         state(0, "", 1, 1),
         state(0, "", 2, 1),
         state(0, "", 3, 2),

@@ -154,9 +154,12 @@ Little-endian throughout. Header, 12 bytes, on every binary record:
 | Field | Type | Value |
 | --- | --- | --- |
 | magic | 4 bytes | `VPB1` |
-| layout | u16 | `4` |
-| channel | u16 | 1 = state, 2 = notes, 3 = scroll |
+| layout | u16 | `5` |
+| channel | u16 | 0 = session, 1 = state, 2 = notes, 3 = scroll |
 | length | u32 | payload bytes that follow |
+
+**`session`** payload — UTF-8 JSON. It must contain `v: 1`, `layout: 5`, and a string
+`appSession`; the app refuses records that do not have that shape.
 
 **`state`** payload — fixed size, then space-padded to 256 bytes:
 
@@ -180,7 +183,7 @@ Little-endian throughout. Header, 12 bytes, on every binary record:
 | `viewLeft`, `viewRight` | f64 × 2 | visible blick range |
 | `viewTop`, `viewBottom` | f64 × 2 | visible value range |
 
-**`notes`** payload: `rev` (`s2`), note count (u32), then per note:
+**`notes`** payload: `notesSeq` (u32), `rev` (`s2`), note count (u32), then per note:
 
 | Field | Type |
 | --- | --- |
@@ -210,7 +213,8 @@ is wrong **silently**. So:
 > A reader that does not recognise both the magic and the layout version must **refuse** the
 > record, never interpret it.
 
-Layout 4 moves the complete view transform into the generation-indexed `scroll` channel.
+Layout 5 adds the framed `session` channel and puts `notesSeq` inside every notes record.
+Layout 4 moved the complete view transform into the generation-indexed `scroll` channel.
 Layout 3 existed because bends gained the fixed padding on each side of their note. A padded
 array looks exactly like an unpadded one — same type, plausible values — so a reader that
 assumed padding would have indexed into the wrong part of the curve and drawn something
@@ -231,12 +235,13 @@ stale copy publishes and the overlay will go quiet.
 Node-enabled Web Worker calls it every ~4 ms; file acquisition is therefore independent of
 rAF and continues even while the renderer misses or delays a frame.
 
-- State `pread`s reuse one 256 B buffer. After validation, the worker transfers a copy of
-  the record to preload, which decodes it once and replaces its latest state object. The
+- State reads size the buffer from the current record rather than relying on a fixed exported
+  width. After validation, the worker transfers a copy of the record to preload, which decodes
+  it once and replaces its latest state object. The
   renderer's per-frame call only returns that object; it performs neither file I/O nor
   Electron IPC.
-- The worker reuses one 64 B buffer for `scroll`, but reads it only when the sampled
-  state's `scrollSeq` differs from the accepted generation. It validates the record's own
+- The worker reads `scroll` only when the sampled state's `scrollSeq` differs from the accepted
+  generation. It validates the record's own
   sequence, transfers scroll before state, and the preload runtime composes the six values
   back into renderer-facing `state.px`. When the viewport is stationary, neither side
   performs scroll-channel file I/O.

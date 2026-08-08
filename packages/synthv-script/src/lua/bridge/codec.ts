@@ -18,9 +18,9 @@
 
 const MAGIC = "VPB1"
 
-/** 4: the view transform moved from state into the scroll channel. */
-export const LAYOUT = 4
+export const LAYOUT = 5
 
+export const CHANNEL_SESSION = 0
 export const CHANNEL_STATE = 1
 export const CHANNEL_NOTES = 2
 export const CHANNEL_SCROLL = 3
@@ -35,6 +35,10 @@ export const STATUS_CODES: Record<string, number> = {
 
 function record(channel: number, payload: string): string {
   return string.pack(HEADER, MAGIC, LAYOUT, channel, string.len(payload)) + payload
+}
+
+export function encodeSession(json: string): string {
+  return record(CHANNEL_SESSION, json)
 }
 
 export interface StateRecord {
@@ -124,7 +128,7 @@ function bendFormat(count: number): string {
   return format
 }
 
-export function encodeNotes(rev: string, notes: NoteRecord[]): string {
+function encodeNoteParts(notes: NoteRecord[]): string[] {
   const parts: string[] = []
   for (let i = 0; i < notes.length; i++) {
     const note = notes[i]
@@ -144,5 +148,13 @@ export function encodeNotes(rev: string, notes: NoteRecord[]): string {
     }
     parts[i] = packed
   }
-  return record(CHANNEL_NOTES, string.pack("<s2I4", rev, notes.length) + table.concat(parts))
+  return parts
+}
+
+export function encodeNotes(notesSeq: number, rev: string, notes: NoteRecord[]): string {
+  const parts = encodeNoteParts(notes)
+  return record(
+    CHANNEL_NOTES,
+    string.pack("<I4s2I4", notesSeq, rev, notes.length) + table.concat(parts),
+  )
 }

@@ -37,7 +37,7 @@ const STATE = {
     viewBottom: 40,
   },
 } as BridgeState
-const SCHEDULE = { rev: "abcdef123456", notes: [] } as BridgeSchedule
+const SCHEDULE = { notesSeq: 3, rev: "abcdef123456", notes: [] } as BridgeSchedule
 
 describe("BridgeRuntime", () => {
   it("exposes state only after its matching scroll is available", () => {

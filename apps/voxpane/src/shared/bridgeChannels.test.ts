@@ -3,8 +3,8 @@ import {
   type BridgeStatus,
   decodeNotes,
   decodeScroll,
+  decodeSession,
   decodeState,
-  SCROLL_BYTES,
 } from "./bridgeChannels"
 
 // The writer is Lua's string.pack in packages/synthv-script. These builders are
@@ -12,6 +12,8 @@ import {
 // both — which is the point of having them.
 
 const MAGIC = 0x31425056
+const SESSION = "app-session-1"
+const SCROLL_RECORD_BYTES = 64
 const STATUS_CODES: Record<BridgeStatus, number> = { stopped: 0, playing: 1, looping: 2 }
 
 class Writer {
@@ -46,7 +48,7 @@ class Writer {
     }
     return this
   }
-  header(channel: number, length: number, layout = 4, magic = MAGIC): this {
+  header(channel: number, length: number, layout = 5, magic = MAGIC): this {
     return this.u32(magic).u16(layout).u16(channel).u32(length)
   }
 
@@ -85,6 +87,18 @@ function stateRecord(fields: StateFields = {}): Uint8Array {
   return concat(record, body, 256 - record.length - body.length)
 }
 
+function sessionRecord(fields: { appSession?: string; layout?: number } = {}): Uint8Array {
+  const body = new TextEncoder().encode(
+    JSON.stringify({ v: 1, layout: 5, appSession: fields.appSession ?? SESSION }),
+  )
+  const record = new Writer().header(0, body.length, fields.layout).done()
+  return concat(record, body, 0)
+}
+
+function layout4StateRecord(): Uint8Array {
+  return stateRecord({ layout: 4 })
+}
+
 interface ScrollFields {
   scrollSeq?: number
   layout?: number
@@ -103,7 +117,7 @@ function scrollRecord(fields: ScrollFields = {}): Uint8Array {
     .done()
 
   const record = new Writer().header(fields.channel ?? 3, body.length, fields.layout).done()
-  return concat(record, body, SCROLL_BYTES - record.length - body.length)
+  return concat(record, body, SCROLL_RECORD_BYTES - record.length - body.length)
 }
 
 interface NoteFields {
@@ -116,8 +130,17 @@ interface NoteFields {
   bend?: number[]
 }
 
-function notesRecord(notes: NoteFields[], rev = "r1"): Uint8Array {
-  const body = new Writer().text(rev).u32(notes.length)
+interface NotesFields {
+  notes?: NoteFields[]
+  notesSeq?: number
+  rev?: string
+}
+
+function notesRecord(fields: NoteFields[] | NotesFields, rev = "r1"): Uint8Array {
+  const notes = Array.isArray(fields) ? fields : (fields.notes ?? [])
+  const notesSeq = Array.isArray(fields) ? 0 : (fields.notesSeq ?? 0)
+  const revision = Array.isArray(fields) ? rev : (fields.rev ?? "r1")
+  const body = new Writer().u32(notesSeq).text(revision).u32(notes.length)
   for (const note of notes) {
     body
       .f64(note.onB ?? 0)
@@ -171,7 +194,7 @@ describe("decodeState", () => {
 
   it("refuses a record from a layout it does not know", () => {
     expect(decodeState(stateRecord({ layout: 3 }))).toBeNull()
-    expect(decodeState(stateRecord({ layout: 5 }))).toBeNull()
+    expect(decodeState(layout4StateRecord())).toBeNull()
   })
 
   it("refuses bytes that are not a record at all", () => {
@@ -205,7 +228,17 @@ describe("decodeScroll", () => {
   it("refuses the wrong layout, channel, and a truncated record", () => {
     expect(decodeScroll(scrollRecord({ layout: 3 }))).toBeNull()
     expect(decodeScroll(scrollRecord({ channel: 1 }))).toBeNull()
-    expect(decodeScroll(scrollRecord().slice(0, SCROLL_BYTES - 1))).toBeNull()
+    expect(decodeScroll(scrollRecord().slice(0, SCROLL_RECORD_BYTES - 1))).toBeNull()
+  })
+})
+
+describe("decodeSession", () => {
+  it("reads and validates the layout 5 session record", () => {
+    expect(decodeSession(sessionRecord({ appSession: SESSION }))).toMatchObject({
+      v: 1,
+      layout: 5,
+      appSession: SESSION,
+    })
   })
 })
 
@@ -220,6 +253,7 @@ describe("decodeNotes", () => {
         "rev-1",
       ),
     )
+    expect(schedule?.notesSeq).toBe(0)
     expect(schedule?.rev).toBe("rev-1")
     expect(schedule?.notes).toHaveLength(2)
     expect(schedule?.notes[0].lyric).toBe("다")
@@ -234,6 +268,13 @@ describe("decodeNotes", () => {
 
   it("reads an empty schedule", () => {
     expect(decodeNotes(notesRecord([]))?.notes).toEqual([])
+  })
+
+  it("reads the self-indexed notes generation", () => {
+    expect(decodeNotes(notesRecord({ notesSeq: 7, rev: "r7" }))).toMatchObject({
+      notesSeq: 7,
+      rev: "r7",
+    })
   })
 
   it("refuses a record that claims more notes than it carries", () => {

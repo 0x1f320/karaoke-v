@@ -146,9 +146,12 @@ sequenceDiagram
 | 필드 | 타입 | 값 |
 | --- | --- | --- |
 | magic | 4 bytes | `VPB1` |
-| layout | u16 | `4` |
-| channel | u16 | 1 = state, 2 = notes, 3 = scroll |
+| layout | u16 | `5` |
+| channel | u16 | 0 = session, 1 = state, 2 = notes, 3 = scroll |
 | length | u32 | 뒤따르는 payload 바이트 수 |
+
+**`session`** payload — UTF-8 JSON이다. `v: 1`, `layout: 5`, 문자열인 `appSession`을
+반드시 가져야 하며, app은 이 shape이 아닌 record를 거부한다.
 
 **`state`** payload — 고정 크기, 그다음 256바이트까지 공백으로 padding:
 
@@ -172,7 +175,7 @@ sequenceDiagram
 | `viewLeft`, `viewRight` | f64 × 2 | 보이는 blick 범위 |
 | `viewTop`, `viewBottom` | f64 × 2 | 보이는 value 범위 |
 
-**`notes`** payload: `rev`(`s2`), note 수(u32), 그다음 note마다:
+**`notes`** payload: `notesSeq`(u32), `rev`(`s2`), note 수(u32), 그다음 note마다:
 
 | 필드 | 타입 |
 | --- | --- |
@@ -201,6 +204,7 @@ JSON은 필드가 생기거나 타입이 바뀌는 것을 견딘다. 고정 layo
 > magic과 layout 버전 **둘 다** 알아보지 못하는 reader는 레코드를 해석하지 말고 **거부해야
 > 한다.**
 
+layout 5는 framing된 `session` channel을 추가하고 모든 notes record 안에 `notesSeq`를 넣는다.
 layout 4는 완전한 view transform을 generation-indexed `scroll` channel로 옮겼다. layout 3이
 존재한 이유는 bend가 note 양쪽에 고정 padding을 갖게 되었기 때문이다. padding된
 배열은 padding 없는 것과 정확히 같아 보인다 — 같은 타입, 그럴듯한 값 — 그래서 padding을 가정한
@@ -222,11 +226,11 @@ reader는 curve의 엉뚱한 부분을 index하며 미묘하게 틀린 것을 �
 
 - 전용 Node-enabled Web Worker가 약 4 ms마다 reader를 호출한다. 따라서 file acquisition은
   rAF와 독립적이고, renderer frame이 밀려도 계속된다.
-- state `pread`는 하나의 256 B 버퍼를 재사용한다. 검증이 끝나면 worker가 record 사본을
-  preload로 transfer하고, preload는 한 번 decode해 최신 state object를 교체한다. renderer의
+- state는 고정된 exported width에 의존하지 않고 현재 record 크기로 buffer를 잡아 읽는다.
+  검증이 끝나면 worker가 record 사본을 preload로 transfer하고, preload는 한 번 decode해 최신 state object를 교체한다. renderer의
   프레임별 호출은 그 object만 반환하며 file I/O도 Electron IPC도 하지 않는다.
-- worker는 `scroll`에 64 B 버퍼 하나를 재사용하지만, sampled state의 `scrollSeq`가 받아들인
-  generation과 다를 때만 읽는다. record 자신의 sequence를 검증하고 state보다 먼저 scroll을
+- worker는 sampled state의 `scrollSeq`가 받아들인 generation과 다를 때만 `scroll`을 읽는다.
+  record 자신의 sequence를 검증하고 state보다 먼저 scroll을
   transfer하며, preload runtime은 여섯 값을 renderer가 보는 `state.px`로 다시 조합한다.
   viewport가 그대로면 양쪽 모두 scroll-channel file I/O를 하지 않는다.
 - worker는 sampled state의 `notesSeq`가 전진할 때만 `notes`를 열고 검증한다. 그 record는

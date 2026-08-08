@@ -40,8 +40,8 @@ vi.mock("./channels", () => ({
 }))
 
 vi.mock("./codec", () => ({
-  LAYOUT: 4,
-  encodeNotes: (rev: string) => rev,
+  LAYOUT: 5,
+  encodeNotes: (_notesSeq: number, rev: string) => rev,
   encodeScroll: (value: unknown) => JSON.stringify(value),
   encodeState: (value: unknown) => JSON.stringify(value),
 }))
