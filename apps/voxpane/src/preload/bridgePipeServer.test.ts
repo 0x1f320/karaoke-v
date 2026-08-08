@@ -231,7 +231,7 @@ describe.skipIf(process.platform !== "darwin")("macOS FIFO endpoint", () => {
     expect(lstatSync(path).ino).toBe(replacementInode)
   })
 
-  it("withdraws the FIFO pathname before closing its existing descriptors", async () => {
+  it("withdraws the FIFO pathname before closing its writer-facing reader", async () => {
     const directory = temporaryDirectory("voxpane-fifo-withdraw-")
     const path = join(directory, "state")
     const withdrawn = deferred()
@@ -261,13 +261,13 @@ describe.skipIf(process.platform !== "darwin")("macOS FIFO endpoint", () => {
       () => {},
       () => {},
     )
-    const writer = openSync(path, "r+")
+    const writer = openSync(path, "w")
     writeSync(writer, Uint8Array.of(0))
     await waitForValue(chunks, 1)
     const stopping = server.stop()
     let observationError: unknown = null
     let descriptorError: unknown = null
-    let lateOpen: Awaited<ReturnType<typeof execFileAsync>> | null = null
+    let lateFileIsRegular = false
 
     try {
       await settleWithin(withdrawn.promise, 1_000)
@@ -277,23 +277,9 @@ describe.skipIf(process.platform !== "darwin")("macOS FIFO endpoint", () => {
       } catch (error) {
         descriptorError = error
       }
-      lateOpen = await execFileAsync(
-        process.execPath,
-        [
-          "-e",
-          `const fs = require("node:fs");
-try {
-  fs.openSync(process.argv[1], fs.constants.O_RDWR);
-  process.stdout.write("opened");
-  process.exitCode = 2;
-} catch (error) {
-  if (error.code !== "ENOENT") throw error;
-  process.stdout.write(error.code);
-}`,
-          path,
-        ],
-        { timeout: 1_000 },
-      )
+      const lateFile = openSync(path, "w")
+      closeSync(lateFile)
+      lateFileIsRegular = lstatSync(path).isFile()
     } catch (error) {
       observationError = error
     } finally {
@@ -309,8 +295,49 @@ try {
     expect(descriptorError).toBeNull()
     expect(graceDelays).toHaveLength(1)
     expect(graceDelays[0]).toBeGreaterThanOrEqual(300)
-    expect(lateOpen?.stdout).toBe("ENOENT")
-    expect(() => lstatSync(path)).toThrow()
+    expect(lateFileIsRegular).toBe(true)
+    expect(lstatSync(path).isFile()).toBe(true)
+  })
+
+  it("unblocks a large O_WRONLY writer with EPIPE when the app reader closes", async () => {
+    const directory = temporaryDirectory("voxpane-fifo-epipe-")
+    const path = join(directory, "notes")
+    const chunks: number[][] = []
+    const server = createPipeEndpointServer({ platform: "darwin", path, channel: "notes" })
+    await server.start(
+      (chunk) => chunks.push([...chunk.subarray(0, 1)]),
+      () => {},
+      () => {},
+    )
+
+    const writer = execFileAsync(
+      process.execPath,
+      [
+        "-e",
+        `const fs = require("node:fs");
+const fd = fs.openSync(process.argv[1], fs.constants.O_WRONLY);
+process.stdout.write("opened\\n");
+const block = Buffer.alloc(4 * 1024 * 1024, 1);
+try {
+  while (true) fs.writeSync(fd, block);
+} catch (error) {
+  process.stdout.write(error.code ?? String(error));
+  if (error.code !== "EPIPE") process.exitCode = 2;
+} finally {
+  fs.closeSync(fd);
+}`,
+        path,
+      ],
+      { timeout: 3_000 },
+    )
+
+    await waitForValue(chunks, 1)
+    const stopping = server.stop()
+    const result = await settleWithin(writer, 2_000)
+    await stopping
+
+    expect(result.stdout).toBe("opened\nEPIPE")
+    expect(result.stderr).toBe("")
   })
 
   it("bounds reader shutdown when the owned pathname disappears after data", async () => {

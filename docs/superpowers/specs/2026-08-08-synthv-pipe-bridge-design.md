@@ -124,7 +124,7 @@ app pads the remaining bytes with spaces and updates the record with one 128-byt
 zero. SynthV validates the complete shape, checksum, session ID, and heartbeat freshness before
 opening any endpoint. A malformed, torn, future, or stale record is treated as no app. The
 session ID is 16 random bytes from `node:crypto`, encoded as lowercase hex. A heartbeat is written
-every 500 ms and is fresh for two seconds. SynthV revalidates the record on a 250 ms logical-time
+every 500 ms and is fresh for two seconds. SynthV revalidates the record on a 240 ms logical-time
 cadence while both disconnected and connected rather than touching it on every 4 ms state tick.
 A fresh record for the same app session preserves the existing handles. A missing, malformed,
 stale, future, or different-session record closes the complete handle set before another
@@ -137,16 +137,23 @@ Endpoint names are derived rather than stored in the rendezvous:
 | macOS | `<bridge>/pipe-<session>-state`, `<bridge>/pipe-<session>-scroll`, `<bridge>/pipe-<session>-notes` |
 | Windows | `\\.\pipe\voxpane-<session>-state`, `\\.\pipe\voxpane-<session>-scroll`, `\\.\pipe\voxpane-<session>-notes` |
 
-Unique names prevent a new app process from reusing a stale endpoint. Normal shutdown withdraws
-the rendezvous and macOS FIFO pathnames before closing readers. The app continues draining
-already-open writers for 300 ms, then closes the reader; no new non-creating open can reach a FIFO
-after its pathname is withdrawn. Startup may prune only FIFO nodes matching voxpane's endpoint
-pattern; it must never unlink a regular file or symbolic link found under such a name.
+Unique names prevent a new app process from reusing a stale endpoint. Normal shutdown asks the
+preload worker to stop the receiver and waits for acknowledgement. The receiver withdraws the
+rendezvous and macOS FIFO pathnames before closing readers, continues draining already-open
+writers for 300 ms, and then closes the readers. A blocked `O_WRONLY` writer then fails with
+`EPIPE`. If the worker or window is unavailable or does not acknowledge within the bounded quit
+timeout, main synchronously removes only a checksum-valid regular rendezvous and FIFO endpoints
+derived from its session; regular and symbolic-link endpoint paths are never removed.
 
-There is an unavoidable process-death race between a valid heartbeat read and a FIFO open. Unique
-endpoint names, reader-before-ready ordering, and the short disconnected-only open window reduce
-it to the app dying in that exact interval. Lua provides no primitive that can remove this final
-race without reintroducing a native or subprocess bridge inside SynthV.
+`wb` can create a regular file if an endpoint open lands after its FIFO pathname was withdrawn.
+That rare late-open artifact is the accepted cost of keeping endpoint handles genuinely
+write-only: `O_RDWR` makes the writer its own FIFO reader, so it can block forever instead of
+receiving `EPIPE` after the app reader disappears. Connected rendezvous validation closes the
+handle set within 240 logical milliseconds, new app sessions use unique paths, and stale pruning
+continues to refuse regular files and symbolic links. The 300 ms receiver grace lets orderly
+shutdown drain writers that are already open; it is not proof against a force-kill or a Lua thread
+already stalled in a synchronous write. Lua provides no primitive that removes those final races
+without reintroducing a native or subprocess bridge inside SynthV.
 
 ## Connection Lifecycle
 
@@ -154,10 +161,9 @@ The writer treats all three handles as one connection:
 
 1. Read and validate a fresh rendezvous while disconnected.
 2. Open each existing endpoint in deterministic `state`, `scroll`, `notes` order with
-   `io.open(path, "r+b")`, then disable stdio buffering on every handle. `r+b` supplies portable
-   non-creating RDWR semantics; despite that open mode, the script never calls `read`, `seek`, or
-   `flush` on an endpoint handle and uses only `write`, `setvbuf`, and `close`. `wb` is excluded
-   because its create semantics could leave a dead regular file after FIFO pathname withdrawal.
+   `io.open(path, "wb")`, then disable stdio buffering on every handle. A nil or thrown `setvbuf`
+   result fails the complete open. Endpoint handles use only `write`, `setvbuf`, and `close`; they
+   never call `read`, `seek`, or `flush`.
 3. If any open fails, close every handle and retry after the disconnected backoff.
 4. Collect a current view mapping and note schedule.
 5. Reset `stateSeq`, `scrollSeq`, and `notesSeq` for the new app session.
@@ -169,15 +175,26 @@ The full note collection on step 4 is intentional. Cached notes may be up to one
 interval old, so reusing them would not satisfy automatic exact recovery after an app restart.
 
 A write failure on any stream closes all three handles. A failed indexed-channel write does not
-advance the generation advertised by state. Failed disconnected attempts back off for 250
-logical milliseconds. While connected, the same 250 ms rendezvous cadence detects withdrawal or
-session replacement within the app's 300 ms drain grace. The next fresh rendezvous reconnects the
-set and causes another complete snapshot. Partial channel recovery is deliberately excluded
-because it would add a second session-consistency protocol.
+advance the generation advertised by state. Failed disconnected attempts back off for 240
+logical milliseconds. While connected, the same 240 ms rendezvous cadence detects withdrawal or
+session replacement. Notes encoding is followed by another cadence-gated validation immediately
+before its large write; it shares the current cadence's rendezvous read rather than opening or
+reading again. The next fresh rendezvous reconnects the set and causes another complete snapshot.
+Partial channel recovery is deliberately excluded because it would add a second
+session-consistency protocol. Explicit disable resets the deadline so re-enable can attempt
+immediately, while transport and exact-snapshot failures retain backoff.
 
 The app clears all bridge caches when its receiver session starts. It keeps the last valid
 composed snapshot while a newer state waits for matching indexed records, but data from a prior
 app session is never composed with the new one.
+
+The three pipes do not provide cross-pipe arrival order. Before the first session frame for a
+physical handle set, the receiver retains only the latest complete scroll frame and latest
+complete notes frame and publishes no state. When the state pipe supplies its ordered session
+frame, the receiver publishes that session first, opens the gate, flushes buffered scroll then
+notes, and only then publishes later state frames from the same state chunk. Any disconnect,
+fatal error, recovery, or replacement session closes the gate and clears both bounded slots;
+malformed pre-session framing remains fatal.
 
 ## Wire Format
 
@@ -282,12 +299,15 @@ Pure tests cover:
 - preservation of the last valid snapshot during a generation mismatch;
 - cache reset between app sessions;
 - all-handle teardown after one channel fails;
-- same-session handle preservation and connected rendezvous withdrawal within 250 ms;
+- same-session handle preservation and connected rendezvous withdrawal within 240 ms;
+- bounded pre-session scroll/notes buffering across all cross-pipe arrival orders;
+- nil and thrown `setvbuf` failures, explicit disable/re-enable, and 239/240 ms cadence edges;
 - full snapshot order and generation reset on reconnect.
 
 Platform integration checks cover:
 
-- real macOS FIFO creation, readiness, framing, shutdown, and stale rendezvous behavior;
+- real macOS FIFO creation, readiness, framing, shutdown, stale rendezvous behavior, and an
+  `O_WRONLY` large writer unblocking with `EPIPE` when the reader closes;
 - real Windows Named Pipe creation and framing in the Parallels Windows environment;
 - starting SynthV before voxpane and voxpane before SynthV;
 - quitting and restarting only voxpane, with current notes, scroll, and state returning without

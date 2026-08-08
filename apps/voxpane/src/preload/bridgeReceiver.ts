@@ -6,6 +6,7 @@ import {
   BRIDGE_CHANNEL_SCROLL,
   BRIDGE_CHANNEL_SESSION,
   BRIDGE_CHANNEL_STATE,
+  decodeSession,
 } from "../shared/bridgeChannels"
 import type {
   BridgeReceiptDiagnostics,
@@ -97,6 +98,9 @@ interface SessionResources {
   session: string
   endpoints: Partial<Record<PipeChannel, PipeEndpointServer>>
   parsers: Readonly<Record<PipeChannel, BridgeFrameParser>>
+  sessionGateOpen: boolean
+  pendingScroll: BridgeFrameMessage | null
+  pendingSchedule: BridgeFrameMessage | null
   cancelled: boolean
   rendezvousWrites: Set<Promise<void>>
   teardownPromise: Promise<void> | null
@@ -271,6 +275,9 @@ export class BridgeReceiver {
         session,
         endpoints: {},
         parsers,
+        sessionGateOpen: false,
+        pendingScroll: null,
+        pendingSchedule: null,
         cancelled: false,
         rendezvousWrites: new Set(),
         teardownPromise: null,
@@ -351,8 +358,50 @@ export class BridgeReceiver {
           ? { receivedAtMs: this.nowMs(), sizeBytes: copy.byteLength }
           : null,
       }
-      this.publishMessage(message, [bytes])
+      this.acceptFrame(resources, message)
     }
+  }
+
+  private acceptFrame(resources: SessionResources, message: BridgeFrameMessage): void {
+    if (message.type === "session") {
+      const session = decodeSession(new Uint8Array(message.bytes))
+      if (!session || session.appSession !== resources.session) {
+        this.transport.malformedFrames += 1
+        this.resetSessionGate(resources)
+        this.requestRecovery(resources, resources.session)
+        return
+      }
+      if (resources.sessionGateOpen) {
+        this.resetSessionGate(resources)
+      }
+      this.publishFrame(message)
+      resources.sessionGateOpen = true
+      const pendingScroll = resources.pendingScroll
+      const pendingSchedule = resources.pendingSchedule
+      resources.pendingScroll = null
+      resources.pendingSchedule = null
+      if (pendingScroll) this.publishFrame(pendingScroll)
+      if (pendingSchedule) this.publishFrame(pendingSchedule)
+      return
+    }
+
+    if (!resources.sessionGateOpen) {
+      if (message.type === "scroll") resources.pendingScroll = message
+      if (message.type === "schedule") resources.pendingSchedule = message
+      return
+    }
+
+    this.publishFrame(message)
+  }
+
+  private publishFrame(message: BridgeFrameMessage): void {
+    this.publishMessage(message, [message.bytes])
+  }
+
+  private resetSessionGate(resources: SessionResources): void {
+    resources.sessionGateOpen = false
+    resources.pendingScroll = null
+    resources.pendingSchedule = null
   }
 
   private messageType(frame: Uint8Array): BridgeFrameMessage["type"] {
@@ -370,7 +419,10 @@ export class BridgeReceiver {
     if (this.stopped || this.current !== resources || this.recoveryRequested) {
       return
     }
-    resources.parsers[channel].reset()
+    for (const parser of Object.values(resources.parsers)) {
+      parser.reset()
+    }
+    this.resetSessionGate(resources)
     this.transport.disconnects[channel] += 1
     this.tryPublishTransport("ready", resources.session)
   }
@@ -518,6 +570,7 @@ export class BridgeReceiver {
     if (!resources.teardownPromise) {
       resources.teardownPromise = (async () => {
         resources.cancelled = true
+        this.resetSessionGate(resources)
         this.clearHeartbeat()
         await Promise.allSettled([...resources.rendezvousWrites])
         // SynthV must never see an advertised FIFO after its reader starts shutting down.

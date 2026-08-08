@@ -120,7 +120,7 @@ space로 padding하고 offset 0에 한 번의 128-byte write로 record를 갱신
 열기 전에 완전한 shape, checksum, session ID, heartbeat freshness를 검증한다. Malformed, torn,
 future, stale record는 앱이 없는 상태로 취급한다. Session ID는 `node:crypto`의 random byte 16개를
 lowercase hex로 encode한다. Heartbeat는 500 ms마다 쓰고 2초 동안 fresh하다. SynthV는 disconnected
-상태와 connected 상태 모두에서 250 ms logical-time cadence로 record를 다시 검증하며 매 4 ms state
+상태와 connected 상태 모두에서 240 ms logical-time cadence로 record를 다시 검증하며 매 4 ms state
 tick에서는 접근하지 않는다. 같은 app session의 fresh record는 기존 handle을 보존한다. Missing,
 malformed, stale, future, different-session record는 다른 connection을 시도하기 전에 complete handle
 set을 닫는다.
@@ -132,27 +132,33 @@ Endpoint name은 rendezvous에 저장하지 않고 결정적으로 만든다.
 | macOS | `<bridge>/pipe-<session>-state`, `<bridge>/pipe-<session>-scroll`, `<bridge>/pipe-<session>-notes` |
 | Windows | `\\.\pipe\voxpane-<session>-state`, `\\.\pipe\voxpane-<session>-scroll`, `\\.\pipe\voxpane-<session>-notes` |
 
-Unique name은 새 app process가 stale endpoint를 재사용하지 못하게 한다. 정상 종료 시 reader를
-닫기 전에 rendezvous와 macOS FIFO pathname을 withdraw한다. 앱은 이미 open된 writer를 300 ms 동안
-계속 drain한 다음 reader를 닫는다. Pathname이 withdraw된 뒤에는 새 non-creating open이 FIFO에
-도달할 수 없다. 시작 시 voxpane endpoint pattern과 일치하는 FIFO node만 정리할 수 있으며, 그 이름
-아래 regular file이나 symbolic link가 있으면 절대 unlink하지 않는다.
+Unique name은 새 app process가 stale endpoint를 재사용하지 못하게 한다. 정상 종료 시 preload
+worker에 receiver stop을 요청하고 acknowledgement를 기다린다. Receiver는 reader를 닫기 전에
+rendezvous와 macOS FIFO pathname을 withdraw하고, 이미 open된 writer를 300 ms 동안 계속 drain한
+다음 reader를 닫는다. 그러면 block된 `O_WRONLY` writer는 `EPIPE`로 실패한다. Worker나 window를
+사용할 수 없거나 bounded quit timeout 안에 acknowledgement가 없으면 main이 checksum-valid regular
+rendezvous와 그 session에서 도출한 FIFO endpoint만 동기적으로 제거한다. Regular endpoint와
+symbolic-link endpoint path는 절대 제거하지 않는다.
 
-유효한 heartbeat read와 FIFO open 사이에는 process-death race가 불가피하다. Unique endpoint name,
-reader-before-ready ordering, 짧고 disconnected 상태에서만 존재하는 open window로 앱이 그 정확한
-구간에서 종료되는 경우까지 줄인다. SynthV 내부에 native 또는 subprocess bridge를 다시 넣지
-않는 한 Lua primitive만으로 이 마지막 race를 제거할 수 없다.
+FIFO pathname withdrawal 이후 endpoint open이 도착하면 `wb`가 regular file을 만들 수 있다. 이
+드문 late-open artifact는 endpoint handle을 진짜 write-only로 유지하기 위해 감수하는 비용이다.
+`O_RDWR`는 writer 자신을 FIFO reader로 만들어 app reader가 사라진 뒤 `EPIPE`를 받는 대신 영원히
+block될 수 있다. Connected rendezvous validation은 240 logical millisecond 안에 handle set을 닫고,
+새 app session은 unique path를 사용하며, stale pruning은 regular file과 symbolic link를 계속
+거부한다. 300 ms receiver grace는 정상 종료 중 이미 open된 writer를 drain하기 위한 동작이며,
+force-kill이나 synchronous write에서 이미 멈춘 Lua thread까지 안전하다는 증명은 아니다. SynthV
+내부에 native 또는 subprocess bridge를 다시 넣지 않는 한 Lua primitive만으로 이 마지막 race를
+제거할 수 없다.
 
 ## Connection Lifecycle
 
 Writer는 세 handle을 하나의 connection으로 취급한다.
 
 1. Disconnected 상태에서 fresh rendezvous를 읽고 검증한다.
-2. 기존 endpoint를 `state`, `scroll`, `notes` 순서로 `io.open(path, "r+b")`를 사용해 열고 각
-   handle의 stdio buffering을 끈다. `r+b`는 portable non-creating RDWR semantics를 제공한다. 이
-   open mode와 관계없이 script는 endpoint handle에서 `read`, `seek`, `flush`를 호출하지 않고
-   `write`, `setvbuf`, `close`만 사용한다. `wb`는 create semantics 때문에 FIFO pathname withdrawal
-   이후 dead regular file을 남길 수 있으므로 제외한다.
+2. 기존 endpoint를 `state`, `scroll`, `notes` 순서로 `io.open(path, "wb")`를 사용해 열고 각
+   handle의 stdio buffering을 끈다. `setvbuf`가 nil을 반환하거나 throw하면 complete open을
+   실패시킨다. Endpoint handle은 `write`, `setvbuf`, `close`만 사용하며 `read`, `seek`, `flush`는
+   절대 호출하지 않는다.
 3. 하나라도 open에 실패하면 모든 handle을 닫고 disconnected backoff 후 재시도한다.
 4. 현재 view mapping과 note schedule을 수집한다.
 5. 새 app session에 맞춰 `stateSeq`, `scrollSeq`, `notesSeq`를 초기화한다.
@@ -164,15 +170,25 @@ Writer는 세 handle을 하나의 connection으로 취급한다.
 있으므로 재사용하면 앱 재시작 후 자동 정확 복구 요구를 충족하지 못한다.
 
 어느 stream에서든 write가 실패하면 세 handle을 모두 닫는다. 실패한 indexed-channel write는 state가
-광고하는 generation을 증가시키지 않는다. 실패한 disconnected attempt는 250 logical millisecond 동안
-backoff한다. Connected 상태에서는 동일한 250 ms rendezvous cadence가 앱의 300 ms drain grace 안에
-withdrawal 또는 session replacement를 감지한다. 다음 fresh rendezvous에서 set을 다시 연결하고 완전한
-snapshot을 재전송한다. Partial channel recovery는 별도의 session-consistency protocol을 추가하므로
-의도적으로 제외한다.
+광고하는 generation을 증가시키지 않는다. 실패한 disconnected attempt는 240 logical millisecond 동안
+backoff한다. Connected 상태에서는 동일한 240 ms rendezvous cadence가 withdrawal 또는 session
+replacement를 감지한다. Notes encode 뒤 large write 직전에 cadence-gated validation을 한 번 더 하되,
+현재 cadence의 rendezvous read를 공유하여 다시 open하거나 read하지 않는다. 다음 fresh
+rendezvous에서 set을 다시 연결하고 완전한 snapshot을 재전송한다. Partial channel recovery는 별도의
+session-consistency protocol을 추가하므로 의도적으로 제외한다. 명시적 disable은 deadline을 reset해
+re-enable이 즉시 시도할 수 있게 하지만 transport failure와 exact-snapshot failure에는 backoff를
+유지한다.
 
 앱은 receiver session이 시작될 때 모든 bridge cache를 비운다. 새로운 state가 indexed record를
 기다리는 동안에는 마지막 valid composed snapshot을 유지하지만, 이전 app session data를 새 data와
 조합하지 않는다.
+
+세 pipe는 cross-pipe arrival order를 제공하지 않는다. Physical handle set의 첫 session frame 전에는
+receiver가 latest complete scroll frame과 latest complete notes frame을 각각 하나만 보관하고 state는
+게시하지 않는다. State pipe가 ordered session frame을 보내면 receiver가 그 session을 먼저 게시하고,
+gate를 연 다음 buffered scroll과 notes 순서로 flush한 후 같은 state chunk의 이후 state frame을
+게시한다. Disconnect, fatal error, recovery, replacement session이 발생하면 gate를 닫고 두 bounded
+slot을 비운다. Malformed pre-session framing은 계속 fatal이다.
 
 ## Wire Format
 
@@ -271,12 +287,15 @@ Pure test 범위는 다음과 같다.
 - generation mismatch 중 마지막 valid snapshot 유지;
 - app session 간 cache reset;
 - 한 channel 실패 후 모든 handle teardown;
-- same-session handle preservation과 250 ms 안의 connected rendezvous withdrawal;
+- same-session handle preservation과 240 ms 안의 connected rendezvous withdrawal;
+- 모든 cross-pipe arrival order에서 bounded pre-session scroll/notes buffering;
+- nil/throw `setvbuf` failure, 명시적 disable/re-enable, 239/240 ms cadence edge;
 - reconnect 시 full snapshot order와 generation reset.
 
 Platform integration check 범위는 다음과 같다.
 
-- 실제 macOS FIFO 생성, readiness, framing, shutdown, stale rendezvous 동작;
+- 실제 macOS FIFO 생성, readiness, framing, shutdown, stale rendezvous 동작과 reader close 시
+  `EPIPE`로 unblock되는 `O_WRONLY` large writer;
 - Parallels Windows 환경의 실제 Windows Named Pipe 생성과 framing;
 - SynthV를 먼저 시작하는 경우와 voxpane을 먼저 시작하는 경우;
 - voxpane만 종료하고 재시작한 뒤 사용자 조작 없이 현재 notes, scroll, state 복구;

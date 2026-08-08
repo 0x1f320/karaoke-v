@@ -1,7 +1,7 @@
 import type { PipeEndpoints } from "./rendezvous"
 import { readRendezvous } from "./rendezvous"
 
-const RETRY_INTERVAL_MS = 250
+const RETRY_INTERVAL_MS = 240
 
 export type PipeChannel = "state" | "scroll" | "notes"
 
@@ -12,7 +12,9 @@ export interface PipeConnection {
 
 export interface PipeClient {
   connect(elapsedMs: number): PipeConnection | undefined
+  validate(elapsedMs: number, serial: number): boolean
   write(channel: PipeChannel, frame: string): boolean
+  invalidate(message: string): void
   disconnect(): void
   describe(): string
 }
@@ -43,13 +45,19 @@ function closeHandle(handle: LuaFile): void {
 
 function openEndpoint(channel: PipeChannel, path: string): OpenedEndpoint | OpenFailed {
   try {
-    // RDWR is used only for non-creating opens; endpoint handles remain write-only in use.
-    const [handle, reason] = io.open(path, "r+b")
-    if (handle === undefined) {
+    const [openedHandle, reason] = io.open(path, "wb")
+    if (openedHandle === undefined) {
       return { error: `open ${channel} failed: ${reason ?? "unavailable"}` }
     }
+    const handle = openedHandle as SVLuaFile
     try {
-      handle.setvbuf("no")
+      const [unbuffered, bufferReason] = handle.setvbuf("no")
+      if (unbuffered === undefined) {
+        closeHandle(handle)
+        return {
+          error: `open ${channel} failed: ${bufferReason ?? "setvbuf returned nil"}`,
+        }
+      }
     } catch (error) {
       closeHandle(handle)
       return { error: `open ${channel} failed: ${errorText(error)}` }
@@ -114,46 +122,52 @@ export function createPipeClient(directory: string): PipeClient {
     return false
   }
 
-  return {
-    connect(elapsedMs) {
-      lastElapsedMs = elapsedMs
-      if (elapsedMs < nextAttemptMs) {
-        return connection
-      }
-      nextAttemptMs = elapsedMs + RETRY_INTERVAL_MS
-
-      let advertised: PipeEndpoints | undefined
-      try {
-        advertised = readRendezvous(directory)
-      } catch (error) {
-        lastError = `rendezvous failed: ${errorText(error)}`
-        closeAll()
-        return undefined
-      }
-
-      if (connection !== undefined && advertised?.session === connection.session) {
-        return connection
-      }
-
-      if (connection !== undefined) {
-        closeAll()
-      }
-      if (advertised === undefined) {
-        lastError = "rendezvous unavailable"
-        return undefined
-      }
-
-      lastSession = advertised.session
-      const opened = openAll(advertised)
-      if ("error" in opened) {
-        lastError = opened.error
-        return undefined
-      }
-
-      handles = opened
-      serial = serial + 1
-      connection = { session: advertised.session, serial }
+  function connect(elapsedMs: number): PipeConnection | undefined {
+    lastElapsedMs = elapsedMs
+    if (elapsedMs < nextAttemptMs) {
       return connection
+    }
+    nextAttemptMs = elapsedMs + RETRY_INTERVAL_MS
+
+    let advertised: PipeEndpoints | undefined
+    try {
+      advertised = readRendezvous(directory)
+    } catch (error) {
+      lastError = `rendezvous failed: ${errorText(error)}`
+      closeAll()
+      return undefined
+    }
+
+    if (connection !== undefined && advertised?.session === connection.session) {
+      return connection
+    }
+
+    if (connection !== undefined) {
+      closeAll()
+    }
+    if (advertised === undefined) {
+      lastError = "rendezvous unavailable"
+      return undefined
+    }
+
+    lastSession = advertised.session
+    const opened = openAll(advertised)
+    if ("error" in opened) {
+      lastError = opened.error
+      return undefined
+    }
+
+    handles = opened
+    serial = serial + 1
+    connection = { session: advertised.session, serial }
+    return connection
+  }
+
+  return {
+    connect,
+
+    validate(elapsedMs, expectedSerial) {
+      return connect(elapsedMs)?.serial === expectedSerial
     },
 
     write(channel, frame) {
@@ -172,8 +186,15 @@ export function createPipeClient(directory: string): PipeClient {
       }
     },
 
+    invalidate(message) {
+      lastError = message
+      closeAll()
+      nextAttemptMs = lastElapsedMs + RETRY_INTERVAL_MS
+    },
+
     disconnect() {
       closeAll()
+      nextAttemptMs = 0
     },
 
     describe() {

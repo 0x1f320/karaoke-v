@@ -5,6 +5,7 @@ import type {
   BridgeChannelDiagnostics,
   BridgeReceiptDiagnostics,
 } from "../shared/bridgeDiagnostics"
+import { BRIDGE_SHUTDOWN_COMPLETE, BRIDGE_SHUTDOWN_REQUEST } from "../shared/bridgeShutdownIpc"
 import {
   type CanvasSnapshot,
   type DipTransform,
@@ -19,12 +20,12 @@ import {
 import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
 import { expectedCanvasSize } from "../shared/pianoRollGeometry"
 import type { Preferences, PreferencesPatch } from "../shared/preferences"
-import type { BridgeReceiverMessage } from "./bridgeReceiver"
 import { BridgeRuntime } from "./bridgeRuntime"
+import type { BridgeWorkerCommand, BridgeWorkerMessage } from "./bridgeWorkerProtocol"
 
 interface BrowserWorker {
-  onmessage: ((event: { data: BridgeReceiverMessage }) => void) | null
-  postMessage(message: unknown): void
+  onmessage: ((event: { data: BridgeWorkerMessage }) => void) | null
+  postMessage(message: BridgeWorkerCommand): void
 }
 
 interface BrowserWorkerConstructor {
@@ -33,12 +34,19 @@ interface BrowserWorkerConstructor {
 
 let bridgeRuntime: BridgeRuntime | null = null
 let bridgeWorker: BrowserWorker | null = null
+let bridgeShuttingDown = false
+let bridgeStopPromise: Promise<boolean> | null = null
+let resolveBridgeStop: ((stopped: boolean) => void) | null = null
 
 function cachedBridge(): BridgeRuntime {
-  if (bridgeRuntime && bridgeWorker) {
+  if (bridgeRuntime && (bridgeWorker || bridgeShuttingDown)) {
     return bridgeRuntime
   }
   const runtime = new BridgeRuntime()
+  bridgeRuntime = runtime
+  if (bridgeShuttingDown) {
+    return runtime
+  }
   const workerPath = join(__dirname, "bridgeWorker.js")
   const workerUrl = URL.createObjectURL(
     new Blob([`require(${JSON.stringify(workerPath)})`], { type: "text/javascript" }),
@@ -46,7 +54,10 @@ function cachedBridge(): BridgeRuntime {
   const Worker = (globalThis as unknown as { Worker: BrowserWorkerConstructor }).Worker
   const worker = new Worker(workerUrl)
   worker.onmessage = ({ data }) => {
-    if (data.type === "session") {
+    if (data.type === "shutdown-complete") {
+      resolveBridgeStop?.(true)
+      resolveBridgeStop = null
+    } else if (data.type === "session") {
       runtime.acceptSession(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
     } else if (data.type === "state") {
       runtime.acceptState(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
@@ -66,9 +77,31 @@ function cachedBridge(): BridgeRuntime {
     }
   }
   bridgeWorker = worker
-  bridgeRuntime = runtime
   return runtime
 }
+
+function stopBridgeWorker(): Promise<boolean> {
+  if (bridgeStopPromise) {
+    return bridgeStopPromise
+  }
+  bridgeShuttingDown = true
+  const worker = bridgeWorker
+  if (!worker) {
+    bridgeStopPromise = Promise.resolve(false)
+    return bridgeStopPromise
+  }
+  bridgeStopPromise = new Promise((resolve) => {
+    resolveBridgeStop = resolve
+    worker.postMessage({ type: "stop" })
+  })
+  return bridgeStopPromise
+}
+
+ipcRenderer.on(BRIDGE_SHUTDOWN_REQUEST, () => {
+  void stopBridgeWorker().then((stopped) => {
+    ipcRenderer.send(BRIDGE_SHUTDOWN_COMPLETE, stopped)
+  })
+})
 
 function acceptDiagnostics(
   diagnostics: BridgeReceiptDiagnostics | null,

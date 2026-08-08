@@ -227,6 +227,10 @@ interface SVHost {
   pitch2Freq(pitch: number): number
 }
 
+type SVLuaFile = Omit<LuaFile, "setvbuf"> & {
+  setvbuf(mode: "no" | "full" | "line", size?: number): LuaMultiReturn<[true] | [undefined, string]>
+}
+
 declare const SV: SVHost
 
 declare var getClientInfo: () => SVClientInfo

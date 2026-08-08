@@ -5,6 +5,11 @@ const pipe = vi.hoisted(() => ({
   connection: undefined as PipeConnection | undefined,
   directory: "/bridge" as string | undefined,
   disconnects: 0,
+  connectElapsed: [] as number[],
+  validations: [] as Array<[number, number]>,
+  validationResult: true,
+  invalidations: [] as string[],
+  events: [] as string[],
   writes: [] as Array<[PipeChannel, string]>,
   writeResults: [] as boolean[],
 }))
@@ -19,14 +24,27 @@ vi.mock("./paths", () => ({
 
 vi.mock("./pipe", () => ({
   createPipeClient: () => ({
-    connect: () => pipe.connection,
+    connect: (elapsedMs: number) => {
+      pipe.connectElapsed.push(elapsedMs)
+      return pipe.connection
+    },
+    validate: (elapsedMs: number, serial: number) => {
+      pipe.validations.push([elapsedMs, serial])
+      pipe.events.push("validate")
+      return pipe.validationResult
+    },
     write: (channel: PipeChannel, frame: string) => {
+      pipe.events.push(`write:${channel}`)
       pipe.writes.push([channel, frame])
       const result = pipe.writeResults.shift() ?? true
       if (!result) {
         pipe.connection = undefined
       }
       return result
+    },
+    invalidate: (message: string) => {
+      pipe.invalidations.push(message)
+      pipe.connection = undefined
     },
     disconnect: () => {
       pipe.disconnects += 1
@@ -42,7 +60,10 @@ vi.mock("./pipe", () => ({
 vi.mock("./codec", () => ({
   LAYOUT: 5,
   encodeSession: (json: string) => `session:${json}`,
-  encodeNotes: (notesSeq: number, rev: string) => `notes:${notesSeq}:${rev}`,
+  encodeNotes: (notesSeq: number, rev: string) => {
+    pipe.events.push("encode-notes")
+    return `notes:${notesSeq}:${rev}`
+  },
   encodeScroll: (value: { scrollSeq: number }) => `scroll:${value.scrollSeq}`,
   encodeState: (value: { seq: number; notesSeq: number; scrollSeq: number }) =>
     `state:${value.seq}:notes=${value.notesSeq}:scroll=${value.scrollSeq}`,
@@ -76,6 +97,11 @@ beforeEach(() => {
   pipe.connection = { session: APP_A, serial: 1 }
   pipe.directory = "/bridge"
   pipe.disconnects = 0
+  pipe.connectElapsed = []
+  pipe.validations = []
+  pipe.validationResult = true
+  pipe.invalidations = []
+  pipe.events = []
   pipe.writes = []
   pipe.writeResults = []
   Object.assign(globalThis, {
@@ -115,7 +141,7 @@ describe("createPublisher", () => {
     publisher.publishState(defaultState)
 
     pipe.connection = { session: APP_A, serial: 2 }
-    expect(publisher.prepare(250)).toBe("new-session")
+    expect(publisher.prepare(240)).toBe("new-session")
 
     expect(sessionPayload(pipe.writes.length - 1)).toMatchObject({
       appSession: APP_A,
@@ -129,7 +155,7 @@ describe("createPublisher", () => {
     expect(publisher.prepare(0)).toBe("new-session")
 
     pipe.connection = { session: APP_B, serial: 2 }
-    expect(publisher.prepare(250)).toBe("new-session")
+    expect(publisher.prepare(240)).toBe("new-session")
 
     expect(sessionPayload(1)).toMatchObject({ appSession: APP_B, scriptSession: "123:2" })
   })
@@ -139,7 +165,7 @@ describe("createPublisher", () => {
     const publisher = createPublisher()
 
     expect(publisher.prepare(0)).toBe("disconnected")
-    expect(pipe.disconnects).toBe(1)
+    expect(pipe.invalidations).toEqual(["session write failed"])
     expect(publisher.describe()).toContain("session write failed")
   })
 
@@ -161,6 +187,30 @@ describe("createPublisher", () => {
       ["scroll", "scroll:1"],
       ["state", "state:1:notes=1:scroll=1"],
     ])
+  })
+
+  it("revalidates the current handle identity after encoding and before a notes write", () => {
+    const publisher = createPublisher()
+    publisher.prepare(240)
+    pipe.events = []
+
+    expect(publisher.publishNotes("r1", [])).toBe(true)
+
+    expect(pipe.validations).toEqual([[240, 1]])
+    expect(pipe.events).toEqual(["encode-notes", "validate", "write:notes"])
+  })
+
+  it("tears down without writing notes when pre-write validation loses the connection", () => {
+    const publisher = createPublisher()
+    publisher.prepare(0)
+    pipe.validationResult = false
+    pipe.writes = []
+
+    expect(publisher.publishNotes("r1", [])).toBe(false)
+
+    expect(pipe.writes).toEqual([])
+    expect(pipe.invalidations).toEqual(["notes validation failed"])
+    expect(publisher.describe()).toContain("notes validation failed")
   })
 
   it("does not advertise or publish state after a failed notes write", () => {
@@ -220,5 +270,15 @@ describe("createPublisher", () => {
     publisher.close()
 
     expect(pipe.disconnects).toBe(1)
+  })
+
+  it("aborts an incomplete reconnect snapshot and requires fresh preparation", () => {
+    const publisher = createPublisher()
+    publisher.prepare(0)
+
+    publisher.abortSnapshot("notes collection failed")
+
+    expect(pipe.invalidations).toEqual(["notes collection failed"])
+    expect(publisher.describe()).toContain("notes collection failed")
   })
 })

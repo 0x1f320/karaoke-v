@@ -32,18 +32,19 @@ class FakeHandle {
   readonly bufferModes: string[] = []
   readonly writes: string[] = []
   writeResult: "success" | "undefined" | "throw" = "success"
-  setvbufError: Error | undefined
+  setvbufResult: "success" | "undefined" | "throw" = "success"
 
   close(): boolean {
     this.closed += 1
     return true
   }
 
-  setvbuf(mode: string): void {
+  setvbuf(mode: string): [true] | [undefined, string] {
     this.bufferModes.push(mode)
-    if (this.setvbufError !== undefined) {
-      throw this.setvbufError
+    if (this.setvbufResult === "throw") {
+      throw new Error("buffer mode exploded")
     }
+    return this.setvbufResult === "undefined" ? [undefined, "buffer mode returned nil"] : [true]
   }
 
   write(frame: string): [FakeHandle] | [undefined, string] {
@@ -83,7 +84,7 @@ beforeEach(() => {
 })
 
 describe("createPipeClient", () => {
-  it("opens the complete handle set in deterministic r+b order with buffering disabled", () => {
+  it("opens the complete handle set in deterministic wb order with buffering disabled", () => {
     const state = new FakeHandle()
     const scroll = new FakeHandle()
     const notes = new FakeHandle()
@@ -92,9 +93,9 @@ describe("createPipeClient", () => {
 
     expect(client.connect(0)).toEqual({ session: APP_A, serial: 1 })
     expect(opened).toEqual([
-      { path: endpoints().state, mode: "r+b" },
-      { path: endpoints().scroll, mode: "r+b" },
-      { path: endpoints().notes, mode: "r+b" },
+      { path: endpoints().state, mode: "wb" },
+      { path: endpoints().scroll, mode: "wb" },
+      { path: endpoints().notes, mode: "wb" },
     ])
     expect(state.bufferModes).toEqual(["no"])
     expect(scroll.bufferModes).toEqual(["no"])
@@ -121,20 +122,25 @@ describe("createPipeClient", () => {
     expect(client.describe()).toContain("open scroll")
   })
 
-  it("closes the current and prior handles when setvbuf throws", () => {
-    const state = new FakeHandle()
-    const scroll = new FakeHandle()
-    scroll.setvbufError = new Error("buffer mode exploded")
-    queueHandles(state, scroll)
-    const client = createPipeClient("/bridge")
+  it.each(["undefined", "throw"] as const)(
+    "closes the current and prior handles when setvbuf returns %s",
+    (failure) => {
+      const state = new FakeHandle()
+      const scroll = new FakeHandle()
+      scroll.setvbufResult = failure
+      queueHandles(state, scroll)
+      const client = createPipeClient("/bridge")
 
-    expect(client.connect(0)).toBeUndefined()
-    expect(state.closed).toBe(1)
-    expect(scroll.closed).toBe(1)
-    expect(client.describe()).toContain("buffer mode exploded")
-  })
+      expect(client.connect(0)).toBeUndefined()
+      expect(state.closed).toBe(1)
+      expect(scroll.closed).toBe(1)
+      expect(client.describe()).toContain(
+        failure === "throw" ? "buffer mode exploded" : "buffer mode returned nil",
+      )
+    },
+  )
 
-  it("backs off a failed disconnected attempt for 250 logical milliseconds", () => {
+  it("backs off a failed disconnected attempt for 240 logical milliseconds", () => {
     const firstState = new FakeHandle()
     const state = new FakeHandle()
     const scroll = new FakeHandle()
@@ -143,10 +149,10 @@ describe("createPipeClient", () => {
     const client = createPipeClient("/bridge")
 
     expect(client.connect(0)).toBeUndefined()
-    expect(client.connect(249)).toBeUndefined()
+    expect(client.connect(239)).toBeUndefined()
     expect(opened).toHaveLength(2)
     expect(rendezvous.calls).toBe(1)
-    expect(client.connect(250)).toEqual({ session: APP_A, serial: 1 })
+    expect(client.connect(240)).toEqual({ session: APP_A, serial: 1 })
     expect(opened).toHaveLength(5)
     expect(rendezvous.calls).toBe(2)
   })
@@ -157,15 +163,29 @@ describe("createPipeClient", () => {
     const client = createPipeClient("/bridge")
 
     const connection = client.connect(0)
-    expect(client.connect(249)).toBe(connection)
-    expect(client.connect(250)).toBe(connection)
+    expect(client.connect(239)).toBe(connection)
+    expect(client.connect(240)).toBe(connection)
     expect(opened).toHaveLength(3)
     expect(rendezvous.calls).toBe(2)
     expect(handles.every((handle) => handle.closed === 0)).toBe(true)
   })
 
+  it("shares one rendezvous read budget between prepare and pre-write validation", () => {
+    queueHandles(new FakeHandle(), new FakeHandle(), new FakeHandle())
+    const client = createPipeClient("/bridge")
+
+    expect(client.connect(0)).toEqual({ session: APP_A, serial: 1 })
+    expect(client.validate(0, 1)).toBe(true)
+    expect(client.validate(239, 1)).toBe(true)
+    expect(rendezvous.calls).toBe(1)
+
+    expect(client.validate(240, 1)).toBe(true)
+    expect(rendezvous.calls).toBe(2)
+    expect(opened).toHaveLength(3)
+  })
+
   it.each(["missing", "stale", "malformed"])(
-    "tears down connected handles by the 250 ms validation for a %s rendezvous",
+    "tears down connected handles by the 240 ms validation for a %s rendezvous",
     () => {
       const handles = [new FakeHandle(), new FakeHandle(), new FakeHandle()] as const
       queueHandles(...handles)
@@ -173,8 +193,8 @@ describe("createPipeClient", () => {
 
       expect(client.connect(0)).toEqual({ session: APP_A, serial: 1 })
       rendezvous.result = undefined
-      expect(client.connect(249)).toEqual({ session: APP_A, serial: 1 })
-      expect(client.connect(250)).toBeUndefined()
+      expect(client.connect(239)).toEqual({ session: APP_A, serial: 1 })
+      expect(client.connect(240)).toBeUndefined()
       expect(handles.every((handle) => handle.closed === 1)).toBe(true)
       expect(opened).toHaveLength(3)
     },
@@ -188,7 +208,7 @@ describe("createPipeClient", () => {
 
     expect(client.connect(0)).toEqual({ session: APP_A, serial: 1 })
     rendezvous.result = endpoints(APP_B)
-    expect(client.connect(250)).toEqual({ session: APP_B, serial: 2 })
+    expect(client.connect(240)).toEqual({ session: APP_B, serial: 2 })
     expect(oldHandles.every((handle) => handle.closed === 1)).toBe(true)
     expect(newHandles.every((handle) => handle.closed === 0)).toBe(true)
     expect(opened).toHaveLength(6)
@@ -234,10 +254,25 @@ describe("createPipeClient", () => {
     client.connect(0)
 
     expect(client.write("state", "frame")).toBe(false)
-    expect(client.connect(249)).toBeUndefined()
+    expect(client.connect(239)).toBeUndefined()
     expect(opened).toHaveLength(3)
-    expect(client.connect(250)).toEqual({ session: APP_A, serial: 2 })
+    expect(client.connect(240)).toEqual({ session: APP_A, serial: 2 })
     expect(opened).toHaveLength(6)
+  })
+
+  it("backs off an explicitly invalidated incomplete snapshot", () => {
+    const first = [new FakeHandle(), new FakeHandle(), new FakeHandle()] as const
+    const second = [new FakeHandle(), new FakeHandle(), new FakeHandle()] as const
+    queueHandles(...first, ...second)
+    const client = createPipeClient("/bridge")
+
+    expect(client.connect(0)).toEqual({ session: APP_A, serial: 1 })
+    client.invalidate("snapshot failed")
+    expect(client.connect(239)).toBeUndefined()
+    expect(client.connect(240)).toEqual({ session: APP_A, serial: 2 })
+
+    expect(first.every((handle) => handle.closed === 1)).toBe(true)
+    expect(rendezvous.calls).toBe(2)
   })
 
   it("disconnects idempotently and reports connection state", () => {
@@ -252,6 +287,21 @@ describe("createPipeClient", () => {
 
     expect(handles.every((handle) => handle.closed === 1)).toBe(true)
     expect(client.describe()).toContain("disconnected")
+  })
+
+  it("reconnects immediately after an explicit disconnect and advances identity", () => {
+    const first = [new FakeHandle(), new FakeHandle(), new FakeHandle()] as const
+    const second = [new FakeHandle(), new FakeHandle(), new FakeHandle()] as const
+    queueHandles(...first, ...second)
+    const client = createPipeClient("/bridge")
+
+    expect(client.connect(0)).toEqual({ session: APP_A, serial: 1 })
+    client.disconnect()
+    expect(client.connect(4)).toEqual({ session: APP_A, serial: 2 })
+
+    expect(rendezvous.calls).toBe(2)
+    expect(first.every((handle) => handle.closed === 1)).toBe(true)
+    expect(second.every((handle) => handle.closed === 0)).toBe(true)
   })
 
   it("retains the app session in diagnostics after write teardown", () => {

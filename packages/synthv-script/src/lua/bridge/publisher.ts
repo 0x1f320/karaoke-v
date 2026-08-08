@@ -40,7 +40,8 @@ export type PrepareResult = "new-session" | "connected" | "disconnected"
 export interface Publisher {
   prepare(elapsedMs: number): PrepareResult
   publishState(state: StateValue): void
-  publishNotes(rev: string, notes: NoteRecord[]): void
+  publishNotes(rev: string, notes: NoteRecord[]): boolean
+  abortSnapshot(message: string): void
   describe(): string
   close(): void
 }
@@ -63,6 +64,7 @@ export function createPublisher(): Publisher {
   let scrollSeq = 0
   let lastScroll: ScrollValue | null = null
   let lastError = "none"
+  let lastElapsedMs = 0
 
   function resetPublicationState(): void {
     seq = 0
@@ -78,6 +80,7 @@ export function createPublisher(): Publisher {
 
   return {
     prepare(elapsedMs) {
+      lastElapsedMs = elapsedMs
       const connection = client.connect(elapsedMs)
       if (connection === undefined) {
         activeConnectionSerial = undefined
@@ -108,7 +111,7 @@ export function createPublisher(): Publisher {
       )
       if (!client.write("state", sessionFrame)) {
         deactivate("session write failed")
-        client.disconnect()
+        client.invalidate("session write failed")
         return "disconnected"
       }
 
@@ -156,14 +159,26 @@ export function createPublisher(): Publisher {
 
     publishNotes(rev, notes) {
       if (activeConnectionSerial === undefined) {
-        return
+        return false
       }
       const nextNotesSeq = notesSeq + 1
-      if (!client.write("notes", encodeNotes(nextNotesSeq, rev, notes))) {
+      const notesFrame = encodeNotes(nextNotesSeq, rev, notes)
+      if (!client.validate(lastElapsedMs, activeConnectionSerial)) {
+        deactivate("notes validation failed")
+        client.invalidate("notes validation failed")
+        return false
+      }
+      if (!client.write("notes", notesFrame)) {
         deactivate("notes write failed")
-        return
+        return false
       }
       notesSeq = nextNotesSeq
+      return true
+    },
+
+    abortSnapshot(message) {
+      deactivate(message)
+      client.invalidate(message)
     },
 
     describe() {
@@ -203,7 +218,8 @@ function unavailable(reason: string): Publisher {
   return {
     prepare: () => "disconnected",
     publishState: () => {},
-    publishNotes: () => {},
+    publishNotes: () => false,
+    abortSnapshot: () => {},
     describe: () => `disconnected, last error: ${reason}`,
     close: () => {},
   }

@@ -154,7 +154,12 @@ class OverlayBridge {
     }
 
     if (preparation === "new-session") {
-      this.publishNotes()
+      if (!this.publishNotes(true)) {
+        this.refresh()
+        this.lastStatus = status
+        this.lastPlayhead = head
+        return
+      }
       this.refresh()
     } else if (status !== "stopped" && this.lastStatus === "stopped") {
       // Playback just began: the app has no schedule if this session never
@@ -208,15 +213,22 @@ class OverlayBridge {
    * was not a cost worth paying — so the app used to see an edited schedule only
    * once playback started.
    */
-  private publishNotes(): void {
+  private publishNotes(exactSnapshot = false): boolean {
     try {
       const notes = collectNotes()
       this.revision = currentRevision()
-      this.publisher.publishNotes(this.revision, notes)
+      if (!this.publisher.publishNotes(this.revision, notes)) {
+        return false
+      }
       this.notesPublished = notes.length
       this.lastError = "none"
+      return true
     } catch (error) {
       this.lastError = tostring(error)
+      if (exactSnapshot) {
+        this.publisher.abortSnapshot(this.lastError)
+      }
+      return false
     }
   }
 

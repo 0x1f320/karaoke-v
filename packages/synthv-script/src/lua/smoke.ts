@@ -22,22 +22,28 @@ let lastError = "none"
 const publisher = createPublisher()
 const notesButton = SV.create("WidgetValue")
 
-function publishCurrentNotes(): string {
-  const notes = collectNotes()
-  const revision = currentRevision()
-  lastNotes = notes.length
-  publisher.publishNotes(revision, notes)
-  return revision
+function publishCurrentNotes(exactSnapshot = false): string | undefined {
+  try {
+    const notes = collectNotes()
+    const revision = currentRevision()
+    if (!publisher.publishNotes(revision, notes)) {
+      return undefined
+    }
+    lastNotes = notes.length
+    lastError = "none"
+    return revision
+  } catch (error) {
+    lastError = tostring(error)
+    if (exactSnapshot) {
+      publisher.abortSnapshot(lastError)
+    }
+    return undefined
+  }
 }
 
 notesButton.setValueChangeCallback((value) => {
   lastCallback = `button value=${tostring(value)} (${type(value)})`
-  try {
-    publishCurrentNotes()
-    lastError = "none"
-  } catch (error) {
-    lastError = tostring(error)
-  }
+  publishCurrentNotes()
   SV.refreshSidePanel()
 })
 
@@ -53,7 +59,11 @@ function loop(): void {
   }
 
   const playback = SV.getPlayback()
-  const revision = preparation === "new-session" ? publishCurrentNotes() : currentRevision()
+  const revision = preparation === "new-session" ? publishCurrentNotes(true) : currentRevision()
+  if (revision === undefined) {
+    SV.setTimeout(TICK_INTERVAL, loop)
+    return
+  }
   const px = viewMapping()
   publisher.publishState({
     at: playback.getPlayhead(),

@@ -1,10 +1,13 @@
 import path from "node:path"
 import { app, type BrowserWindow, ipcMain } from "electron"
+import { bridgeDirectory } from "../shared/bridgePath"
+import { BRIDGE_SHUTDOWN_COMPLETE, BRIDGE_SHUTDOWN_REQUEST } from "../shared/bridgeShutdownIpc"
 import { APP_NAME } from "../shared/i18n"
 import { NATIVE_TARGET, native, type Rect } from "../shared/native"
 import { registerAssetIpc, registerAssetScheme } from "./assets"
 import { prepareBridgeDirectory } from "./bridge"
 import { installBridgeScript } from "./bridgeScript"
+import { BridgeQuitCoordinator, withdrawAdvertisedBridge } from "./bridgeShutdown"
 import { registerDipIpc, toDipFrame, updateDipTransform } from "./dip"
 import { initI18n } from "./i18n"
 import { createOverlayWindow, positionOverlay } from "./overlay"
@@ -50,6 +53,51 @@ function syncOverlayBounds(win: BrowserWindow, frame: Rect): void {
 
 let overlayWin: BrowserWindow | null = null
 let toolbarWin: BrowserWindow | null = null
+const BRIDGE_SHUTDOWN_TIMEOUT_MS = 1_000
+
+function requestBridgeReceiverStop(): Promise<boolean> {
+  const win = overlayWin
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
+    return Promise.resolve(false)
+  }
+  const sender = win.webContents
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const finish = (stopped: boolean): void => {
+      ipcMain.off(BRIDGE_SHUTDOWN_COMPLETE, complete)
+      if (timer) {
+        clearTimeout(timer)
+        timer = null
+      }
+      resolve(stopped)
+    }
+    const complete = (event: Electron.IpcMainEvent, stopped: unknown): void => {
+      if (event.sender === sender) {
+        finish(stopped === true)
+      }
+    }
+    ipcMain.on(BRIDGE_SHUTDOWN_COMPLETE, complete)
+    timer = setTimeout(() => finish(false), BRIDGE_SHUTDOWN_TIMEOUT_MS)
+    try {
+      sender.send(BRIDGE_SHUTDOWN_REQUEST)
+    } catch {
+      finish(false)
+    }
+  })
+}
+
+const bridgeQuit = new BridgeQuitCoordinator({
+  requestReceiverStop: requestBridgeReceiverStop,
+  withdrawAdvertisement: () => {
+    withdrawAdvertisedBridge(bridgeDirectory(), process.platform)
+  },
+  resumeQuit: () => app.quit(),
+  cleanup: () => {
+    native.stop()
+    destroyTray()
+  },
+  timeoutMs: BRIDGE_SHUTDOWN_TIMEOUT_MS,
+})
 
 // Names the macOS app menu, the About panel and notification attribution, which
 // would otherwise read the package name.
@@ -221,9 +269,8 @@ app.whenReady().then(() => {
   }
 })
 
-app.on("before-quit", () => {
-  native.stop()
-  destroyTray()
+app.on("before-quit", (event) => {
+  bridgeQuit.beforeQuit(event)
 })
 
 // Closing the settings window leaves an app with no windows at all, which is the

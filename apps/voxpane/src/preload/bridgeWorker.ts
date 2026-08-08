@@ -1,14 +1,12 @@
-import { BridgeReceiver, type BridgeReceiverMessage } from "./bridgeReceiver"
+import { BridgeReceiver } from "./bridgeReceiver"
+import type { BridgeWorkerCommand, BridgeWorkerMessage } from "./bridgeWorkerProtocol"
 
 interface WorkerScope {
-  postMessage(message: BridgeReceiverMessage, transfer: ArrayBuffer[]): void
+  postMessage(message: BridgeWorkerMessage, transfer: ArrayBuffer[]): void
   onmessage: ((event: { data: WorkerCommand }) => void) | null
 }
 
-interface WorkerCommand {
-  type: "diagnostics"
-  enabled: boolean
-}
+type WorkerCommand = BridgeWorkerCommand
 
 const scope = globalThis as unknown as WorkerScope
 const receiver = new BridgeReceiver({
@@ -18,6 +16,10 @@ const receiver = new BridgeReceiver({
 scope.onmessage = ({ data }) => {
   if (data.type === "diagnostics") {
     receiver.setDiagnosticsEnabled(data.enabled)
+  } else {
+    void receiver.stop().then(() => {
+      scope.postMessage({ type: "shutdown-complete" }, [])
+    })
   }
 }
 

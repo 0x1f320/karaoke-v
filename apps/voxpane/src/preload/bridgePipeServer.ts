@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { closeSync, createReadStream, fstatSync, openSync, writeSync } from "node:fs"
+import { closeSync, constants, createReadStream, fstatSync, openSync, writeSync } from "node:fs"
 import { lstat, unlink } from "node:fs/promises"
 import { createServer, type Server, type Socket } from "node:net"
 import { promisify } from "node:util"
@@ -145,7 +145,7 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
     }
 
     // RDWR bootstraps both sides so SynthV's first write-only open cannot block.
-    this.keepaliveFd = openSync(this.path, "r+")
+    this.keepaliveFd = this.openKeepalive()
     await this.openReader()
   }
 
@@ -260,7 +260,7 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
     this.establishShutdownKeepalive()
     const readerNeedsShutdown = this.stream !== null && !this.stream.closed
     try {
-      // Keep RDWR alive while withdrawing the name so late non-creating opens fail promptly.
+      // Keep the app-side RDWR descriptor alive while already-open writers drain.
       await this.withdrawOwnedFifo()
       if (readerNeedsShutdown) {
         await this.sleep(FIFO_DRAIN_GRACE_MS)
@@ -310,7 +310,7 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
       return
     }
     try {
-      this.keepaliveFd = openSync(this.path, "r+")
+      this.keepaliveFd = this.openKeepalive()
     } catch (error) {
       this.reportFatal(asError(error))
     }
@@ -346,7 +346,7 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
     }
     let fd: number | null = null
     try {
-      fd = openSync(this.path, "r+")
+      fd = this.openKeepalive()
       const opened = fstatSync(fd)
       if (opened.isFIFO() && opened.dev === identity.dev && opened.ino === identity.ino) {
         this.keepaliveFd = fd
@@ -360,6 +360,10 @@ class DarwinPipeEndpointServer implements PipeEndpointServer {
         } catch {}
       }
     }
+  }
+
+  private openKeepalive(): number {
+    return openSync(this.path, constants.O_RDWR | constants.O_NONBLOCK)
   }
 
   private async withdrawOwnedFifo(): Promise<void> {

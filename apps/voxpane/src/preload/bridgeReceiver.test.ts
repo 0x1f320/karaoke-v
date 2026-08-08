@@ -27,6 +27,7 @@ import {
 } from "../shared/bridgeRendezvous"
 import type { PipeEndpointServer } from "./bridgePipeServer"
 import {
+  type BridgeFrameMessage,
   BridgeReceiver,
   type BridgeReceiverFileSystem,
   type BridgeReceiverMessage,
@@ -213,6 +214,13 @@ function frame(channel: number, payload: Uint8Array): Uint8Array {
   view.setUint32(8, payload.length, true)
   bytes.set(payload, BRIDGE_HEADER_BYTES)
   return bytes
+}
+
+function sessionFrame(appSession = FIRST_SESSION): Uint8Array {
+  return frame(
+    BRIDGE_CHANNEL_SESSION,
+    new TextEncoder().encode(JSON.stringify({ v: 1, layout: 5, appSession })),
+  )
 }
 
 function oversizedHeader(channel: number, payloadBytes: number): Uint8Array {
@@ -610,9 +618,8 @@ describe("BridgeReceiver", () => {
     await values.receiver.start()
     values.receiver.setDiagnosticsEnabled(true)
 
-    endpoint(values, FIRST_SESSION, "state").emitData(
-      frame(BRIDGE_CHANNEL_SESSION, Uint8Array.of(1)),
-    )
+    const session = sessionFrame()
+    endpoint(values, FIRST_SESSION, "state").emitData(session)
     endpoint(values, FIRST_SESSION, "state").emitData(frame(BRIDGE_CHANNEL_STATE, Uint8Array.of(2)))
     endpoint(values, FIRST_SESSION, "scroll").emitData(
       frame(BRIDGE_CHANNEL_SCROLL, Uint8Array.of(3)),
@@ -620,11 +627,175 @@ describe("BridgeReceiver", () => {
     endpoint(values, FIRST_SESSION, "notes").emitData(frame(BRIDGE_CHANNEL_NOTES, Uint8Array.of(4)))
 
     expect(values.messages.filter((message) => message.type !== "transport")).toMatchObject([
-      { type: "session", diagnostics: { sizeBytes: 13 } },
+      { type: "session", diagnostics: { sizeBytes: session.byteLength } },
       { type: "state", diagnostics: { sizeBytes: 13 } },
       { type: "scroll", diagnostics: { sizeBytes: 13 } },
       { type: "schedule", diagnostics: { sizeBytes: 13 } },
     ])
+    await values.receiver.stop()
+  })
+
+  it.each([
+    ["scroll then notes", ["scroll", "notes"]],
+    ["notes then scroll", ["notes", "scroll"]],
+  ] as const)(
+    "publishes a session before buffered indexed frames received %s",
+    async (_label, arrivalOrder) => {
+      const values = harness()
+      await values.receiver.start()
+
+      for (const channel of arrivalOrder) {
+        if (channel === "scroll") {
+          endpoint(values, FIRST_SESSION, "scroll").emitData(
+            frame(BRIDGE_CHANNEL_SCROLL, Uint8Array.of(3)),
+          )
+        } else {
+          endpoint(values, FIRST_SESSION, "notes").emitData(
+            frame(BRIDGE_CHANNEL_NOTES, Uint8Array.of(4)),
+          )
+        }
+      }
+      endpoint(values, FIRST_SESSION, "state").emitData(
+        Uint8Array.from([...sessionFrame(), ...frame(BRIDGE_CHANNEL_STATE, Uint8Array.of(2))]),
+      )
+
+      expect(
+        values.messages
+          .filter((message) => message.type !== "transport")
+          .map((message) => message.type),
+      ).toEqual(["session", "scroll", "schedule", "state"])
+      await values.receiver.stop()
+    },
+  )
+
+  it.each([
+    [
+      ["session", "scroll", "notes"],
+      ["session", "scroll", "schedule"],
+    ],
+    [
+      ["session", "notes", "scroll"],
+      ["session", "schedule", "scroll"],
+    ],
+    [
+      ["scroll", "session", "notes"],
+      ["session", "scroll", "schedule"],
+    ],
+    [
+      ["notes", "session", "scroll"],
+      ["session", "schedule", "scroll"],
+    ],
+    [
+      ["scroll", "notes", "session"],
+      ["session", "scroll", "schedule"],
+    ],
+    [
+      ["notes", "scroll", "session"],
+      ["session", "scroll", "schedule"],
+    ],
+  ] as const)("gates every session/scroll/notes arrival permutation", async (arrival, expected) => {
+    const values = harness()
+    await values.receiver.start()
+
+    for (const kind of arrival) {
+      if (kind === "session") {
+        endpoint(values, FIRST_SESSION, "state").emitData(sessionFrame())
+      } else if (kind === "scroll") {
+        endpoint(values, FIRST_SESSION, "scroll").emitData(
+          frame(BRIDGE_CHANNEL_SCROLL, Uint8Array.of(1)),
+        )
+      } else {
+        endpoint(values, FIRST_SESSION, "notes").emitData(
+          frame(BRIDGE_CHANNEL_NOTES, Uint8Array.of(2)),
+        )
+      }
+    }
+
+    expect(
+      values.messages
+        .filter((message) => message.type !== "transport")
+        .map((message) => message.type),
+    ).toEqual(expected)
+    await values.receiver.stop()
+  })
+
+  it("retains only the latest complete pre-session indexed frame per channel", async () => {
+    const values = harness()
+    await values.receiver.start()
+    const firstScroll = frame(BRIDGE_CHANNEL_SCROLL, Uint8Array.of(1))
+    const latestScroll = frame(BRIDGE_CHANNEL_SCROLL, Uint8Array.of(2))
+    const firstNotes = frame(BRIDGE_CHANNEL_NOTES, Uint8Array.of(3))
+    const latestNotes = frame(BRIDGE_CHANNEL_NOTES, Uint8Array.of(4))
+
+    endpoint(values, FIRST_SESSION, "scroll").emitData(firstScroll)
+    endpoint(values, FIRST_SESSION, "notes").emitData(firstNotes)
+    endpoint(values, FIRST_SESSION, "scroll").emitData(latestScroll)
+    endpoint(values, FIRST_SESSION, "notes").emitData(latestNotes)
+    endpoint(values, FIRST_SESSION, "state").emitData(sessionFrame())
+
+    const published = values.messages.filter(
+      (message): message is BridgeFrameMessage => message.type !== "transport",
+    )
+    expect(published.map((message) => message.type)).toEqual(["session", "scroll", "schedule"])
+    expect(published.map((message) => [...new Uint8Array(message.bytes)])).toEqual([
+      [...sessionFrame()],
+      [...latestScroll],
+      [...latestNotes],
+    ])
+    await values.receiver.stop()
+  })
+
+  it("discards pending indexed frames and closes the gate on any endpoint disconnect", async () => {
+    const values = harness()
+    await values.receiver.start()
+
+    endpoint(values, FIRST_SESSION, "notes").emitData(frame(BRIDGE_CHANNEL_NOTES, Uint8Array.of(1)))
+    endpoint(values, FIRST_SESSION, "scroll").emitDisconnect()
+    endpoint(values, FIRST_SESSION, "state").emitData(sessionFrame())
+    endpoint(values, FIRST_SESSION, "state").emitData(frame(BRIDGE_CHANNEL_STATE, Uint8Array.of(3)))
+
+    expect(
+      values.messages
+        .filter((message) => message.type !== "transport")
+        .map((message) => message.type),
+    ).toEqual(["session", "state"])
+    await values.receiver.stop()
+  })
+
+  it("does not publish state before the physical handle set supplies a session", async () => {
+    const values = harness()
+    await values.receiver.start()
+
+    endpoint(values, FIRST_SESSION, "state").emitData(frame(BRIDGE_CHANNEL_STATE, Uint8Array.of(1)))
+    expect(values.messages.filter((message) => message.type === "state")).toEqual([])
+
+    endpoint(values, FIRST_SESSION, "state").emitData(sessionFrame())
+    expect(
+      values.messages
+        .filter((message) => message.type !== "transport")
+        .map((message) => message.type),
+    ).toEqual(["session"])
+    await values.receiver.stop()
+  })
+
+  it.each([
+    ["malformed", frame(BRIDGE_CHANNEL_SESSION, Uint8Array.of(1))],
+    ["different app session", sessionFrame(OTHER_SESSION)],
+  ] as const)("treats a %s pre-session frame as fatal", async (_label, invalidSession) => {
+    const values = harness()
+    await values.receiver.start()
+
+    endpoint(values, FIRST_SESSION, "notes").emitData(frame(BRIDGE_CHANNEL_NOTES, Uint8Array.of(1)))
+    endpoint(values, FIRST_SESSION, "state").emitData(invalidSession)
+    await flush()
+
+    expect(values.messages.filter((message) => message.type !== "transport")).toEqual([])
+    expect(values.created.slice(0, 3).every((server) => server.stopped)).toBe(true)
+    expect(values.messages.at(-1)).toMatchObject({
+      type: "transport",
+      status: "error",
+      malformedFrames: 1,
+    })
     await values.receiver.stop()
   })
 
@@ -703,6 +874,7 @@ describe("BridgeReceiver", () => {
 
     server.emitData(expected.subarray(0, 5))
     server.emitDisconnect()
+    server.emitData(sessionFrame())
     server.emitData(expected)
 
     expect(server.stopped).toBe(false)
@@ -711,7 +883,11 @@ describe("BridgeReceiver", () => {
     expect(stateMessage?.type === "state" ? new Uint8Array(stateMessage.bytes) : null).toEqual(
       expected,
     )
-    expect(values.messages.at(-2)).toMatchObject({
+    expect(
+      values.messages.find(
+        (message) => message.type === "transport" && message.disconnects.state === 1,
+      ),
+    ).toMatchObject({
       type: "transport",
       status: "ready",
       disconnects: { state: 1, scroll: 0, notes: 0 },
@@ -882,10 +1058,12 @@ describe.skipIf(process.platform !== "darwin")("BridgeReceiver macOS integration
       scroll: openSync(paths.scroll, "w"),
       notes: openSync(paths.notes, "w"),
     }
+    const session = sessionFrame()
     const state = frame(BRIDGE_CHANNEL_STATE, Uint8Array.of(1, 2, 3, 4))
     const scroll = frame(BRIDGE_CHANNEL_SCROLL, Uint8Array.of(5, 6))
     const notes = frame(BRIDGE_CHANNEL_NOTES, Uint8Array.of(7, 8, 9))
 
+    writeSync(writers.state, session)
     writeSync(writers.state, state.subarray(0, 7))
     writeSync(writers.state, state.subarray(7))
     writeSync(writers.scroll, scroll.subarray(0, 3))
@@ -893,7 +1071,7 @@ describe.skipIf(process.platform !== "darwin")("BridgeReceiver macOS integration
     writeSync(writers.notes, notes.subarray(0, 11))
     writeSync(writers.notes, notes.subarray(11))
     await waitFor(
-      () => messages.filter((message) => message.type !== "transport").length === 3,
+      () => messages.filter((message) => message.type !== "transport").length === 4,
       "fragmented FIFO frames",
     )
 
@@ -904,6 +1082,7 @@ describe.skipIf(process.platform !== "darwin")("BridgeReceiver macOS integration
       "FIFO writer disconnect",
     )
     const replacement = openSync(paths.state, "w")
+    writeSync(replacement, session)
     writeSync(replacement, state)
     await waitFor(
       () => messages.filter((message) => message.type === "state").length === 2,

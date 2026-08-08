@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const runtime = vi.hoisted(() => ({
   calls: [] as string[],
   callbacks: [] as Array<() => void>,
+  collectFailures: 0,
   prepareResults: [] as Array<"new-session" | "connected" | "disconnected">,
   scheduled: undefined as (() => void) | undefined,
 }))
@@ -10,6 +11,10 @@ const runtime = vi.hoisted(() => ({
 vi.mock("./bridge/model", () => ({
   collectNotes: () => {
     runtime.calls.push("collect-notes")
+    if (runtime.collectFailures > 0) {
+      runtime.collectFailures -= 1
+      throw new Error("collection unavailable")
+    }
     return [{ pitch: 60 }]
   },
   currentRevision: () => {
@@ -37,6 +42,10 @@ vi.mock("./bridge/publisher", () => ({
     },
     publishNotes: (rev: string, notes: unknown[]) => {
       runtime.calls.push(`notes:${rev}:${notes.length}`)
+      return true
+    },
+    abortSnapshot: (message: string) => {
+      runtime.calls.push(`abort:${message}`)
     },
     publishState: (state: { rev: string }) => {
       runtime.calls.push(`state:${state.rev}`)
@@ -69,6 +78,7 @@ beforeEach(() => {
   vi.resetModules()
   runtime.calls = []
   runtime.callbacks = []
+  runtime.collectFailures = 0
   runtime.prepareResults = []
   runtime.scheduled = undefined
   Object.assign(globalThis, {
@@ -130,5 +140,61 @@ describe("OverlayBridge", () => {
     runtime.callbacks[0]()
 
     expect(runtime.calls).toContain("close")
+  })
+
+  it("aborts a failed exact snapshot and recovers with notes, scroll, and state", async () => {
+    runtime.collectFailures = 1
+    runtime.prepareResults = [
+      "new-session",
+      ...Array<"disconnected">(59).fill("disconnected"),
+      "new-session",
+    ]
+
+    await import("./overlay-bridge")
+
+    expect(runtime.calls).toEqual([
+      "prepare:0",
+      "collect-notes",
+      "abort:Error: collection unavailable",
+    ])
+
+    for (let tick = 0; tick < 59; tick += 1) {
+      runtime.scheduled?.()
+    }
+    expect(runtime.calls.some((call) => call.startsWith("state:"))).toBe(false)
+
+    runtime.scheduled?.()
+    expect(runtime.calls.slice(-6)).toEqual([
+      "prepare:240",
+      "collect-notes",
+      "revision",
+      "notes:rev-1:1",
+      "view",
+      "state:rev-1",
+    ])
+  })
+
+  it("attempts immediately after disable and re-enable", async () => {
+    runtime.prepareResults = ["new-session", "new-session"]
+    await import("./overlay-bridge")
+    runtime.calls = []
+
+    runtime.callbacks[0]()
+    runtime.callbacks[0]()
+    runtime.scheduled?.()
+
+    expect(runtime.calls).toContain("close")
+    expect(runtime.calls).toContain("prepare:4")
+    expect(runtime.calls).toContain("notes:rev-1:1")
+  })
+
+  it("lands its 4 ms logical cadence exactly on 240 ms", async () => {
+    await import("./overlay-bridge")
+
+    for (let tick = 0; tick < 60; tick += 1) {
+      runtime.scheduled?.()
+    }
+
+    expect(runtime.calls.filter((call) => call.startsWith("prepare:")).at(-1)).toBe("prepare:240")
   })
 })
