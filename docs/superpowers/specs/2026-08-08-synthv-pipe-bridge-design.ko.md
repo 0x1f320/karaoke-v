@@ -136,9 +136,13 @@ Unique name은 새 app process가 stale endpoint를 재사용하지 못하게 �
 worker에 receiver stop을 요청하고 acknowledgement를 기다린다. Receiver는 reader를 닫기 전에
 rendezvous와 macOS FIFO pathname을 withdraw하고, 이미 open된 writer를 300 ms 동안 계속 drain한
 다음 reader를 닫는다. 그러면 block된 `O_WRONLY` writer는 `EPIPE`로 실패한다. Worker나 window를
-사용할 수 없거나 bounded quit timeout 안에 acknowledgement가 없으면 main이 checksum-valid regular
-rendezvous와 그 session에서 도출한 FIFO endpoint만 동기적으로 제거한다. Regular endpoint와
-symbolic-link endpoint path는 절대 제거하지 않는다.
+사용할 수 없거나 bounded quit timeout 안에 acknowledgement가 없으면 main은 먼저 overlay 재생성을
+막고 owner window를 follow callback에서 분리한 뒤 renderer와 worker를 destroy하고 두 번째 짧은
+bound 안에서 destruction을 기다린다. 그 다음 quit을 재개하기 직전 마지막 동작으로 checksum-valid
+regular rendezvous와 그 session에서 도출한 FIFO endpoint만 동기적으로 제거한다. Regular endpoint와
+symbolic-link endpoint path는 절대 제거하지 않는다. Renderer destruction이 reject되거나 bound를
+넘겨도 main은 이 final withdrawal을 수행한다. Force-kill은 handshake와 owner-quiescence fallback을
+모두 건너뛸 수 있으므로 crash recovery는 계속 heartbeat expiry와 unique session path에 의존한다.
 
 FIFO pathname withdrawal 이후 endpoint open이 도착하면 `wb`가 regular file을 만들 수 있다. 이
 드문 late-open artifact는 endpoint handle을 진짜 write-only로 유지하기 위해 감수하는 비용이다.

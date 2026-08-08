@@ -1,5 +1,6 @@
 import { BridgeReceiver } from "./bridgeReceiver"
 import type { BridgeWorkerCommand, BridgeWorkerMessage } from "./bridgeWorkerProtocol"
+import { createBridgeWorkerCommandHandler } from "./bridgeWorkerShutdown"
 
 interface WorkerScope {
   postMessage(message: BridgeWorkerMessage, transfer: ArrayBuffer[]): void
@@ -13,14 +14,12 @@ const receiver = new BridgeReceiver({
   publish: (message, transfer) => scope.postMessage(message, transfer),
 })
 
-scope.onmessage = ({ data }) => {
-  if (data.type === "diagnostics") {
-    receiver.setDiagnosticsEnabled(data.enabled)
-  } else {
-    void receiver.stop().then(() => {
-      scope.postMessage({ type: "shutdown-complete" }, [])
-    })
-  }
-}
+const handleCommand = createBridgeWorkerCommandHandler({
+  setDiagnosticsEnabled: (enabled) => receiver.setDiagnosticsEnabled(enabled),
+  stopReceiver: () => receiver.stop(),
+  publish: (message) => scope.postMessage(message, []),
+})
+
+scope.onmessage = ({ data }) => handleCommand(data)
 
 void receiver.start()

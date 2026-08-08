@@ -142,8 +142,13 @@ preload worker to stop the receiver and waits for acknowledgement. The receiver 
 rendezvous and macOS FIFO pathnames before closing readers, continues draining already-open
 writers for 300 ms, and then closes the readers. A blocked `O_WRONLY` writer then fails with
 `EPIPE`. If the worker or window is unavailable or does not acknowledge within the bounded quit
-timeout, main synchronously removes only a checksum-valid regular rendezvous and FIFO endpoints
-derived from its session; regular and symbolic-link endpoint paths are never removed.
+timeout, main first prevents overlay recreation, detaches the owning window from follow callbacks,
+destroys its renderer and worker, and waits for destruction under a second short bound. It then
+synchronously removes only a checksum-valid regular rendezvous and FIFO endpoints derived from
+its session as the final operation before resuming quit; regular and symbolic-link endpoint paths
+are never removed. If renderer destruction rejects or exceeds its bound, main still performs that
+final withdrawal. A force-kill can bypass both the handshake and this owner-quiescence fallback,
+so crash recovery still relies on heartbeat expiry and unique session paths.
 
 `wb` can create a regular file if an endpoint open lands after its FIFO pathname was withdrawn.
 That rare late-open artifact is the accepted cost of keeping endpoint handles genuinely

@@ -22,6 +22,7 @@ import { expectedCanvasSize } from "../shared/pianoRollGeometry"
 import type { Preferences, PreferencesPatch } from "../shared/preferences"
 import { BridgeRuntime } from "./bridgeRuntime"
 import type { BridgeWorkerCommand, BridgeWorkerMessage } from "./bridgeWorkerProtocol"
+import { createPreloadShutdownHandler, PreloadBridgeStopController } from "./bridgeWorkerShutdown"
 
 interface BrowserWorker {
   onmessage: ((event: { data: BridgeWorkerMessage }) => void) | null
@@ -35,8 +36,7 @@ interface BrowserWorkerConstructor {
 let bridgeRuntime: BridgeRuntime | null = null
 let bridgeWorker: BrowserWorker | null = null
 let bridgeShuttingDown = false
-let bridgeStopPromise: Promise<boolean> | null = null
-let resolveBridgeStop: ((stopped: boolean) => void) | null = null
+const bridgeStopController = new PreloadBridgeStopController()
 
 function cachedBridge(): BridgeRuntime {
   if (bridgeRuntime && (bridgeWorker || bridgeShuttingDown)) {
@@ -54,10 +54,11 @@ function cachedBridge(): BridgeRuntime {
   const Worker = (globalThis as unknown as { Worker: BrowserWorkerConstructor }).Worker
   const worker = new Worker(workerUrl)
   worker.onmessage = ({ data }) => {
+    bridgeStopController.accept(data)
     if (data.type === "shutdown-complete") {
-      resolveBridgeStop?.(true)
-      resolveBridgeStop = null
-    } else if (data.type === "session") {
+      return
+    }
+    if (data.type === "session") {
       runtime.acceptSession(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
     } else if (data.type === "state") {
       runtime.acceptState(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
@@ -80,27 +81,15 @@ function cachedBridge(): BridgeRuntime {
   return runtime
 }
 
-function stopBridgeWorker(): Promise<boolean> {
-  if (bridgeStopPromise) {
-    return bridgeStopPromise
-  }
-  bridgeShuttingDown = true
-  const worker = bridgeWorker
-  if (!worker) {
-    bridgeStopPromise = Promise.resolve(false)
-    return bridgeStopPromise
-  }
-  bridgeStopPromise = new Promise((resolve) => {
-    resolveBridgeStop = resolve
-    worker.postMessage({ type: "stop" })
-  })
-  return bridgeStopPromise
-}
+const handleBridgeShutdown = createPreloadShutdownHandler({
+  controller: bridgeStopController,
+  currentWorker: () => bridgeWorker,
+  acknowledge: (stopped) => ipcRenderer.send(BRIDGE_SHUTDOWN_COMPLETE, stopped),
+})
 
 ipcRenderer.on(BRIDGE_SHUTDOWN_REQUEST, () => {
-  void stopBridgeWorker().then((stopped) => {
-    ipcRenderer.send(BRIDGE_SHUTDOWN_COMPLETE, stopped)
-  })
+  bridgeShuttingDown = true
+  handleBridgeShutdown()
 })
 
 function acceptDiagnostics(

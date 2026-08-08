@@ -7,7 +7,12 @@ import { NATIVE_TARGET, native, type Rect } from "../shared/native"
 import { registerAssetIpc, registerAssetScheme } from "./assets"
 import { prepareBridgeDirectory } from "./bridge"
 import { installBridgeScript } from "./bridgeScript"
-import { BridgeQuitCoordinator, withdrawAdvertisedBridge } from "./bridgeShutdown"
+import {
+  BridgeQuitCoordinator,
+  destroyBridgeReceiverOwner,
+  requestBridgeReceiverStop as requestBridgeReceiverStopIpc,
+  withdrawAdvertisedBridge,
+} from "./bridgeShutdown"
 import { registerDipIpc, toDipFrame, updateDipTransform } from "./dip"
 import { initI18n } from "./i18n"
 import { createOverlayWindow, positionOverlay } from "./overlay"
@@ -45,7 +50,7 @@ function syncOverlayBounds(win: BrowserWindow, frame: Rect): void {
   }
   boundsSync = setTimeout(() => {
     boundsSync = null
-    if (!win.isDestroyed()) {
+    if (!quitting && !win.isDestroyed()) {
       positionOverlay(win, frame)
     }
   }, BOUNDS_SYNC_MS)
@@ -53,41 +58,42 @@ function syncOverlayBounds(win: BrowserWindow, frame: Rect): void {
 
 let overlayWin: BrowserWindow | null = null
 let toolbarWin: BrowserWindow | null = null
+let quitting = false
 const BRIDGE_SHUTDOWN_TIMEOUT_MS = 1_000
+const BRIDGE_QUIESCE_TIMEOUT_MS = 250
 
 function requestBridgeReceiverStop(): Promise<boolean> {
   const win = overlayWin
   if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
     return Promise.resolve(false)
   }
-  const sender = win.webContents
-  return new Promise((resolve) => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const finish = (stopped: boolean): void => {
-      ipcMain.off(BRIDGE_SHUTDOWN_COMPLETE, complete)
-      if (timer) {
-        clearTimeout(timer)
-        timer = null
-      }
-      resolve(stopped)
-    }
-    const complete = (event: Electron.IpcMainEvent, stopped: unknown): void => {
-      if (event.sender === sender) {
-        finish(stopped === true)
-      }
-    }
-    ipcMain.on(BRIDGE_SHUTDOWN_COMPLETE, complete)
-    timer = setTimeout(() => finish(false), BRIDGE_SHUTDOWN_TIMEOUT_MS)
-    try {
-      sender.send(BRIDGE_SHUTDOWN_REQUEST)
-    } catch {
-      finish(false)
-    }
-  })
+  return requestBridgeReceiverStopIpc(
+    ipcMain,
+    win.webContents,
+    BRIDGE_SHUTDOWN_REQUEST,
+    BRIDGE_SHUTDOWN_COMPLETE,
+    BRIDGE_SHUTDOWN_TIMEOUT_MS,
+  )
+}
+
+function quiesceBridgeReceiverOwner(): Promise<void> {
+  const win = overlayWin
+  overlayWin = null
+  dockedFrame = null
+  if (boundsSync) {
+    clearTimeout(boundsSync)
+    boundsSync = null
+  }
+  native.unfollow?.()
+  if (!win || win.isDestroyed()) {
+    return Promise.resolve()
+  }
+  return destroyBridgeReceiverOwner(win)
 }
 
 const bridgeQuit = new BridgeQuitCoordinator({
   requestReceiverStop: requestBridgeReceiverStop,
+  quiesceReceiverOwner: quiesceBridgeReceiverOwner,
   withdrawAdvertisement: () => {
     withdrawAdvertisedBridge(bridgeDirectory(), process.platform)
   },
@@ -97,6 +103,7 @@ const bridgeQuit = new BridgeQuitCoordinator({
     destroyTray()
   },
   timeoutMs: BRIDGE_SHUTDOWN_TIMEOUT_MS,
+  quiesceTimeoutMs: BRIDGE_QUIESCE_TIMEOUT_MS,
 })
 
 // Names the macOS app menu, the About panel and notification attribution, which
@@ -129,6 +136,7 @@ registerAssetScheme()
 // so a relaunch has nothing to raise — show settings as the visible ack instead,
 // or the gate the first copy is still waiting on.
 app.on("second-instance", () => {
+  if (quitting) return
   if (started) {
     openSettingsWindow()
   } else {
@@ -142,6 +150,7 @@ app.on("second-instance", () => {
 let started = false
 
 function start(): void {
+  if (quitting) return
   if (started) {
     // The gate came back up mid-run — the grant was revoked and restored — so
     // the windows are already there and only the observer has to be rebuilt: it
@@ -181,7 +190,7 @@ function start(): void {
 let dockedFrame: { x: number; y: number; w: number; h: number } | null = null
 
 function syncToolbar(): void {
-  if (!toolbarWin || toolbarWin.isDestroyed() || !dockedFrame || !isToolbarMeasured()) {
+  if (quitting || !toolbarWin || toolbarWin.isDestroyed() || !dockedFrame || !isToolbarMeasured()) {
     return
   }
   positionToolbar(toolbarWin, dockedFrame)
@@ -191,9 +200,11 @@ function syncToolbar(): void {
 }
 
 function startTracking(): void {
+  if (quitting) return
   native.start({
     target: NATIVE_TARGET,
     onFrame: (raw) => {
+      if (quitting) return
       // The helper speaks in native units — points on macOS, physical pixels on
       // Windows — while window placement is in DIPs, so everything is converted
       // before anything is positioned. Renderers get the same transform pushed.
@@ -214,6 +225,7 @@ function startTracking(): void {
       syncToolbar()
     },
     onStatus: (s) => {
+      if (quitting) return
       setTrayStatus(s.state)
       // Trust was revoked while running: nothing can be read any more, so ask
       // for it back rather than leaving an overlay that silently never draws.
@@ -236,6 +248,7 @@ function startTracking(): void {
 }
 
 app.whenReady().then(() => {
+  if (quitting) return
   if (process.platform === "darwin" && app.dock) {
     app.dock.hide()
   }
@@ -270,13 +283,14 @@ app.whenReady().then(() => {
 })
 
 app.on("before-quit", (event) => {
+  quitting = true
   bridgeQuit.beforeQuit(event)
 })
 
 // Closing the settings window leaves an app with no windows at all, which is the
 // normal resting state once the tray is the handle back in.
 app.on("window-all-closed", () => {
-  if (!hasTray()) {
+  if (!quitting && !hasTray()) {
     app.quit()
   }
 })
