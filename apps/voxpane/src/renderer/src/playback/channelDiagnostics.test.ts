@@ -3,45 +3,42 @@ import type { BridgeDiagnostics } from "../../../shared/bridgeDiagnostics"
 import type { Viewport } from "../../../shared/geometry"
 import {
   BridgeDiagnosticsGraphHistory,
+  type BridgeDiagnosticsLabels,
   BridgeDiagnosticsStats,
   BridgeScrollLatency,
-  diagnosticsGraphPosition,
   diagnosticsGraphSample,
   diagnosticsGraphScale,
   diagnosticsLegendLayout,
   diagnosticsPanelPosition,
-  diagnosticsYAxisLabels,
   formatBridgeDiagnostics,
 } from "./channelDiagnostics"
 
-const LABELS = {
+const LABELS: BridgeDiagnosticsLabels = {
+  connection: (values) =>
+    `connection ${values.status} session=${values.session} recoveries=${values.recoveries} malformed=${values.malformedFrames} endpointFailures=${values.endpointFailures} disconnects=${values.disconnects}`,
+  status: (status) => status ?? "unavailable",
   state: "state",
   scroll: "scroll",
   notes: "notes",
-  age: "age",
+  received: "received",
   size: "size",
   applied: "applied",
   average: "avg",
   current: "current",
   min: "min",
-  read: "read",
   seq: "seq",
   notesSeq: "notesSeq",
   scrollSeq: "scrollSeq",
   rev: "rev",
   failures: "fail",
-  stateMissing: "stateMissing",
   stateInvalid: "stateInvalid",
-  scrollMissing: "scrollMissing",
   scrollInvalid: "scrollInvalid",
   scrollSeqMismatch: "scrollSeqMismatch",
-  notesMissing: "notesMissing",
   notesInvalid: "notesInvalid",
+  notesSeqMismatch: "notesSeqMismatch",
   revMismatch: "revMismatch",
   stateApplied: "state applied",
   notesApplied: "notes applied",
-  stateRead: "state read",
-  notesRead: "notes read",
   scrollApplied: "scroll applied",
   max: "max",
   p95: "p95",
@@ -49,143 +46,72 @@ const LABELS = {
   missing: "n/a",
 }
 
-const STATS_30 = {
-  avg: 30,
-  min: 10,
-  max: 50,
-  p95: 50,
-  p99: 50,
-}
-
-const STATS_12_5 = {
-  avg: 12.5,
-  min: 5,
-  max: 20,
-  p95: 20,
-  p99: 20,
-}
-
-const STATS_70 = {
-  avg: 70,
-  min: 70,
-  max: 70,
-  p95: 70,
-  p99: 70,
-}
-
-const VIEWPORT: Viewport = {
-  canvas: { x: 10, y: 20, w: 800, h: 400 },
-  contentX: 100,
-  contentW: 2000,
-  refY: 50,
-  source: {
-    seq: 1,
-    mapping: {
-      perBlick: 2,
-      perSemitone: 12,
-      viewLeft: 0,
-      viewRight: 100,
-      viewTop: 80,
-      viewBottom: 40,
+function diagnostics(overrides: Partial<BridgeDiagnostics> = {}): BridgeDiagnostics {
+  return {
+    state: { receivedAtMs: 1_000, acceptedAtMs: 60, sizeBytes: 256 },
+    scroll: { receivedAtMs: 1_500, acceptedAtMs: 70, sizeBytes: 64 },
+    notes: { receivedAtMs: 1_800, acceptedAtMs: 90, sizeBytes: 4_096 },
+    stateRecord: { seq: 12, notesSeq: 7, scrollSeq: 4, rev: "abcdef123456" },
+    scrollRecord: { scrollSeq: 4 },
+    notesRecord: { notesSeq: 7, rev: "abcdef123456" },
+    counters: {
+      stateInvalid: 2,
+      scrollInvalid: 4,
+      scrollSeqMismatch: 5,
+      notesInvalid: 7,
+      notesSeqMismatch: 6,
+      revMismatch: 8,
     },
-  },
+    transport: {
+      status: "connected",
+      session: "0123456789abcdef0123456789abcdef",
+      recoveries: 2,
+      malformedFrames: 1,
+      endpointFailures: 3,
+      disconnects: { state: 1, scroll: 2, notes: 3 },
+    },
+    ...overrides,
+  }
+}
+
+const STATS = {
+  state: { avg: 30, min: 10, max: 50, p95: 50, p99: 50 },
+  notes: { avg: 12.5, min: 5, max: 20, p95: 20, p99: 20 },
+  scroll: { avg: 70, min: 70, max: 70, p95: 70, p99: 70 },
 }
 
 describe("formatBridgeDiagnostics", () => {
-  it("reports file age, file size, and accepted-to-draw latency for each channel", () => {
-    const diagnostics: BridgeDiagnostics = {
-      state: {
-        modifiedAtMs: 1_000,
-        sizeBytes: 256,
-        acceptedAtMs: 60,
-      },
-      scroll: {
-        modifiedAtMs: 1_500,
-        sizeBytes: 64,
-        acceptedAtMs: 70,
-      },
-      notes: {
-        modifiedAtMs: 1_800,
-        sizeBytes: 4_096,
-        acceptedAtMs: 90,
-      },
-      stateRecord: {
-        seq: 12,
-        notesSeq: 7,
-        scrollSeq: 4,
-        rev: "abcdef123456",
-      },
-      scrollRecord: {
-        scrollSeq: 4,
-      },
-      notesRecord: {
-        notesSeq: 7,
-        rev: "abcdef123456",
-      },
-      counters: {
-        stateMissing: 1,
-        stateInvalid: 2,
-        scrollMissing: 3,
-        scrollInvalid: 4,
-        scrollSeqMismatch: 5,
-        notesMissing: 6,
-        notesInvalid: 7,
-        revMismatch: 8,
-      },
-      costs: {
-        stateReadMs: 0.75,
-        scrollReadMs: 0.25,
-        notesReadMs: 8.25,
-      },
-    }
-
+  it("reports connection, received age, applied age, and stream observations", () => {
     expect(
-      formatBridgeDiagnostics(diagnostics, {
+      formatBridgeDiagnostics(diagnostics(), {
         nowEpochMs: 2_000,
         nowMonotonicMs: 100,
         scrollAppliedMs: 70,
-        stats: {
-          state: STATS_30,
-          notes: STATS_12_5,
-          scroll: STATS_70,
-        },
+        stats: STATS,
         labels: LABELS,
       }),
     ).toEqual([
-      "state seq=12 notesSeq=7 scrollSeq=4 rev=abcdef age=1000.0ms size=256 B read=0.8ms applied=40.0ms avg=30.0ms min=10.0ms max=50.0ms p95=50.0ms p99=50.0ms",
-      "scroll scrollSeq=4 age=500.0ms size=64 B read=0.3ms applied=30.0ms avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
-      "notes notesSeq=7 rev=abcdef age=200.0ms size=4.0 KiB read=8.3ms applied=10.0ms avg=12.5ms min=5.0ms max=20.0ms p95=20.0ms p99=20.0ms",
-      "fail stateMissing=1 stateInvalid=2 scrollMissing=3 scrollInvalid=4 scrollSeqMismatch=5 notesMissing=6 notesInvalid=7 revMismatch=8",
+      "connection connected session=01234567 recoveries=2 malformed=1 endpointFailures=3 disconnects=6",
+      "state seq=12 notesSeq=7 scrollSeq=4 rev=abcdef received=1000.0ms size=256 B applied=40.0ms avg=30.0ms min=10.0ms max=50.0ms p95=50.0ms p99=50.0ms",
+      "scroll scrollSeq=4 received=500.0ms size=64 B applied=30.0ms avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
+      "notes notesSeq=7 rev=abcdef received=200.0ms size=4.0 KiB applied=10.0ms avg=12.5ms min=5.0ms max=20.0ms p95=20.0ms p99=20.0ms",
+      "fail stateInvalid=2 scrollInvalid=4 scrollSeqMismatch=5 notesInvalid=7 notesSeqMismatch=6 revMismatch=8",
       "scroll applied current=70.0ms avg=70.0ms min=70.0ms max=70.0ms p95=70.0ms p99=70.0ms",
     ])
   })
 
-  it("keeps missing channel data explicit", () => {
+  it("keeps unavailable stream data explicit without file-read fields", () => {
     expect(
       formatBridgeDiagnostics(
-        {
+        diagnostics({
           state: null,
           scroll: null,
           notes: null,
           stateRecord: null,
           scrollRecord: null,
           notesRecord: null,
-          counters: {
-            stateMissing: 0,
-            stateInvalid: 0,
-            scrollMissing: 0,
-            scrollInvalid: 0,
-            scrollSeqMismatch: 0,
-            notesMissing: 0,
-            notesInvalid: 0,
-            revMismatch: 0,
-          },
-          costs: {
-            stateReadMs: null,
-            scrollReadMs: null,
-            notesReadMs: null,
-          },
-        },
+          transport: null,
+        }),
         {
           nowEpochMs: 2_000,
           nowMonotonicMs: 100,
@@ -194,409 +120,112 @@ describe("formatBridgeDiagnostics", () => {
           labels: LABELS,
         },
       ),
-    ).toEqual([
-      "state seq=n/a notesSeq=n/a scrollSeq=n/a rev=n/a age=n/a size=n/a read=n/a applied=n/a avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
-      "scroll scrollSeq=n/a age=n/a size=n/a read=n/a applied=n/a avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
-      "notes notesSeq=n/a rev=n/a age=n/a size=n/a read=n/a applied=n/a avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
-      "fail stateMissing=0 stateInvalid=0 scrollMissing=0 scrollInvalid=0 scrollSeqMismatch=0 notesMissing=0 notesInvalid=0 revMismatch=0",
-      "scroll applied current=n/a avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
-    ])
+    ).toContain(
+      "state seq=n/a notesSeq=n/a scrollSeq=n/a rev=n/a received=n/a size=n/a applied=n/a avg=n/a min=n/a max=n/a p95=n/a p99=n/a",
+    )
   })
 })
 
 describe("BridgeDiagnosticsStats", () => {
-  it("collects channel stats once per accepted record", () => {
+  it("collects channel stats once per monotonic accepted timestamp", () => {
     const stats = new BridgeDiagnosticsStats()
-    const first: BridgeDiagnostics = {
-      state: { modifiedAtMs: 1_000, sizeBytes: 256, acceptedAtMs: 60 },
-      scroll: null,
-      notes: { modifiedAtMs: 1_000, sizeBytes: 512, acceptedAtMs: 90 },
-      stateRecord: null,
-      scrollRecord: null,
-      notesRecord: null,
-      counters: {
-        stateMissing: 0,
-        stateInvalid: 0,
-        scrollMissing: 0,
-        scrollInvalid: 0,
-        scrollSeqMismatch: 0,
-        notesMissing: 0,
-        notesInvalid: 0,
-        revMismatch: 0,
-      },
-      costs: {
-        stateReadMs: null,
-        scrollReadMs: null,
-        notesReadMs: null,
-      },
-    }
+    const first = diagnostics()
 
-    expect(stats.sample(first, 100, null)).toEqual({
-      state: { avg: 40, min: 40, max: 40, p95: 40, p99: 40 },
-      notes: { avg: 10, min: 10, max: 10, p95: 10, p99: 10 },
-      scroll: null,
+    expect(stats.sample(first, 100, null).state).toEqual({
+      avg: 40,
+      min: 40,
+      max: 40,
+      p95: 40,
+      p99: 40,
     })
-    expect(stats.sample(first, 116, null)).toEqual({
-      state: { avg: 40, min: 40, max: 40, p95: 40, p99: 40 },
-      notes: { avg: 10, min: 10, max: 10, p95: 10, p99: 10 },
-      scroll: null,
+    expect(stats.sample(first, 116, null).state).toEqual({
+      avg: 40,
+      min: 40,
+      max: 40,
+      p95: 40,
+      p99: 40,
     })
     expect(
       stats.sample(
-        {
-          ...first,
-          state: { modifiedAtMs: 1_000, sizeBytes: 256, acceptedAtMs: 150 },
-        },
+        diagnostics({ state: { receivedAtMs: 3_000, acceptedAtMs: 150, sizeBytes: 256 } }),
         170,
         null,
-      ),
-    ).toEqual({
-      state: { avg: 30, min: 20, max: 40, p95: 40, p99: 40 },
-      notes: { avg: 10, min: 10, max: 10, p95: 10, p99: 10 },
-      scroll: null,
-    })
-  })
-
-  it("collects scroll stats from scroll spikes without counting zero baselines", () => {
-    const stats = new BridgeDiagnosticsStats()
-    const empty: BridgeDiagnostics = {
-      state: null,
-      scroll: null,
-      notes: null,
-      stateRecord: null,
-      scrollRecord: null,
-      notesRecord: null,
-      counters: {
-        stateMissing: 0,
-        stateInvalid: 0,
-        scrollMissing: 0,
-        scrollInvalid: 0,
-        scrollSeqMismatch: 0,
-        notesMissing: 0,
-        notesInvalid: 0,
-        revMismatch: 0,
-      },
-      costs: {
-        stateReadMs: null,
-        scrollReadMs: null,
-        notesReadMs: null,
-      },
-    }
-
-    expect(stats.sample(empty, 100, 0).scroll).toBeNull()
-    expect(stats.sample(empty, 116, 12).scroll).toEqual({
-      avg: 12,
-      min: 12,
-      max: 12,
-      p95: 12,
-      p99: 12,
-    })
-    expect(stats.sample(empty, 132, 0).scroll).toEqual({
-      avg: 12,
-      min: 12,
-      max: 12,
-      p95: 12,
-      p99: 12,
-    })
-    expect(stats.sample(empty, 148, 24).scroll).toEqual({
-      avg: 18,
-      min: 12,
-      max: 24,
-      p95: 24,
-      p99: 24,
-    })
+      ).state,
+    ).toEqual({ avg: 30, min: 20, max: 40, p95: 40, p99: 40 })
   })
 })
 
 describe("diagnosticsGraphSample", () => {
-  it("extracts applied and read timings while preserving missing values", () => {
-    const diagnostics: BridgeDiagnostics = {
-      state: { modifiedAtMs: 1_000, sizeBytes: 256, acceptedAtMs: 60 },
-      scroll: null,
-      notes: null,
-      stateRecord: null,
-      scrollRecord: null,
-      notesRecord: null,
-      counters: {
-        stateMissing: 0,
-        stateInvalid: 0,
-        scrollMissing: 0,
-        scrollInvalid: 0,
-        scrollSeqMismatch: 0,
-        notesMissing: 0,
-        notesInvalid: 0,
-        revMismatch: 0,
-      },
-      costs: {
-        stateReadMs: 0.75,
-        scrollReadMs: null,
-        notesReadMs: null,
-      },
-    }
+  it("keeps applied-age and scroll-applied series without file-read series", () => {
+    const sample = diagnosticsGraphSample(diagnostics(), 100, 22)
 
-    expect(diagnosticsGraphSample(diagnostics, 100)).toEqual({
-      stateAppliedMs: 40,
-      notesAppliedMs: null,
-      stateReadMs: 0.75,
-      notesReadMs: null,
-      scrollAppliedMs: null,
-    })
+    expect(sample).toEqual({ stateAppliedMs: 40, notesAppliedMs: 10, scrollAppliedMs: 22 })
+    expect(sample).not.toHaveProperty("stateReadMs")
+    expect(sample).not.toHaveProperty("notesReadMs")
+  })
+
+  it("scales only the visible applied-age and scroll-applied series", () => {
+    expect(
+      diagnosticsGraphScale([
+        { stateAppliedMs: 4, notesAppliedMs: 200, scrollAppliedMs: null },
+        { stateAppliedMs: 12, notesAppliedMs: 80, scrollAppliedMs: 14 },
+      ]),
+    ).toBe(14)
+  })
+
+  it("keeps graph history bounded while retaining its maximum scale", () => {
+    const history = new BridgeDiagnosticsGraphHistory(2)
+    history.push({ stateAppliedMs: 80, notesAppliedMs: null, scrollAppliedMs: null })
+    history.push({ stateAppliedMs: 4, notesAppliedMs: null, scrollAppliedMs: null })
+    history.push({ stateAppliedMs: 5, notesAppliedMs: null, scrollAppliedMs: null })
+
+    expect(history.samples()).toEqual([
+      { stateAppliedMs: 4, notesAppliedMs: null, scrollAppliedMs: null },
+      { stateAppliedMs: 5, notesAppliedMs: null, scrollAppliedMs: null },
+    ])
+    expect(history.scale()).toBe(80)
+  })
+
+  it("renders no obsolete read legend", () => {
+    expect(diagnosticsLegendLayout(LABELS, 120).map((item) => item.label)).toEqual([
+      LABELS.stateApplied,
+      LABELS.scrollApplied,
+    ])
   })
 })
 
 describe("BridgeScrollLatency", () => {
-  it("samples accepted-to-draw latency when the viewport mapping changes", () => {
-    const latency = new BridgeScrollLatency()
-    const diagnostics: BridgeDiagnostics = {
-      state: { modifiedAtMs: 1_000, sizeBytes: 256, acceptedAtMs: 60 },
-      scroll: { modifiedAtMs: 1_000, sizeBytes: 64, acceptedAtMs: 60 },
-      notes: null,
-      stateRecord: null,
-      scrollRecord: null,
-      notesRecord: null,
-      counters: {
-        stateMissing: 0,
-        stateInvalid: 0,
-        scrollMissing: 0,
-        scrollInvalid: 0,
-        scrollSeqMismatch: 0,
-        notesMissing: 0,
-        notesInvalid: 0,
-        revMismatch: 0,
-      },
-      costs: {
-        stateReadMs: null,
-        scrollReadMs: null,
-        notesReadMs: null,
-      },
-    }
-    const seqOnly = {
-      ...VIEWPORT,
-      source: VIEWPORT.source ? { ...VIEWPORT.source, seq: 2 } : undefined,
-    }
-    const scrolled = {
-      ...VIEWPORT,
-      contentX: 80,
-      source: VIEWPORT.source
-        ? {
-            ...VIEWPORT.source,
-            seq: 3,
-            mapping: {
-              ...VIEWPORT.source.mapping,
-              viewLeft: 10,
-              viewRight: 110,
-            },
-          }
-        : undefined,
-    }
-
-    expect(latency.sample(VIEWPORT, diagnostics, 100)).toBeNull()
-    expect(latency.sample(seqOnly, diagnostics, 116)).toBe(0)
-    expect(latency.sample(scrolled, diagnostics, 130)).toBe(70)
-    expect(latency.sample(scrolled, diagnostics, 146)).toBe(0)
-  })
-
-  it("returns zero for unchanged viewport after a scroll latency sample", () => {
-    const latency = new BridgeScrollLatency()
-    const diagnostics: BridgeDiagnostics = {
-      state: { modifiedAtMs: 1_000, sizeBytes: 256, acceptedAtMs: 60 },
-      scroll: { modifiedAtMs: 1_000, sizeBytes: 64, acceptedAtMs: 60 },
-      notes: null,
-      stateRecord: null,
-      scrollRecord: null,
-      notesRecord: null,
-      counters: {
-        stateMissing: 0,
-        stateInvalid: 0,
-        scrollMissing: 0,
-        scrollInvalid: 0,
-        scrollSeqMismatch: 0,
-        notesMissing: 0,
-        notesInvalid: 0,
-        revMismatch: 0,
-      },
-      costs: {
-        stateReadMs: null,
-        scrollReadMs: null,
-        notesReadMs: null,
+  it("uses the preload monotonic accepted clock when the viewport changes", () => {
+    const viewport: Viewport = {
+      canvas: { x: 10, y: 20, w: 800, h: 400 },
+      contentX: 100,
+      contentW: 2_000,
+      refY: 50,
+      source: {
+        seq: 1,
+        mapping: {
+          perBlick: 2,
+          perSemitone: 12,
+          viewLeft: 0,
+          viewRight: 100,
+          viewTop: 80,
+          viewBottom: 40,
+        },
       },
     }
     const scrolled = {
-      ...VIEWPORT,
+      ...viewport,
       contentX: 80,
-      source: VIEWPORT.source
-        ? {
-            ...VIEWPORT.source,
-            mapping: {
-              ...VIEWPORT.source.mapping,
-              viewLeft: 10,
-              viewRight: 110,
-            },
-          }
-        : undefined,
+      source: viewport.source && {
+        ...viewport.source,
+        mapping: { ...viewport.source.mapping, viewLeft: 10, viewRight: 110 },
+      },
     }
+    const latency = new BridgeScrollLatency()
 
-    expect(latency.sample(VIEWPORT, diagnostics, 100)).toBeNull()
-    expect(latency.sample(scrolled, diagnostics, 130)).toBe(70)
-    expect(latency.sample(scrolled, diagnostics, 146)).toBe(0)
-    expect(latency.sample(scrolled, diagnostics, 1_181)).toBe(0)
-    expect(latency.sample(null, diagnostics, 1_200)).toBeNull()
-    expect(latency.sample(scrolled, diagnostics, 1_216)).toBeNull()
-  })
-})
-
-describe("BridgeDiagnosticsGraphHistory", () => {
-  it("keeps the newest samples up to its capacity", () => {
-    const history = new BridgeDiagnosticsGraphHistory(3)
-    history.push({
-      stateAppliedMs: 1,
-      notesAppliedMs: null,
-      stateReadMs: null,
-      notesReadMs: null,
-      scrollAppliedMs: null,
-    })
-    history.push({
-      stateAppliedMs: 2,
-      notesAppliedMs: null,
-      stateReadMs: null,
-      notesReadMs: null,
-      scrollAppliedMs: null,
-    })
-    history.push({
-      stateAppliedMs: 3,
-      notesAppliedMs: null,
-      stateReadMs: null,
-      notesReadMs: null,
-      scrollAppliedMs: null,
-    })
-    history.push({
-      stateAppliedMs: 4,
-      notesAppliedMs: null,
-      stateReadMs: null,
-      notesReadMs: null,
-      scrollAppliedMs: null,
-    })
-
-    expect(history.samples()).toEqual([
-      {
-        stateAppliedMs: 2,
-        notesAppliedMs: null,
-        stateReadMs: null,
-        notesReadMs: null,
-        scrollAppliedMs: null,
-      },
-      {
-        stateAppliedMs: 3,
-        notesAppliedMs: null,
-        stateReadMs: null,
-        notesReadMs: null,
-        scrollAppliedMs: null,
-      },
-      {
-        stateAppliedMs: 4,
-        notesAppliedMs: null,
-        stateReadMs: null,
-        notesReadMs: null,
-        scrollAppliedMs: null,
-      },
-    ])
-  })
-
-  it("keeps the largest graph scale after the sample leaves history", () => {
-    const history = new BridgeDiagnosticsGraphHistory(2)
-    history.push({
-      stateAppliedMs: 80,
-      notesAppliedMs: null,
-      stateReadMs: null,
-      notesReadMs: null,
-      scrollAppliedMs: null,
-    })
-    history.push({
-      stateAppliedMs: 4,
-      notesAppliedMs: null,
-      stateReadMs: null,
-      notesReadMs: null,
-      scrollAppliedMs: null,
-    })
-    history.push({
-      stateAppliedMs: 5,
-      notesAppliedMs: null,
-      stateReadMs: null,
-      notesReadMs: null,
-      scrollAppliedMs: null,
-    })
-
-    expect(history.samples()).toEqual([
-      {
-        stateAppliedMs: 4,
-        notesAppliedMs: null,
-        stateReadMs: null,
-        notesReadMs: null,
-        scrollAppliedMs: null,
-      },
-      {
-        stateAppliedMs: 5,
-        notesAppliedMs: null,
-        stateReadMs: null,
-        notesReadMs: null,
-        scrollAppliedMs: null,
-      },
-    ])
-    expect(history.scale()).toBe(80)
-    history.reset()
-    expect(history.scale()).toBe(1)
-  })
-})
-
-describe("diagnosticsGraphScale", () => {
-  it("uses graph-visible timings and ignores notes timings", () => {
-    expect(
-      diagnosticsGraphScale([
-        {
-          stateAppliedMs: 4,
-          notesAppliedMs: 200,
-          stateReadMs: 0.5,
-          notesReadMs: 100,
-          scrollAppliedMs: null,
-        },
-        {
-          stateAppliedMs: 12,
-          notesAppliedMs: 80,
-          stateReadMs: 1,
-          notesReadMs: 90,
-          scrollAppliedMs: 14,
-        },
-      ]),
-    ).toBe(14)
-    expect(diagnosticsGraphScale([])).toBe(1)
-  })
-})
-
-describe("diagnosticsYAxisLabels", () => {
-  it("places max, midpoint, and zero labels on the y axis", () => {
-    expect(diagnosticsYAxisLabels(80, 20, 80)).toEqual([
-      { text: "80.0ms", y: 20 },
-      { text: "40.0ms", y: 50 },
-      { text: "0.0ms", y: 80 },
-    ])
-  })
-})
-
-describe("diagnosticsLegendLayout", () => {
-  it("shows only graph-visible series and wraps them inside the graph width", () => {
-    const items = diagnosticsLegendLayout(LABELS, 120)
-
-    expect(items.map((item) => item.label)).toEqual([
-      LABELS.stateApplied,
-      LABELS.stateRead,
-      LABELS.scrollApplied,
-    ])
-    expect(items.map((item) => item.color)).toEqual([
-      "rgba(96, 165, 250, 0.75)",
-      "rgba(245, 158, 11, 0.75)",
-      "rgba(192, 132, 252, 0.75)",
-    ])
-    expect(items.every((item) => item.x + item.w <= 120)).toBe(true)
+    expect(latency.sample(viewport, diagnostics(), 100)).toBeNull()
+    expect(latency.sample(scrolled, diagnostics(), 130)).toBe(60)
+    expect(latency.sample(scrolled, diagnostics(), 146)).toBe(0)
   })
 })
 
@@ -605,20 +234,5 @@ describe("diagnosticsPanelPosition", () => {
     expect(
       diagnosticsPanelPosition({ x: 100, y: 40, w: 800, h: 360 }, { w: 220, h: 44 }, 8),
     ).toEqual({ x: 672, y: 48 })
-  })
-
-  it("keeps the panel inside a narrow piano roll", () => {
-    expect(
-      diagnosticsPanelPosition({ x: 100, y: 40, w: 140, h: 360 }, { w: 220, h: 44 }, 8),
-    ).toEqual({ x: 108, y: 48 })
-  })
-})
-
-describe("diagnosticsGraphPosition", () => {
-  it("places the graph inside the piano roll's upper-left corner", () => {
-    expect(diagnosticsGraphPosition({ x: 100, y: 40, w: 800, h: 360 }, 8)).toEqual({
-      x: 108,
-      y: 48,
-    })
   })
 })

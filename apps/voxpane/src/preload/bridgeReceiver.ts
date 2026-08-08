@@ -371,11 +371,12 @@ export class BridgeReceiver {
         this.requestRecovery(resources, resources.session)
         return
       }
-      if (resources.sessionGateOpen) {
-        this.resetSessionGate(resources)
-      }
+      const wasConnected = resources.sessionGateOpen
       this.publishFrame(message)
       resources.sessionGateOpen = true
+      if (!wasConnected) {
+        this.publishTransport("connected", resources.session)
+      }
       const pendingScroll = resources.pendingScroll
       const pendingSchedule = resources.pendingSchedule
       resources.pendingScroll = null

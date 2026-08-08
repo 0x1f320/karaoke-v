@@ -154,10 +154,13 @@ describe("BridgeRuntime", () => {
     expect(bridge.readDiagnostics().counters.revMismatch).toBe(1)
   })
 
-  it("clears records and runtime mismatch diagnostics for a valid repeated app session", () => {
+  it("clears records and every runtime-owned counter for a valid repeated app session", () => {
     const bridge = runtime()
     publish(bridge, ["state", "scroll", "notes"])
     bridge.acceptSchedule(MISMATCHED_NOTES_BYTES)
+    bridge.acceptState(INVALID_BYTES)
+    bridge.acceptScroll(INVALID_BYTES)
+    bridge.acceptSchedule(INVALID_BYTES)
 
     bridge.acceptSession(SESSION_BYTES)
 
@@ -170,7 +173,14 @@ describe("BridgeRuntime", () => {
       stateRecord: null,
       scrollRecord: null,
       notesRecord: null,
-      counters: { revMismatch: 0 },
+      counters: {
+        stateInvalid: 0,
+        scrollInvalid: 0,
+        scrollSeqMismatch: 0,
+        notesInvalid: 0,
+        notesSeqMismatch: 0,
+        revMismatch: 0,
+      },
     })
   })
 
@@ -218,6 +228,33 @@ describe("BridgeRuntime", () => {
       px: { ...MAPPING, viewLeft: 10, viewRight: 110 },
     })
     expect(bridge.readSchedule(4)).toEqual({ notesSeq: 4, rev: "next", notes: [] })
+    expect(bridge.readDiagnostics().counters).toMatchObject({
+      stateInvalid: 1,
+      scrollInvalid: 1,
+      notesInvalid: 1,
+    })
+  })
+
+  it("counts each unresolved generation composition mismatch once and clears it when it resolves", () => {
+    const bridge = runtime()
+
+    bridge.acceptState(STATE_BYTES)
+    bridge.acceptScroll(NEWER_SCROLL_BYTES)
+    bridge.acceptScroll(NEWER_SCROLL_BYTES)
+    expect(bridge.readDiagnostics().counters.scrollSeqMismatch).toBe(1)
+
+    bridge.acceptScroll(SCROLL_BYTES)
+    bridge.acceptSchedule(NEWER_NOTES_BYTES)
+    bridge.acceptSchedule(NEWER_NOTES_BYTES)
+    expect(bridge.readDiagnostics().counters.notesSeqMismatch).toBe(1)
+
+    bridge.acceptSchedule(NOTES_BYTES)
+    expectSnapshot(bridge)
+    expect(bridge.readDiagnostics().counters).toMatchObject({
+      scrollSeqMismatch: 1,
+      notesSeqMismatch: 1,
+      revMismatch: 0,
+    })
   })
 
   it("composes state and scroll without a notes candidate when notesSeq is zero", () => {
@@ -232,17 +269,17 @@ describe("BridgeRuntime", () => {
 
   it("publishes diagnostics from the matching accepted candidates", () => {
     const stateDiagnostics: BridgeChannelDiagnostics = {
-      modifiedAtMs: 1_000,
+      receivedAtMs: 1_000,
       sizeBytes: 256,
       acceptedAtMs: 20,
     }
     const scrollDiagnostics: BridgeChannelDiagnostics = {
-      modifiedAtMs: 1_500,
+      receivedAtMs: 1_500,
       sizeBytes: 64,
       acceptedAtMs: 30,
     }
     const notesDiagnostics: BridgeChannelDiagnostics = {
-      modifiedAtMs: 2_000,
+      receivedAtMs: 2_000,
       sizeBytes: 512,
       acceptedAtMs: 40,
     }
@@ -267,7 +304,7 @@ describe("BridgeRuntime", () => {
     })
   })
 
-  it("retains pipe transport diagnostics beside temporary file metrics", () => {
+  it("retains copy-safe pipe transport diagnostics", () => {
     const transport: BridgeTransportDiagnostics = {
       status: "ready",
       session: "0123456789abcdef0123456789abcdef",
@@ -281,5 +318,10 @@ describe("BridgeRuntime", () => {
     bridge.acceptTransportDiagnostics(transport)
 
     expect(bridge.readDiagnostics().transport).toEqual(transport)
+    const diagnostics = bridge.readDiagnostics()
+    if (diagnostics.transport) {
+      diagnostics.transport.disconnects.state = 99
+    }
+    expect(bridge.readDiagnostics().transport?.disconnects.state).toBe(3)
   })
 })

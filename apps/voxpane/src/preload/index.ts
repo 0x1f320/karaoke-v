@@ -97,7 +97,7 @@ function acceptDiagnostics(
 ): BridgeChannelDiagnostics | null {
   return diagnostics
     ? {
-        modifiedAtMs: diagnostics.receivedAtMs,
+        receivedAtMs: diagnostics.receivedAtMs,
         sizeBytes: diagnostics.sizeBytes,
         acceptedAtMs: native.monotonicNow(),
       }

@@ -1,10 +1,7 @@
-export interface BridgeFileDiagnostics {
-  modifiedAtMs: number
-  sizeBytes: number
-}
-
-export interface BridgeChannelDiagnostics extends BridgeFileDiagnostics {
+export interface BridgeChannelDiagnostics {
+  receivedAtMs: number
   acceptedAtMs: number
+  sizeBytes: number
 }
 
 export interface BridgeReceiptDiagnostics {
@@ -12,7 +9,7 @@ export interface BridgeReceiptDiagnostics {
   sizeBytes: number
 }
 
-export type BridgeTransportStatus = "starting" | "ready" | "error" | "stopped"
+export type BridgeTransportStatus = "starting" | "ready" | "connected" | "error" | "stopped"
 
 export interface BridgeTransportDiagnostics {
   status: BridgeTransportStatus
@@ -24,20 +21,12 @@ export interface BridgeTransportDiagnostics {
 }
 
 export interface BridgeDiagnosticsCounters {
-  stateMissing: number
   stateInvalid: number
-  scrollMissing: number
   scrollInvalid: number
   scrollSeqMismatch: number
-  notesMissing: number
   notesInvalid: number
+  notesSeqMismatch: number
   revMismatch: number
-}
-
-export interface BridgeReadCosts {
-  stateReadMs: number | null
-  scrollReadMs: number | null
-  notesReadMs: number | null
 }
 
 export interface BridgeStateRecordDiagnostics {
@@ -64,6 +53,5 @@ export interface BridgeDiagnostics {
   scrollRecord: BridgeScrollRecordDiagnostics | null
   notesRecord: BridgeNotesRecordDiagnostics | null
   counters: BridgeDiagnosticsCounters
-  costs: BridgeReadCosts
-  transport?: BridgeTransportDiagnostics | null
+  transport: BridgeTransportDiagnostics | null
 }

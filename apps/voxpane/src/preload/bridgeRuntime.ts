@@ -25,33 +25,15 @@ interface Accepted<T> {
 }
 
 const DECODERS: BridgeRuntimeDecoders = { decodeSession, decodeState, decodeScroll, decodeNotes }
-const EMPTY_READ_DIAGNOSTICS = {
-  counters: {
-    stateMissing: 0,
+function emptyCounters(): BridgeDiagnostics["counters"] {
+  return {
     stateInvalid: 0,
-    scrollMissing: 0,
     scrollInvalid: 0,
     scrollSeqMismatch: 0,
-    notesMissing: 0,
     notesInvalid: 0,
+    notesSeqMismatch: 0,
     revMismatch: 0,
-  },
-  costs: {
-    stateReadMs: null,
-    scrollReadMs: null,
-    notesReadMs: null,
-  },
-}
-
-function revisionMismatchKey(state: BridgeStateRecord, schedule: BridgeSchedule): string {
-  return JSON.stringify([
-    state.seq,
-    state.notesSeq,
-    state.scrollSeq,
-    state.rev,
-    schedule.notesSeq,
-    schedule.rev,
-  ])
+  }
 }
 
 export class BridgeRuntime {
@@ -61,7 +43,9 @@ export class BridgeRuntime {
   private notesCandidate: Accepted<BridgeSchedule> | null = null
   private scheduleSeq = 0
   private schedule: BridgeSchedule | null = null
-  private revisionMismatches = 0
+  private counters = emptyCounters()
+  private lastScrollMismatchKey: string | null = null
+  private lastNotesMismatchKey: string | null = null
   private lastRevisionMismatchKey: string | null = null
   private diagnostics: BridgeDiagnostics = {
     state: null,
@@ -71,7 +55,7 @@ export class BridgeRuntime {
     scrollRecord: null,
     notesRecord: null,
     transport: null,
-    ...EMPTY_READ_DIAGNOSTICS,
+    counters: emptyCounters(),
   }
 
   constructor(private readonly decoders: BridgeRuntimeDecoders = DECODERS) {}
@@ -83,8 +67,8 @@ export class BridgeRuntime {
     this.stateCandidate = null
     this.scrollCandidate = null
     this.notesCandidate = null
-    this.lastRevisionMismatchKey = null
-    this.revisionMismatches = 0
+    this.counters = emptyCounters()
+    this.clearMismatchKeys()
     this.state = null
     this.schedule = null
     this.scheduleSeq = 0
@@ -96,12 +80,14 @@ export class BridgeRuntime {
       stateRecord: null,
       scrollRecord: null,
       notesRecord: null,
+      counters: emptyCounters(),
     }
   }
 
   acceptState(bytes: Uint8Array, diagnostics: BridgeChannelDiagnostics | null = null): void {
     const state = this.decoders.decodeState(bytes)
     if (!state) {
+      this.counters.stateInvalid += 1
       return
     }
     this.stateCandidate = { value: state, diagnostics }
@@ -115,6 +101,7 @@ export class BridgeRuntime {
   acceptScroll(bytes: Uint8Array, diagnostics: BridgeChannelDiagnostics | null = null): void {
     const scroll = this.decoders.decodeScroll(bytes)
     if (!scroll) {
+      this.counters.scrollInvalid += 1
       return
     }
     this.scrollCandidate = { value: scroll, diagnostics }
@@ -124,6 +111,7 @@ export class BridgeRuntime {
   acceptSchedule(bytes: Uint8Array, diagnostics: BridgeChannelDiagnostics | null = null): void {
     const schedule = this.decoders.decodeNotes(bytes)
     if (!schedule) {
+      this.counters.notesInvalid += 1
       return
     }
     this.notesCandidate = { value: schedule, diagnostics }
@@ -137,11 +125,17 @@ export class BridgeRuntime {
   readDiagnostics(): BridgeDiagnostics {
     return {
       ...this.diagnostics,
-      counters: {
-        ...EMPTY_READ_DIAGNOSTICS.counters,
-        revMismatch: this.revisionMismatches,
+      state: this.diagnostics.state && { ...this.diagnostics.state },
+      scroll: this.diagnostics.scroll && { ...this.diagnostics.scroll },
+      notes: this.diagnostics.notes && { ...this.diagnostics.notes },
+      stateRecord: this.diagnostics.stateRecord && { ...this.diagnostics.stateRecord },
+      scrollRecord: this.diagnostics.scrollRecord && { ...this.diagnostics.scrollRecord },
+      notesRecord: this.diagnostics.notesRecord && { ...this.diagnostics.notesRecord },
+      counters: { ...this.counters },
+      transport: this.diagnostics.transport && {
+        ...this.diagnostics.transport,
+        disconnects: { ...this.diagnostics.transport.disconnects },
       },
-      costs: EMPTY_READ_DIAGNOSTICS.costs,
     }
   }
 
@@ -155,33 +149,56 @@ export class BridgeRuntime {
   private compose(): void {
     const stateCandidate = this.stateCandidate
     const scrollCandidate = this.scrollCandidate
-    if (
-      !stateCandidate ||
-      !scrollCandidate ||
-      scrollCandidate.value.scrollSeq !== stateCandidate.value.scrollSeq
-    ) {
+    if (!stateCandidate || !scrollCandidate) {
+      this.clearMismatchKeys()
+      return
+    }
+    if (scrollCandidate.value.scrollSeq !== stateCandidate.value.scrollSeq) {
+      this.observeMismatch(
+        "scroll",
+        JSON.stringify([
+          stateCandidate.value.seq,
+          stateCandidate.value.scrollSeq,
+          scrollCandidate.value.scrollSeq,
+        ]),
+      )
       return
     }
 
     const notesCandidate = this.notesCandidate
     let matchingNotesCandidate: Accepted<BridgeSchedule> | null = null
     if (stateCandidate.value.notesSeq !== 0) {
-      if (!notesCandidate || notesCandidate.value.notesSeq !== stateCandidate.value.notesSeq) {
-        this.lastRevisionMismatchKey = null
+      if (!notesCandidate) {
+        this.clearMismatchKeys()
+        return
+      }
+      if (notesCandidate.value.notesSeq !== stateCandidate.value.notesSeq) {
+        this.observeMismatch(
+          "notes",
+          JSON.stringify([
+            stateCandidate.value.seq,
+            stateCandidate.value.notesSeq,
+            notesCandidate.value.notesSeq,
+          ]),
+        )
         return
       }
       if (notesCandidate.value.rev !== stateCandidate.value.rev) {
-        const mismatchKey = revisionMismatchKey(stateCandidate.value, notesCandidate.value)
-        if (this.lastRevisionMismatchKey !== mismatchKey) {
-          this.revisionMismatches += 1
-          this.lastRevisionMismatchKey = mismatchKey
-        }
+        this.observeMismatch(
+          "revision",
+          JSON.stringify([
+            stateCandidate.value.seq,
+            stateCandidate.value.notesSeq,
+            stateCandidate.value.rev,
+            notesCandidate.value.rev,
+          ]),
+        )
         return
       }
       matchingNotesCandidate = notesCandidate
     }
 
-    this.lastRevisionMismatchKey = null
+    this.clearMismatchKeys()
 
     const scroll = scrollCandidate.value
     this.state = {
@@ -214,5 +231,32 @@ export class BridgeRuntime {
           ? null
           : { notesSeq: this.schedule.notesSeq, rev: this.schedule.rev },
     }
+  }
+
+  private observeMismatch(kind: "scroll" | "notes" | "revision", key: string): void {
+    if (kind === "scroll") {
+      this.lastNotesMismatchKey = null
+      this.lastRevisionMismatchKey = null
+      if (this.lastScrollMismatchKey !== key) this.counters.scrollSeqMismatch += 1
+      this.lastScrollMismatchKey = key
+      return
+    }
+    if (kind === "notes") {
+      this.lastScrollMismatchKey = null
+      this.lastRevisionMismatchKey = null
+      if (this.lastNotesMismatchKey !== key) this.counters.notesSeqMismatch += 1
+      this.lastNotesMismatchKey = key
+      return
+    }
+    this.lastScrollMismatchKey = null
+    this.lastNotesMismatchKey = null
+    if (this.lastRevisionMismatchKey !== key) this.counters.revMismatch += 1
+    this.lastRevisionMismatchKey = key
+  }
+
+  private clearMismatchKeys(): void {
+    this.lastScrollMismatchKey = null
+    this.lastNotesMismatchKey = null
+    this.lastRevisionMismatchKey = null
   }
 }

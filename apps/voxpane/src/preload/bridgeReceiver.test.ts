@@ -778,6 +778,35 @@ describe("BridgeReceiver", () => {
     await values.receiver.stop()
   })
 
+  it("publishes connected once for a valid session on each physical handle set and returns ready on disconnect", async () => {
+    const values = harness()
+    await values.receiver.start()
+
+    endpoint(values, FIRST_SESSION, "state").emitData(sessionFrame())
+    endpoint(values, FIRST_SESSION, "state").emitData(sessionFrame())
+    endpoint(values, FIRST_SESSION, "scroll").emitDisconnect()
+    endpoint(values, FIRST_SESSION, "state").emitData(sessionFrame())
+
+    expect(
+      values.messages.filter(
+        (message) => message.type === "transport" && message.status === "connected",
+      ),
+    ).toHaveLength(2)
+    expect(
+      values.messages.find(
+        (message) =>
+          message.type === "transport" &&
+          message.status === "ready" &&
+          message.disconnects.scroll === 1,
+      ),
+    ).toMatchObject({
+      type: "transport",
+      status: "ready",
+      disconnects: { state: 0, scroll: 1, notes: 0 },
+    })
+    await values.receiver.stop()
+  })
+
   it.each([
     ["malformed", frame(BRIDGE_CHANNEL_SESSION, Uint8Array.of(1))],
     ["different app session", sessionFrame(OTHER_SESSION)],
