@@ -118,6 +118,18 @@ function monotonicNow() {
   return loadNative().monotonicNow()
 }
 
+function startAudioMeter(target = "synthesizer") {
+  return loadNative().startAudioMeter(target)
+}
+
+function stopAudioMeter() {
+  return loadNative().stopAudioMeter()
+}
+
+function readAudioMeter() {
+  return loadNative().readAudioMeter()
+}
+
 module.exports = {
   start,
   stop,
@@ -129,4 +141,7 @@ module.exports = {
   getCanvasAsync,
   rescanScripts,
   monotonicNow,
+  startAudioMeter,
+  stopAudioMeter,
+  readAudioMeter,
 }

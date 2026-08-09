@@ -148,6 +148,18 @@ function listElements(target = "synthv-studio") {
   return loadNative().listElements(target)
 }
 
+function startAudioMeter(target = "synthv-studio") {
+  return loadNative().startAudioMeter(target)
+}
+
+function stopAudioMeter() {
+  return loadNative().stopAudioMeter()
+}
+
+function readAudioMeter() {
+  return loadNative().readAudioMeter()
+}
+
 module.exports = {
   getCanvas,
   getCanvasOrigin,
@@ -160,4 +172,7 @@ module.exports = {
   disableAnimations,
   monotonicNow,
   listElements,
+  startAudioMeter,
+  stopAudioMeter,
+  readAudioMeter,
 }
