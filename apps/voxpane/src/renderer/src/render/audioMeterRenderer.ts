@@ -36,11 +36,11 @@ export class AudioMeterRenderer {
   })
   private readonly primary = new Text({
     text: "",
-    style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 18 },
+    style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 13 },
   })
   private readonly secondary = new Text({
     text: "",
-    style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11 },
+    style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 13 },
   })
   private readonly tertiary = new Text({
     text: "",
@@ -61,8 +61,8 @@ export class AudioMeterRenderer {
     }
     this.title.position.set(TEXT_X, 9)
     this.primary.position.set(TEXT_X, 31)
-    this.secondary.position.set(TEXT_X, 61)
-    this.tertiary.position.set(TEXT_X, 80)
+    this.secondary.position.set(TEXT_X, 52)
+    this.tertiary.position.set(TEXT_X, 75)
     this.container.addChild(
       this.panel,
       this.ticks,
