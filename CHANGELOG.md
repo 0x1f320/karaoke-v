@@ -1,3 +1,9 @@
+## [1.0.0-dev.7](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.6...v1.0.0-dev.7) (2026-08-09)
+
+### ✨ Features
+
+* **bridge:** stabilize real-time SynthV transport ([#101](https://github.com/0x1f320/voxpane/issues/101)) ([5aede4e](https://github.com/0x1f320/voxpane/commit/5aede4e9218ac13026e6b1e563d8625a6bb550aa))
+
 ## [1.0.0-dev.6](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.5...v1.0.0-dev.6) (2026-08-08)
 
 ### ⚡ Performance Improvements
