@@ -1,4 +1,4 @@
-import { ipcMain, shell, systemPreferences } from "electron"
+import { ipcMain, systemPreferences } from "electron"
 import { EMPTY_AUDIO_METER_SNAPSHOT, unsupportedAudioMeterSnapshot } from "../shared/audioMeter"
 import { NATIVE_TARGET, type NativeHelper, native } from "../shared/native"
 
@@ -8,9 +8,6 @@ interface AudioMeterIpc {
 
 type ScreenAccessStatus = "not-determined" | "granted" | "denied" | "restricted" | "unknown"
 type RequestScreenRecordingAccess = () => boolean | Promise<boolean>
-
-const SCREEN_RECORDING_PANE =
-  "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
 
 function screenRecordingStatus(): ScreenAccessStatus {
   return process.platform === "darwin"
@@ -35,7 +32,6 @@ async function requestScreenRecordingAccess(
     return true
   }
   if (blockedScreenRecordingStatus(getScreenRecordingStatus())) {
-    void shell.openExternal(SCREEN_RECORDING_PANE)
     return false
   }
   const snapshot =

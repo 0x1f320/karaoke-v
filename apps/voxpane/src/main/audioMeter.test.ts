@@ -1,6 +1,16 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AudioMeterSnapshot } from "../shared/audioMeter"
 import { registerAudioMeterIpc } from "./audioMeter"
+
+const electron = vi.hoisted(() => ({
+  openExternal: vi.fn(),
+}))
+
+vi.mock("electron", () => ({
+  ipcMain: { handle: vi.fn() },
+  shell: { openExternal: electron.openExternal },
+  systemPreferences: { getMediaAccessStatus: vi.fn(() => "unknown") },
+}))
 
 const SNAPSHOT: AudioMeterSnapshot = {
   state: "running",
@@ -21,6 +31,10 @@ class Ipc {
 }
 
 describe("registerAudioMeterIpc", () => {
+  beforeEach(() => {
+    electron.openExternal.mockClear()
+  })
+
   it("routes audio meter calls through the main process native helper", async () => {
     const calls: string[] = []
     const ipc = new Ipc()
@@ -103,5 +117,25 @@ describe("registerAudioMeterIpc", () => {
     )
 
     await expect(ipc.handlers.get("audioMeter:requestAccess")?.(null)).resolves.toBe(true)
+  })
+
+  it("does not open System Settings when the toolbar asks for access", async () => {
+    const ipc = new Ipc()
+    let started = false
+    registerAudioMeterIpc(
+      ipc,
+      {
+        startAudioMeter: () => {
+          started = true
+          return SNAPSHOT
+        },
+      },
+      "synth",
+      () => "denied",
+    )
+
+    await expect(ipc.handlers.get("audioMeter:requestAccess")?.(null)).resolves.toBe(false)
+    expect(started).toBe(false)
+    expect(electron.openExternal).not.toHaveBeenCalled()
   })
 })

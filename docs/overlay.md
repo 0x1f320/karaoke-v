@@ -177,8 +177,8 @@ there**, because ownership already lets other windows cover the overlay naturall
 
 Visibility deliberately does *not* request Screen Recording: the check reads bounds, pid and
 layer, none of which that permission gates — it covers window titles and pixel capture. The
-optional LUFS meter is separate; it requests Screen Recording only when the toolbar switch is
-turned on.
+optional LUFS meter is separate; when the toolbar switch is turned on, it starts the audio
+capture path that lets macOS show the Screen Recording prompt.
 
 **Breaks as:** the overlay floating over an unrelated app that is covering SynthV (macOS
 occlusion) · the overlay surviving a minimise.
