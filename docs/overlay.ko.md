@@ -30,7 +30,7 @@ mouse-move 이벤트를 계속 오게 해서 hover 상태 같은 것이 여전�
 `webPreferences` 두 항목이 하중을 받는다:
 
 - **`sandbox: false`.** preload가 native addon을 require하고 bridge endpoint worker를 시작한다.
-  이것이 renderer로 하여금 geometry와 재생 상태를 **프레임 경로에 IPC 없이** 읽게 해준다 —
+  이것이 renderer로 하여금 bridge 재생 상태를 **프레임 경로에 IPC 없이** 읽게 해준다 —
   [hot path](#the-hot-path) 참조.
 - **`backgroundThrottling: false`.** overlay는 절대 포커스를 받지 않고, Electron은 포커스
   없는 창의 rAF와 timer를 스로틀한다. 이게 없으면 스크롤할 때 overlay가 눈에 띄게 밀린다.
@@ -177,17 +177,19 @@ overlay가 살아남음.
 | --- | --- | --- |
 | bridge pipe frame receive | preload Web Worker | event-driven, rAF와 독립적 |
 | 최신 bridge `state` 읽기 | preload memory cache | file I/O와 할당 없음 |
-| canvas snapshot 갱신 | preload, 비동기 native task | 약 250 ms마다, rAF call stack 밖 |
+| canvas snapshot 갱신 | macOS: main IPC; Windows: preload native read | 약 250 ms마다, rAF call stack 밖 |
 | 판단하고 그리기 | renderer | 단순 스크롤이면 transform 한 번 |
 
-위의 전부가 **overlay renderer의 프로세스 안에서** `contextBridge`를 통해 일어난다. 대안 —
-main이 읽고 renderer로 IPC — 은 프레임마다 왕복과 직렬화를 더하고, 그게 이 배치가 없애려고
-존재하는 바로 그것이다. 여기서 `sandbox: false`가 값을 하는 이유다.
+bridge state와 draw 판단은 `contextBridge`를 통해 **overlay renderer의 프로세스 안에** 남는다.
+저주기 canvas refresh는 macOS에서 Accessibility의 TCC subject가 permissions gate와 같아지도록
+main을 거칠 수 있고, 의도적으로 프레임 경로 밖에 있다. 대안 — main이 bridge state를 읽고 매
+프레임 renderer로 IPC — 은 프레임마다 왕복과 직렬화를 더하고, 그게 이 배치가 없애려고 존재하는
+바로 그것이다.
 
 frame loop는 Accessibility API 자체가 아니라 가장 최근 완료된 native canvas anchor를 읽는다.
-macOS에서 snapshotter는 cache된 window와 scrollbar AX element만 다시 읽고, 그 응답은 frame
-사이에 도착한다. 느린 AX 왕복은 draw를 막는 대신 canvas anchor를 조금 낡게 만들 뿐이다. 실제
-그리기에 쓰는 scroll과 zoom은 memory에 이미 sample된 bridge state로 다시 계산한다.
+macOS에서는 main이 cache된 window와 scrollbar AX element만 다시 읽고, 그 응답은 frame 사이에
+도착한다. 느린 AX 왕복은 draw를 막는 대신 canvas anchor를 조금 낡게 만들 뿐이다. 실제 그리기에
+쓰는 scroll과 zoom은 memory에 이미 sample된 bridge state로 다시 계산한다.
 
 base note set은 cached schedule generation이나 canvas가 바뀔 때만 다시 만든다. 평범한 scroll과
 zoom update는 같은 set을 유지하고 live bridge-derived viewport로 매핑한다. 별도 note pump는 없다.

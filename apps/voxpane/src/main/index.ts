@@ -17,6 +17,7 @@ import {
 import { registerDipIpc, toDipFrame, updateDipTransform } from "./dip"
 import { initI18n } from "./i18n"
 import { createOverlayWindow, positionOverlay } from "./overlay"
+import { registerOverlayGeometryIpc } from "./overlayGeometry"
 import {
   isAccessibilityTrusted,
   openPermissionsWindow,
@@ -262,6 +263,7 @@ app.whenReady().then(() => {
   registerAssetIpc()
   registerAudioMeterIpc()
   registerDipIpc()
+  registerOverlayGeometryIpc()
   registerPermissionsIpc()
   registerToolbarIpc(syncToolbar)
   ipcMain.handle("settings:open", () => openSettingsWindow())

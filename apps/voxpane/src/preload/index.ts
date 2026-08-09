@@ -118,43 +118,21 @@ ipcRenderer.invoke("native:dip").then((transform: DipTransform) => {
   dip = transform
 })
 
-// The renderer reads geometry directly (requires sandbox: false). Native only
-// answers where the piano-roll canvas is; note rectangles are computed from the
-// bridge's schedule and view transform, so scrolling does not depend on walking
-// a moving Accessibility tree.
+// Windows reads geometry directly in the preload; macOS reads it through main so
+// Accessibility's TCC subject matches the permissions gate. Native only answers
+// where the piano-roll canvas is; note rectangles are computed from the bridge's
+// schedule and view transform, so scrolling does not depend on walking a moving
+// Accessibility tree.
 
 function windowsCanvas(state: BridgeState): Rect | null {
   return native.getCanvas?.(expectedCanvasSize(state), NATIVE_TARGET) ?? null
 }
 
-let macCanvasSeeded = false
-let macCanvasFailures = 0
-
-async function macCanvas(): Promise<Rect | null> {
-  const cached = (await native.getCanvasAsync?.()) ?? null
-  if (cached) {
-    macCanvasSeeded = true
-    macCanvasFailures = 0
-    return cached
-  }
-  macCanvasFailures += 1
-  if (macCanvasSeeded && macCanvasFailures < 4) {
-    return null
-  }
-  const seeded = (await native.getPianoRollAsync?.(NATIVE_TARGET)) ?? null
-  if (!seeded) {
-    return null
-  }
-  macCanvasSeeded = true
-  macCanvasFailures = 0
-  return (await native.getCanvasAsync?.()) ?? null
-}
-
-async function nativeCanvasAsync(): Promise<CanvasSnapshot | null> {
+async function nativeCanvasAsync() {
   const state = isWindows ? cachedBridge().readState() : null
-  const canvas = isWindows ? state && windowsCanvas(state) : await macCanvas()
+  const canvas = isWindows ? state && windowsCanvas(state) : null
   if (!canvas) {
-    return null
+    return isWindows ? null : ipcRenderer.invoke("overlay:getCanvas")
   }
   return {
     canvas,

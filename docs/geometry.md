@@ -93,10 +93,11 @@ w_{\text{dip}} = \frac{w_{\text{px}}}{\text{scale}}
 
 Only the main process can ask Electron for `scale` and the two origins, so `main/dip.ts`
 derives them from whichever display the target window is on and pushes them to every
-preload. The preload converts cached bridge state and each low-rate canvas snapshot locally
-(`toDipState`, `toDipCanvasSnapshot` in `shared/native.ts`) rather than paying an IPC hop per
-read. On macOS the transform is the identity, so applying it is a no-op rather than a
-special case.
+preload. The preload converts cached bridge state locally (`toDipState` in
+`shared/native.ts`), while each low-rate canvas snapshot is converted by the process that
+reads it. On macOS that read happens in main so Accessibility's TCC subject matches the
+permissions gate; on Windows it remains in preload. On macOS the transform is the identity,
+so applying it is a no-op rather than a special case.
 
 Symptom of getting this wrong: everything is correct at 100 % scaling and offset
 proportionally to the scale factor on a HiDPI display, or correct on the primary monitor

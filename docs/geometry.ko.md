@@ -88,8 +88,9 @@ w_{\text{dip}} = \frac{w_{\text{px}}}{\text{scale}}
 
 `scale`과 두 origin을 Electron에 물을 수 있는 것은 main process뿐이라, `main/dip.ts`가 대상
 창이 올라가 있는 디스플레이에서 그것들을 유도해 모든 preload에 push한다. preload는 cached
-bridge state와 저주기 canvas snapshot을 로컬에서 변환한다(`shared/native.ts`의 `toDipState`,
-`toDipCanvasSnapshot`) — 읽을 때마다 IPC를 왕복하는 대신. macOS에서는 transform이 항등이라,
+bridge state를 로컬에서 변환하고(`shared/native.ts`의 `toDipState`), 저주기 canvas snapshot은
+그것을 읽는 process가 변환한다. macOS에서는 Accessibility의 TCC subject가 permissions gate와
+같아지도록 main에서 읽고, Windows에서는 preload에 남는다. macOS에서는 transform이 항등이라,
 적용하는 것이 특수 케이스가 아니라 no-op이 된다.
 
 잘못됐을 때의 증상: 100 % 배율에서는 맞는데 HiDPI 디스플레이에서 배율에 비례해 어긋난다,
