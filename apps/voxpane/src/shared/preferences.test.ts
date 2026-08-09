@@ -64,10 +64,13 @@ describe("mergePreferences", () => {
   })
 
   it("keeps booleans that are explicitly false", () => {
-    const base = { ...DEFAULT_PREFERENCES, debug: true, effects: true }
-    expect(mergePreferences(base, { debug: false, effects: false })).toMatchObject({
+    const base = { ...DEFAULT_PREFERENCES, debug: true, effects: true, audioMeter: true }
+    expect(
+      mergePreferences(base, { debug: false, effects: false, audioMeter: false }),
+    ).toMatchObject({
       debug: false,
       effects: false,
+      audioMeter: false,
     })
   })
 })
@@ -102,9 +105,10 @@ describe("sanitizePreferences", () => {
   })
 
   it("keeps well-typed scalars", () => {
-    expect(sanitizePreferences({ debug: true, effects: false })).toEqual({
+    expect(sanitizePreferences({ debug: true, effects: false, audioMeter: true })).toEqual({
       debug: true,
       effects: false,
+      audioMeter: true,
     })
   })
 

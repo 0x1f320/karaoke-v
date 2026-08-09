@@ -24,6 +24,7 @@
   "toolbar": {
     "quit": "{{app}} 종료",
     "effects": "노트 이펙트",
+    "audioMeter": "LUFS 게이지",
     "settings": "설정"
   },
   "debug": {
@@ -64,6 +65,17 @@
       "p95": "p95",
       "p99": "p99",
       "missing": "n/a"
+    },
+    "audioMeter": {
+      "title": "LUFS",
+      "shortTerm": "S",
+      "longTerm": "L",
+      "peak": "PK",
+      "silent": "무음",
+      "starting": "시작 중",
+      "idle": "대기",
+      "unsupported": "미지원",
+      "error": "오류"
     }
   },
   "permissions": {

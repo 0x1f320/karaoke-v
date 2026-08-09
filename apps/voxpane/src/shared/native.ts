@@ -1,5 +1,6 @@
 import * as macHelper from "@voxpane/macos-helper"
 import * as winHelper from "@voxpane/windows-helper"
+import type { AudioMeterSnapshot } from "./audioMeter"
 import type { BridgeState, BridgeViewMapping } from "./bridgeChannels"
 import type { CanvasSnapshot, PianoRoll, Rect, Viewport } from "./geometry"
 
@@ -43,6 +44,12 @@ export interface NativeHelper {
   /** Windows: UI Automation answers only where the canvas is. */
   getCanvas?(want: { width: number; height: number }, target?: string): Rect | null
   getCanvasOrigin?(): { x: number; y: number } | undefined
+
+  startAudioMeter?(target?: string): AudioMeterSnapshot | Promise<AudioMeterSnapshot>
+  stopAudioMeter?(): AudioMeterSnapshot
+  readAudioMeter?(): AudioMeterSnapshot
+  preflightScreenCaptureAccess?(): boolean
+  requestScreenCaptureAccess?(): boolean
 }
 
 export const isWindows = process.platform === "win32"

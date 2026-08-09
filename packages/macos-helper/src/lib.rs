@@ -5,9 +5,11 @@
 #[macro_use]
 extern crate napi_derive;
 
+mod audio;
 mod ax;
 mod clock;
 mod pianoroll;
+mod screen;
 mod scripts;
 mod stick;
 mod types;

@@ -1,4 +1,4 @@
-import { Settings, Sparkles, X } from "lucide-react"
+import { Gauge, Settings, Sparkles, X } from "lucide-react"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { IconButton } from "./ui/IconButton"
@@ -7,11 +7,18 @@ import { IconButton } from "./ui/IconButton"
 export function Toolbar() {
   const { t } = useTranslation()
   const [effects, setEffects] = useState(false)
+  const [audioMeter, setAudioMeter] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    window.preferences.get().then((p) => setEffects(p.effects))
-    return window.preferences.onChange((p) => setEffects(p.effects))
+    window.preferences.get().then((p) => {
+      setEffects(p.effects)
+      setAudioMeter(p.audioMeter)
+    })
+    return window.preferences.onChange((p) => {
+      setEffects(p.effects)
+      setAudioMeter(p.audioMeter)
+    })
   }, [])
 
   // The window is held hidden until the first height lands, and a window that
@@ -36,6 +43,15 @@ export function Toolbar() {
     window.preferences.update({ effects: next })
   }
 
+  const toggleAudioMeter = async () => {
+    const next = !audioMeter
+    if (next && !(await window.audioMeter.requestAccess())) {
+      return
+    }
+    setAudioMeter(next)
+    window.preferences.update({ audioMeter: next })
+  }
+
   return (
     <div
       ref={rootRef}
@@ -51,6 +67,16 @@ export function Toolbar() {
           onClick={toggleEffects}
         >
           <Sparkles size={20} strokeWidth={1.5} />
+        </IconButton>
+        <IconButton
+          className="w-3/4"
+          on={audioMeter}
+          aria-pressed={audioMeter}
+          title={t("toolbar.audioMeter")}
+          aria-label={t("toolbar.audioMeter")}
+          onClick={toggleAudioMeter}
+        >
+          <Gauge size={20} strokeWidth={1.5} />
         </IconButton>
         <div className="my-1 h-px w-1/2 bg-white/25" />
         <IconButton

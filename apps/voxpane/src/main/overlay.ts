@@ -3,10 +3,10 @@ import { BrowserWindow } from "electron"
 import { native } from "../shared/native"
 
 // The overlay window: transparent, click-through, always-on-top, covering the
-// whole SynthV window. It is otherwise inert — all per-frame geometry and
-// drawing happens in its renderer, which reads the addon directly through the
-// preload bridge. This removes native → main → renderer hops (and per-frame
-// setBounds) from the hot path.
+// whole SynthV window. It is otherwise inert — all per-frame bridge reads and
+// drawing happen in its renderer. Low-rate canvas refresh may cross main on
+// macOS so the Accessibility permission subject stays consistent, but the
+// per-frame path does not.
 
 export function createOverlayWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -46,7 +46,6 @@ export function createOverlayWindow(): BrowserWindow {
       native.disableAnimations(win.getNativeWindowHandle())
     } catch {}
   }
-
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
     win.webContents.openDevTools({ mode: "detach" })

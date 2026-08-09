@@ -32,8 +32,8 @@ Plus `setIgnoreMouseEvents(true, { forward: true })` — clicks pass through to 
 Two `webPreferences` entries are load-bearing:
 
 - **`sandbox: false`.** The preload requires the native addons and starts the bridge endpoint
-  worker. This is what lets the renderer read geometry and playback state with **no IPC hop
-  in the per-frame path** — see [the hot path](#the-hot-path).
+  worker. This is what lets the renderer read bridge playback state with **no IPC hop in the
+  per-frame path** — see [the hot path](#the-hot-path).
 - **`backgroundThrottling: false`.** The overlay is never focused, and Electron throttles
   rAF and timers in unfocused windows. Without this the overlay visibly lags behind a scroll.
 
@@ -175,8 +175,14 @@ cannot find on screen, as hidden.
 **Windows** checks `IsWindowVisible` and `IsIconic` only — **there is no occlusion check
 there**, because ownership already lets other windows cover the overlay naturally.
 
-Screen Recording is deliberately *not* requested: the check reads bounds, pid and layer, none
-of which that permission gates — it covers window titles and pixel capture.
+Visibility deliberately does *not* request Screen Recording: the check reads bounds, pid and
+layer, none of which that permission gates — it covers window titles and pixel capture. The
+optional LUFS meter is separate; when the toolbar switch is turned on, it starts the audio
+capture path that lets macOS show the Screen Recording prompt. Once running, the renderer
+polls the native snapshot at 50 ms: the bar follows the 400 ms momentary window, the main
+readout shows the 3 s short-term window, and the secondary readout shows the long-term
+integrated value for the current capture session. If the OS stops the capture, the native
+snapshot moves to a terminal state and the renderer turns the toolbar preference off.
 
 **Breaks as:** the overlay floating over an unrelated app that is covering SynthV (macOS
 occlusion) · the overlay surviving a minimise.
@@ -189,19 +195,20 @@ The per-frame path deliberately does not cross a process boundary.
 | --- | --- | --- |
 | receive bridge pipe frames | preload worker | event-driven, independent of rAF |
 | read the latest bridge `state` | preload memory cache | allocation-free, no file I/O |
-| refresh the canvas snapshot | preload, async native task | every ~250 ms, off the rAF call stack |
+| refresh the canvas snapshot | macOS: main IPC; Windows: preload native read | every ~250 ms, off the rAF call stack |
 | decide and draw | renderer | one transform on a plain scroll |
 
-Everything above happens **inside the overlay renderer's process**, via `contextBridge`. The
-alternative — main reads, IPC to renderer — adds a hop and a serialisation to every frame,
-which is exactly what this arrangement exists to avoid. It is why `sandbox: false` is worth
-its cost here.
+The bridge state and draw decision stay **inside the overlay renderer's process**, via
+`contextBridge`. The low-rate canvas refresh may cross main on macOS so Accessibility's TCC
+subject matches the permissions gate; it is deliberately outside the per-frame path. The
+alternative — main reads bridge state and IPCs it to the renderer every frame — adds a hop and
+a serialisation to every frame, which is exactly what this arrangement exists to avoid.
 
 The frame loop reads the latest completed native canvas anchor, not the Accessibility API
-itself. On macOS the snapshotter re-reads only the cached window and scroll-bar AX elements,
-and its reply lands between frames; a slow AX round trip makes the canvas anchor older
-instead of blocking the draw. The actual scroll and zoom used for drawing are recomputed
-from the bridge state already sampled into the preload memory cache.
+itself. On macOS main re-reads only the cached window and scroll-bar AX elements, and its
+reply lands between frames; a slow AX round trip makes the canvas anchor older instead of
+blocking the draw. The actual scroll and zoom used for drawing are recomputed from the bridge
+state already sampled into the preload memory cache.
 
 The base note set is rebuilt only when the cached schedule generation or canvas changes.
 Plain scroll and zoom updates keep the same set and map it through the live bridge-derived

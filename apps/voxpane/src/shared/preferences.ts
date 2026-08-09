@@ -186,6 +186,7 @@ export type Preferences = {
    * them, so flipping this back on restores the same look.
    */
   effects: boolean
+  audioMeter: boolean
   particles: ParticlePreferences
   glow: GlowPreferences
   trail: TrailPreferences
@@ -212,6 +213,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   language: "system",
   debug: false,
   effects: true,
+  audioMeter: false,
   particles: {
     enabled: true,
     rate: 90,
@@ -324,6 +326,7 @@ export type PreferencesPatch = {
   language?: LanguagePreference
   debug?: boolean
   effects?: boolean
+  audioMeter?: boolean
   particles?: Partial<ParticlePreferences>
   glow?: Partial<GlowPreferences>
   trail?: Partial<TrailPreferences>
@@ -346,6 +349,7 @@ export function mergePreferences(base: Preferences, patch: PreferencesPatch): Pr
     language: patch.language ?? base.language,
     debug: patch.debug ?? base.debug,
     effects: patch.effects ?? base.effects,
+    audioMeter: patch.audioMeter ?? base.audioMeter,
     particles: { ...base.particles, ...patch.particles },
     glow: { ...base.glow, ...patch.glow },
     trail: { ...base.trail, ...patch.trail },
@@ -489,6 +493,7 @@ export function sanitizePreferences(input: unknown): PreferencesPatch {
     language,
     debug,
     effects,
+    audioMeter,
     particles,
     glow,
     trail,
@@ -505,6 +510,9 @@ export function sanitizePreferences(input: unknown): PreferencesPatch {
   }
   if (typeof effects === "boolean") {
     out.effects = effects
+  }
+  if (typeof audioMeter === "boolean") {
+    out.audioMeter = audioMeter
   }
   if (typeof activePreset === "string" || activePreset === null) {
     out.activePreset = activePreset

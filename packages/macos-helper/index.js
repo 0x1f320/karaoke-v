@@ -118,6 +118,44 @@ function monotonicNow() {
   return loadNative().monotonicNow()
 }
 
+function normalizeAudioMeterSnapshot(snapshot) {
+  return {
+    state: snapshot?.state ?? "error",
+    updatedAtMs: snapshot?.updatedAtMs ?? 0,
+    momentaryLufs: snapshot?.momentaryLufs ?? null,
+    shortTermLufs: snapshot?.shortTermLufs ?? null,
+    longTermLufs: snapshot?.longTermLufs ?? null,
+    rmsDb: snapshot?.rmsDb ?? null,
+    peakDb: snapshot?.peakDb ?? null,
+    sampleRate: snapshot?.sampleRate ?? null,
+    channels: snapshot?.channels ?? null,
+    error: snapshot?.error ?? null,
+  }
+}
+
+function startAudioMeter(target = "synthesizer") {
+  const snapshot = loadNative().startAudioMeter(target)
+  return typeof snapshot?.then === "function"
+    ? snapshot.then(normalizeAudioMeterSnapshot)
+    : normalizeAudioMeterSnapshot(snapshot)
+}
+
+function stopAudioMeter() {
+  return normalizeAudioMeterSnapshot(loadNative().stopAudioMeter())
+}
+
+function readAudioMeter() {
+  return normalizeAudioMeterSnapshot(loadNative().readAudioMeter())
+}
+
+function preflightScreenCaptureAccess() {
+  return loadNative().preflightScreenCaptureAccess()
+}
+
+function requestScreenCaptureAccess() {
+  return loadNative().requestScreenCaptureAccess()
+}
+
 module.exports = {
   start,
   stop,
@@ -129,4 +167,9 @@ module.exports = {
   getCanvasAsync,
   rescanScripts,
   monotonicNow,
+  startAudioMeter,
+  stopAudioMeter,
+  readAudioMeter,
+  preflightScreenCaptureAccess,
+  requestScreenCaptureAccess,
 }

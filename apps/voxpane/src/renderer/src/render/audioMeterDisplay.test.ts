@@ -1,0 +1,114 @@
+import { describe, expect, it } from "vitest"
+import type { AudioMeterSnapshot } from "../../../shared/audioMeter"
+import {
+  AUDIO_METER_HEIGHT,
+  AUDIO_METER_PAD_PX,
+  AUDIO_METER_WIDTH,
+  audioMeterLevel,
+  audioMeterLevelColor,
+  audioMeterReadout,
+  audioMeterRect,
+  audioMeterTicks,
+} from "./audioMeterDisplay"
+
+const BASE: AudioMeterSnapshot = {
+  state: "running",
+  updatedAtMs: 10,
+  momentaryLufs: -18.25,
+  shortTermLufs: -19.5,
+  longTermLufs: -20.75,
+  rmsDb: -17.5,
+  peakDb: -3.2,
+  sampleRate: 48000,
+  channels: 2,
+}
+
+const labels = {
+  title: "LUFS",
+  shortTerm: "S",
+  longTerm: "L",
+  peak: "PK",
+  silent: "silent",
+  starting: "starting",
+  idle: "idle",
+  unsupported: "unsupported",
+  error: "error",
+}
+
+describe("audio meter display", () => {
+  it("anchors inside the right edge of the piano-roll clip", () => {
+    expect(audioMeterRect({ x: 100, y: 40, w: 900, h: 360 })).toEqual({
+      x: 1000 - AUDIO_METER_WIDTH - AUDIO_METER_PAD_PX,
+      y: 40 + AUDIO_METER_PAD_PX,
+      w: AUDIO_METER_WIDTH,
+      h: AUDIO_METER_HEIGHT,
+    })
+  })
+
+  it("hides when the piano-roll clip cannot fit the meter", () => {
+    expect(audioMeterRect({ x: 10, y: 20, w: AUDIO_METER_WIDTH, h: 300 })).toBeNull()
+    expect(audioMeterRect({ x: 10, y: 20, w: 600, h: AUDIO_METER_HEIGHT })).toBeNull()
+  })
+
+  it("formats running LUFS and peak values", () => {
+    expect(audioMeterReadout(BASE, labels)).toEqual({
+      title: "LUFS",
+      primary: "S -19.5",
+      secondary: "L -20.8",
+      tertiary: "PK -3.2",
+      state: "running",
+    })
+  })
+
+  it("uses state labels when no measured value exists", () => {
+    expect(
+      audioMeterReadout(
+        {
+          ...BASE,
+          state: "silent",
+          momentaryLufs: null,
+          shortTermLufs: null,
+          longTermLufs: null,
+        },
+        labels,
+      ),
+    ).toEqual({
+      title: "LUFS",
+      primary: "silent",
+      secondary: "PK -3.2",
+      tertiary: "",
+      state: "silent",
+    })
+  })
+
+  it("maps loudness into a bounded fill level", () => {
+    expect(audioMeterLevel(null)).toBe(0)
+    expect(audioMeterLevel(-60)).toBe(0)
+    expect(audioMeterLevel(-44.5)).toBeCloseTo(0.25)
+    expect(audioMeterLevel(-29)).toBeCloseTo(0.5)
+    expect(audioMeterLevel(-13.5)).toBeCloseTo(0.75)
+    expect(audioMeterLevel(2)).toBe(1)
+    expect(audioMeterLevel(12)).toBe(1)
+  })
+
+  it("builds readable meter ticks up to +2", () => {
+    expect(audioMeterTicks()).toEqual([
+      { value: 2, label: "+2", level: 1 },
+      { value: -10, label: "-10", level: 0.8064516129032258 },
+      { value: -20, label: "-20", level: 0.6451612903225806 },
+      { value: -30, label: "-30", level: 0.4838709677419355 },
+      { value: -40, label: "-40", level: 0.3225806451612903 },
+      { value: -50, label: "-50", level: 0.16129032258064516 },
+      { value: -60, label: "-60", level: 0 },
+    ])
+  })
+
+  it("maps meter height to a DAW-style gradient", () => {
+    expect(audioMeterLevelColor(0, "running")).toBe(0x2f8cff)
+    expect(audioMeterLevelColor(0.42, "running")).toBe(0x35d07f)
+    expect(audioMeterLevelColor(0.72, "running")).toBe(0xf7d748)
+    expect(audioMeterLevelColor(1, "running")).toBe(0xff4f5f)
+    expect(audioMeterLevelColor(0.72, "unsupported")).toBe(0xffc857)
+    expect(audioMeterLevelColor(0.72, "error")).toBe(0xffc857)
+  })
+})

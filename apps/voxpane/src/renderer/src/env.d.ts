@@ -1,3 +1,4 @@
+import type { AudioMeterSnapshot } from "../../shared/audioMeter"
 import type { BridgeSchedule, BridgeState } from "../../shared/bridgeChannels"
 import type { BridgeDiagnostics } from "../../shared/bridgeDiagnostics"
 import type { CanvasSnapshot } from "../../shared/geometry"
@@ -8,6 +9,12 @@ declare global {
   interface Window {
     overlay: {
       getCanvasAsync(): Promise<CanvasSnapshot | null>
+    }
+    audioMeter: {
+      requestAccess(): Promise<boolean>
+      start(): Promise<AudioMeterSnapshot>
+      stop(): Promise<AudioMeterSnapshot>
+      read(): Promise<AudioMeterSnapshot>
     }
     bridge: {
       /** The hot channel: playhead, transport and view transform. Safe per-frame. */
