@@ -41,6 +41,9 @@ publish:
 
 mac:
   category: public.app-category.music
+  extraFiles:
+    - from: ../../packages/macos-helper/voxpane-bridge-guardian
+      to: Helpers/voxpane-bridge-guardian
   # Ad-hoc, until there is a Developer ID. Without any signature the bundle keeps
   # the Electron binary's linker signature — Info.plist unbound, resources
   # unsealed — and macOS has no identity to hang a TCC grant on, so Accessibility

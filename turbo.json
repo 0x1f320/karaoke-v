@@ -4,7 +4,14 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["out/**", "build/**", "*.node", "binding.js", "binding.d.ts"]
+      "outputs": [
+        "out/**",
+        "build/**",
+        "*.node",
+        "binding.js",
+        "binding.d.ts",
+        "voxpane-bridge-guardian"
+      ]
     },
     "package": {
       "dependsOn": ["build"],

@@ -28,7 +28,9 @@ app session through `pipe-session`. Lua reads that small regular file and opens 
 event-by-event, applies the session gate, and posts accepted records to preload
 `BridgeRuntime`. `BridgeRuntime` decodes and composes matching generations into the
 in-memory cache; the renderer reads only that cache. No per-frame IPC or endpoint I/O is in
-the render path.
+the render path. On macOS, the worker also launches a guardian that opens a non-consuming
+read descriptor for every FIFO, daemonizes outside Electron's process tree, and reports
+readiness over a Unix control socket before the worker advertises the session.
 
 The streams have different change rates: `state` carries the playhead and the current
 `rev`/`scrollSeq`/`notesSeq`; `scroll` carries the viewport transform; `notes` carries a
@@ -64,10 +66,15 @@ the snapshot cache, and exposes that cache/API to the renderer. Renderer
 
 On a clean shutdown, main asks the receiver to stop before it withdraws its owned
 `pipe-session` and FIFO endpoints. The Darwin servers allow a 300 ms drain grace before
-their bounded reader teardown. Lua requires heartbeat advancement before a cold open and
-quarantines a failed advertisement until it advances, so a force-kill cannot cause repeated
-opens against one unchanged stale FIFO. The smaller race after a proven-live heartbeat and
-before the endpoint open remains unavoidable and is handled as a reconnect.
+their bounded reader teardown, then the worker closes the guardian control socket. If the
+worker or Electron process disappears instead, that socket reaches EOF without any
+JavaScript cleanup. The daemonized guardian withdraws only the matching rendezvous and FIFO
+nodes, drains late opens through the same 300 ms grace, and then keeps one blocking drainer
+per channel until every existing Lua writer closes. Its already-open read descriptors remove
+the no-reader interval that would otherwise deliver `SIGPIPE` to SynthV. The guardian never
+reads while the worker is alive, so it does not compete with normal reception. Reparenting
+before readiness also keeps development supervisors that signal Electron's descendant tree
+from killing the guardian before it can drain.
 
 ## Geometry path
 

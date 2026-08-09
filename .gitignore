@@ -13,6 +13,7 @@ target/
 packages/*-helper/*.node
 packages/*-helper/binding.js
 packages/*-helper/binding.d.ts
+packages/macos-helper/voxpane-bridge-guardian
 
 # the bridge script, published into the app by the synthv-script build
 apps/voxpane/resources/synthv/

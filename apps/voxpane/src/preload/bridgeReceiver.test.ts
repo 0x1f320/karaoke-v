@@ -29,6 +29,7 @@ import {
   type PipeChannel,
   pipeEndpoint,
 } from "../shared/bridgeRendezvous"
+import type { BridgeGuardian, BridgeGuardianOptions } from "./bridgeGuardian"
 import type { PipeEndpointServer } from "./bridgePipeServer"
 import {
   type BridgeFrameMessage,
@@ -212,6 +213,23 @@ class FakeEndpoint implements PipeEndpointServer {
   }
 }
 
+class FakeGuardian implements BridgeGuardian {
+  started = false
+  stopped = false
+  startGate: Deferred<void> | null = null
+  onStop: (() => void) | null = null
+
+  async start(): Promise<void> {
+    await this.startGate?.promise
+    this.started = true
+  }
+
+  async stop(): Promise<void> {
+    this.stopped = true
+    this.onStop?.()
+  }
+}
+
 interface Harness {
   receiver: BridgeReceiver
   files: MemoryFileSystem
@@ -219,6 +237,7 @@ interface Harness {
   messages: BridgeReceiverMessage[]
   endpoints: Map<string, FakeEndpoint>
   created: FakeEndpoint[]
+  guardians: FakeGuardian[]
 }
 
 function frame(channel: number, payload: Uint8Array): Uint8Array {
@@ -269,6 +288,11 @@ function harness(
     createSession?: () => string
     beforeEndpointFactory?: (index: number) => void
     configureEndpoint?: (server: FakeEndpoint, index: number) => void
+    configureGuardian?: (
+      guardian: FakeGuardian,
+      options: BridgeGuardianOptions,
+      index: number,
+    ) => void
     beforePublish?: (message: BridgeReceiverMessage, index: number) => void
   } = {},
 ): Harness {
@@ -277,6 +301,7 @@ function harness(
   const messages: BridgeReceiverMessage[] = []
   const endpoints = new Map<string, FakeEndpoint>()
   const created: FakeEndpoint[] = []
+  const guardians: FakeGuardian[] = []
   const sessions = [...(options.sessions ?? [FIRST_SESSION, SECOND_SESSION])]
   let factoryCalls = 0
   let publishCalls = 0
@@ -297,6 +322,12 @@ function harness(
       created.push(endpoint)
       return endpoint
     },
+    guardianFactory: (guardianOptions) => {
+      const guardian = new FakeGuardian()
+      options.configureGuardian?.(guardian, guardianOptions, guardians.length)
+      guardians.push(guardian)
+      return guardian
+    },
     publish: (message) => {
       const callIndex = publishCalls
       publishCalls += 1
@@ -304,7 +335,7 @@ function harness(
       messages.push(message)
     },
   })
-  return { receiver, files, timers, messages, endpoints, created }
+  return { receiver, files, timers, messages, endpoints, created, guardians }
 }
 
 function endpoint(values: Harness, session: string, channel: PipeChannel): FakeEndpoint {
@@ -450,6 +481,44 @@ describe("BridgeReceiver", () => {
 
     expect(values.created.map((server) => server.started)).toEqual([true, true, true])
     expect(rendezvous(values.files)?.session).toBe(FIRST_SESSION)
+  })
+
+  it("publishes only after guardian readiness and stops the guardian after endpoints", async () => {
+    const guardianReady = deferred<void>()
+    const shutdownOrder: string[] = []
+    let guardianOptions: BridgeGuardianOptions | null = null
+    const values = harness({
+      configureEndpoint: (server, index) => {
+        server.onStopBegin = () => shutdownOrder.push(`endpoint-${index}`)
+      },
+      configureGuardian: (guardian, options) => {
+        guardian.startGate = guardianReady
+        guardian.onStop = () => shutdownOrder.push("guardian")
+        guardianOptions = options
+      },
+    })
+
+    const starting = values.receiver.start()
+    await waitFor(() => values.guardians.length === 1, "guardian creation")
+
+    expect(values.files.writes).toEqual([])
+    expect(guardianOptions).toMatchObject({
+      rendezvousPath: "/bridge/pipe-session",
+      session: FIRST_SESSION,
+      endpointPaths: [
+        `/bridge/pipe-${FIRST_SESSION}-state`,
+        `/bridge/pipe-${FIRST_SESSION}-scroll`,
+        `/bridge/pipe-${FIRST_SESSION}-notes`,
+      ],
+    })
+
+    guardianReady.resolve()
+    await starting
+    expect(rendezvous(values.files)?.session).toBe(FIRST_SESSION)
+
+    await values.receiver.stop()
+    expect(shutdownOrder.at(-1)).toBe("guardian")
+    expect(shutdownOrder.slice(0, 3)).toEqual(["endpoint-0", "endpoint-1", "endpoint-2"])
   })
 
   it("supervises a createSession throw and eventually resolves the original start", async () => {

@@ -25,7 +25,7 @@ Runs colocated Vitest tests for the Lua source and the non-consuming pipe-sessio
 ## Deploy
 
 ```sh
-pnpm --filter @voxpane/synthv-script deploy
+pnpm --filter @voxpane/synthv-script run deploy
 ```
 
 Copies built Lua scripts into SynthV's scripts directory. Set `SYNTHV_SCRIPTS_DIR` to

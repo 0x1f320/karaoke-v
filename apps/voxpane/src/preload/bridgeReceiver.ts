@@ -24,6 +24,11 @@ import {
 } from "../shared/bridgeRendezvous"
 import { BridgeFrameParser, type BridgeFramePolicy } from "./bridgeFrameParser"
 import {
+  type BridgeGuardian,
+  type BridgeGuardianOptions,
+  createBridgeGuardian,
+} from "./bridgeGuardian"
+import {
   createPipeEndpointServer,
   type PipeEndpointServer,
   type PipeEndpointServerOptions,
@@ -120,12 +125,14 @@ export interface BridgeReceiverDependencies {
   nowMs?: () => number
   createSession?: () => string
   endpointFactory?: (options: PipeEndpointServerOptions) => PipeEndpointServer
+  guardianFactory?: (options: BridgeGuardianOptions) => BridgeGuardian
   publish(message: BridgeReceiverMessage, transfer: ArrayBuffer[]): void
 }
 
 interface SessionResources {
   session: string
   endpoints: Partial<Record<PipeChannel, PipeEndpointServer>>
+  guardian: BridgeGuardian | null
   parsers: Readonly<Record<PipeChannel, BridgeFrameParser>>
   sessionGateOpen: boolean
   pendingScroll: BridgeFrameMessage | null
@@ -287,6 +294,7 @@ export class BridgeReceiver {
   private readonly nowMs: () => number
   private readonly createSession: () => string
   private readonly endpointFactory: (options: PipeEndpointServerOptions) => PipeEndpointServer
+  private readonly guardianFactory: (options: BridgeGuardianOptions) => BridgeGuardian
   private readonly publishMessage: (message: BridgeReceiverMessage, transfer: ArrayBuffer[]) => void
   private readonly transport: Omit<BridgeTransportDiagnostics, "status" | "session"> = {
     recoveries: 0,
@@ -317,6 +325,7 @@ export class BridgeReceiver {
     this.nowMs = dependencies.nowMs ?? Date.now
     this.createSession = dependencies.createSession ?? (() => randomBytes(16).toString("hex"))
     this.endpointFactory = dependencies.endpointFactory ?? createPipeEndpointServer
+    this.guardianFactory = dependencies.guardianFactory ?? createBridgeGuardian
     this.publishMessage = dependencies.publish
   }
 
@@ -395,6 +404,7 @@ export class BridgeReceiver {
       const createdResources: SessionResources = {
         session,
         endpoints: {},
+        guardian: null,
         parsers,
         sessionGateOpen: false,
         pendingScroll: null,
@@ -438,6 +448,23 @@ export class BridgeReceiver {
         this.transport.endpointFailures += failures
         this.requestRecovery(createdResources, session)
         return
+      }
+
+      if (this.platform === "darwin") {
+        const endpointPaths = PIPE_CHANNELS.map((channel) =>
+          pipeEndpoint(this.platform, this.directory, createdResources.session, channel),
+        ) as [string, string, string]
+        const guardian = this.guardianFactory({
+          rendezvousPath: rendezvousPath(this.directory),
+          session: createdResources.session,
+          endpointPaths,
+          onFatal: () => this.endpointFailed(createdResources),
+        })
+        createdResources.guardian = guardian
+        await guardian.start()
+        if (this.stopped || this.current !== createdResources || this.recoveryRequested) {
+          return
+        }
       }
 
       await this.writeHeartbeat(createdResources, true)
@@ -704,6 +731,7 @@ export class BridgeReceiver {
             Promise.resolve().then(() => endpoint.stop()),
           ),
         )
+        await resources.guardian?.stop()
       })()
     }
     return resources.teardownPromise

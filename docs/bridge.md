@@ -18,10 +18,14 @@ files: they are three app-owned pipe endpoints.
 ```mermaid
 sequenceDiagram
     participant W as App worker
+    participant G as Detached guardian
     participant R as pipe-session
     participant L as SynthV Lua
     participant P as Preload BridgeRuntime
     W->>W: create readers, framing, session gate
+    W->>G: start launcher and Unix control listener
+    G->>G: open FIFO readers, daemonize, reparent
+    G-->>W: READY
     W->>R: publish VPR1 appSession heartbeat
     L->>R: read 128 bytes
     L->>W: open three write endpoints
@@ -69,12 +73,31 @@ Endpoint names are deterministic from `appSession`:
 ## Endpoint ownership
 
 On macOS the app creates each endpoint with `mkfifo`, opens its reader before advertising
-the rendezvous, and receives from that reader. Lua opens the existing FIFO write-only.
-On disconnect the app keeps a short reader lifecycle for reconnection; after withdrawal it
-allows a 300 ms drain grace and bounds exceptional reader teardown. Lua sees `EPIPE` or an
-open/write failure, closes all endpoint handles, and returns to the rendezvous retry loop.
-The app withdraws `pipe-session` before it tears down endpoints, then removes only FIFO
-nodes it still owns.
+the rendezvous, and receives from that reader. It also creates a short-lived Unix control
+listener and starts one guardian launcher for the session. The guardian opens a second
+nonblocking read descriptor for each FIFO, connects to the listener, forks into its own
+session, and waits until the launcher has exited and the worker is no longer its process-tree
+ancestor. It then reports `READY` over the connected control socket but does not read FIFO
+data while that socket remains open. The worker removes the listener pathname after accepting
+the connection and may publish `pipe-session` only after `READY`. Lua opens the existing FIFO
+write-only.
+
+The control socket is deliberately independent of `ChildProcess` stdio. `detached: true`
+creates another process group, but development supervisors can still enumerate descendants
+and send them `SIGINT`. Reparenting before readiness removes that ancestry; the already-open
+Unix connection still gives the guardian kernel-delivered owner EOF without keeping it in
+Electron's process tree.
+
+On disconnect the app keeps a short reader lifecycle for reconnection. A normal teardown
+withdraws the rendezvous, stops the app readers and their 300 ms drain grace, then closes the
+guardian control socket. Abrupt worker or Electron death closes that socket in the kernel. The
+guardian then withdraws a rendezvous only when it still names its session, keeps the FIFO
+paths available for the same 300 ms late-open grace, and removes only nodes whose device and
+inode match what it opened. It drains each old FIFO on a dedicated blocking thread until
+writer EOF, with no timeout while Lua still has a handle. This both prevents `SIGPIPE` and
+prevents a stopped app from filling the FIFO buffer and blocking SynthV. The Darwin `poll`
+path is deliberately not used here: measured large blocking writes can remain asleep after
+a partial drain, while a blocking reader continues the kernel backpressure path.
 
 On Windows the app uses a Node `net` Named Pipe server. It permits one active socket per
 channel, rejects an overlapping socket while it is active, and accepts the next socket only
@@ -87,7 +110,8 @@ opens, but a stale regular entry or symlink is never pruned as a convenience. Be
 open, Lua must observe the same app session at a strictly newer heartbeat. An open or write
 failure quarantines that `(appSession, heartbeat)` until the session changes or its heartbeat
 advances. This prevents an unchanged fresh-but-dead record from reopening a readerless FIFO;
-a force-kill after the newer heartbeat was observed but before open remains unavoidable. Lua
+a force-kill after the newer heartbeat was observed but before open remains a reconnect race,
+but the guardian read descriptors keep it from becoming a readerless-FIFO `SIGPIPE`. Lua
 never reads a channel pipe; `pipe-session` is its only regular read.
 
 ## Session gate and recovery
@@ -120,9 +144,12 @@ stream is a recovery event, not a partial record to decode.
 ## Shutdown and failure
 
 Graceful app quit stops the receiver owner, joins its work, withdraws the rendezvous, and
-then drains/removes owned endpoints. This ordering makes the normal case deterministic.
-It cannot cover a process killed at an arbitrary instruction, therefore stale rendezvous
-or endpoint entries are observations to diagnose rather than a cleanup authority.
+then drains/removes owned endpoints before releasing the guardian. This ordering makes the
+normal case deterministic. A killed worker cannot run it, so guardian control EOF performs
+the same ownership-checked withdrawal and continues draining independently. An unexpected
+guardian control close while the worker is alive is an endpoint failure and rotates the
+receiver to a fresh app session; no session is advertised before guardian readiness and
+reparenting.
 
 ## Diagnostics
 

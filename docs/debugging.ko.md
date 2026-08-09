@@ -63,6 +63,21 @@ name을 출력하고 connect probe를 하지 않는다.
 non-consuming pipe-session inspector다. endpoint observation은 ownership을 diagnose하지만 connected Lua
 writer를 보증하지는 않는다.
 
+## macOS guardian
+
+```sh
+pgrep -fl voxpane-bridge-guardian
+```
+
+현재 advertise된 macOS session에는 daemonized guardian 하나가 있다. safety read descriptor와 connected
+worker control socket만 소유하며 worker가 살아 있는 동안 channel data를 consume하지 않는다. parent PID는
+더는 Electron PID가 아니어야 하며, 그래야 `pnpm dev` shutdown의 signaled descendant tree에 포함되지 않는다.
+normal stop 뒤에는 Lua가 old writer를 닫는 동안 잠깐 남을 수 있다. Electron `SIGKILL` 뒤에는 matching
+`pipe-session`을 withdraw하고 해당
+writer가 EOF에 도달할 때까지 남는다. 앱이 살아 있는 동안 guardian이 exit하면 endpoint failure로 보고되어
+fresh receiver session을 만든다. app crash recovery를 test할 때 guardian을 따로 kill하지 말고, drain 여부를
+inspect하려고 FIFO를 열지 않는다.
+
 ## Debug mode
 
 Settings > General > **Enable debug mode**는 note rect, selected note, reach band, bridge diagnostics를
@@ -77,7 +92,7 @@ accepted sample 부재다. renderer latency report는 overlay DevTools에, devel
 
 ```sh
 pnpm --filter @voxpane/synthv-script build
-pnpm --filter @voxpane/synthv-script deploy
+pnpm --filter @voxpane/synthv-script run deploy
 ```
 
 deploy 뒤 SynthV에서 **Scripts > Rescan** 또는 restart한다. Rescan은 old script timer를 교체한다. filesystem
@@ -101,6 +116,7 @@ cd packages/windows-helper && cargo check --target x86_64-pc-windows-msvc
 | --- | --- |
 | App stopped | `dump`의 `pipe-session: unavailable`은 정상 |
 | crash 뒤 stale app state | `dump`의 `stale`; app restart 후 side panel 확인 |
+| app crash 뒤 SynthV가 멈춤 | kill 전에 session guardian이 있었고 뒤에 `pipe-session`이 unavailable이 되는지 확인 |
 | overlay가 전혀 안 그림 | tray attachment, side-panel connection/error, debug rect 순서로 확인 |
 | pipe가 반복 recover | diagnostic recovery, malformed frame, endpoint failure, disconnect 확인 |
 | new state가 무시됨 | diagnostic invalid, `scrollSeq`, `notesSeq`, `rev` mismatch observation 확인 |

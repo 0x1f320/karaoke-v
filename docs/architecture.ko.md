@@ -27,6 +27,9 @@ advertise한다. Lua는 그 작은 regular file을 읽고, 유도된 `state`, `s
 연다. worker는 framed byte를 event-by-event로 받고 session gate를 적용한 뒤 accepted record를 preload
 `BridgeRuntime`으로 post한다. `BridgeRuntime`은 matching generation을 decode/compose하여 in-memory
 cache에 넣고 renderer는 그 cache만 읽는다. render path에는 per-frame IPC나 endpoint I/O가 없다.
+macOS에서는 worker가 guardian도 시작한다. guardian은 모든 FIFO의 non-consuming read descriptor를 열고
+Electron process tree 밖으로 daemonize한 뒤 Unix control socket으로 readiness를 보고한다. worker는 그 뒤에만
+session을 advertise한다.
 
 stream의 change rate는 다르다. `state`는 playhead와 현재 `rev`/`scrollSeq`/`notesSeq`를, `scroll`은
 viewport transform을, `notes`는 전체 schedule을 싣는다. 셋은 independent stream이므로 channel 사이의
@@ -59,10 +62,13 @@ compose하며, 그 cache/API를 renderer에 expose한다. renderer `requestAnima
 기다리지 않는다.
 
 정상 shutdown에서는 main이 먼저 receiver stop을 요청하고, 그 다음 자기 `pipe-session`과 FIFO endpoint를
-withdraw한다. Darwin server는 bounded reader teardown 전에 300 ms drain grace를 둔다. force-kill은 이
-순서를 atomic하게 만들 수 없다. Lua는 cold open 전에 heartbeat 전진을 요구하고 failed advertisement는
-전진할 때까지 quarantine하므로 unchanged stale FIFO를 반복해서 열지는 않는다. proven-live heartbeat 관찰
-후 endpoint open 전의 더 작은 race는 피할 수 없으며 reconnect로 처리한다.
+withdraw한다. Darwin server는 bounded reader teardown 전에 300 ms drain grace를 둔 뒤 worker가 guardian
+control socket을 닫는다. 대신 worker 또는 Electron process가 사라지면 JavaScript cleanup 없이 그 socket이
+EOF가 된다. daemonized guardian은 matching rendezvous와 FIFO node만 withdraw하고 같은 300 ms grace 동안
+late open을 drain한 뒤, 기존 Lua writer가 모두 닫힐 때까지 channel별 blocking drainer를 유지한다. guardian이
+이미 연 read descriptor가 SynthV에 `SIGPIPE`를 전달할 수 있는 no-reader interval을 없앤다. worker가 살아
+있는 동안 guardian은 읽지 않으므로 normal reception과 경쟁하지 않는다. readiness 전에 reparent하므로
+Electron descendant tree에 signal을 보내는 development supervisor도 guardian을 drain 전에 죽이지 못한다.
 
 ## Geometry path
 

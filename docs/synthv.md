@@ -36,7 +36,10 @@ when the expected endpoint is absent; the app prevents the normal case by creati
 before advertising and withdrawing the rendezvous before teardown. It intentionally does
 not remove stale regular files or symlinks. The liveness proof prevents reuse of an unchanged
 fresh-but-dead advertisement, but cannot remove a force-kill race after heartbeat advancement
-and before endpoint open.
+and before endpoint open. On macOS a daemonized out-of-process guardian closes the dangerous
+side of that race: it already holds a read descriptor before the app advertises, is no longer
+an Electron descendant, and after app death drains until every Lua writer closes. The Lua
+client is unchanged and never creates a FIFO.
 
 ## Publication
 

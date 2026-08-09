@@ -58,6 +58,7 @@ overlay까지 어떻게 오는지, 각 부분이 어떤 technique 위에 서 있
 | Technique | 집 | 쓰는 곳 |
 | --- | --- | --- |
 | Pipe-session rendezvous and app-owned endpoints | [bridge](bridge.ko.md#the-paths) | Lua connection과 app lifecycle |
+| Daemonized FIFO guardian | [bridge](bridge.ko.md#endpoint-ownership) | macOS crash isolation과 writer drain |
 | Session gate and generation matching | [bridge](bridge.ko.md#session-gate-and-recovery) | recovery snapshot과 latest valid state |
 | Bounded framed parser | [bridge](bridge.ko.md#frame-boundaries) | `BridgeRuntime` decode 전 pipe receipt |
 | Playhead interpolation on the local clock | [architecture](architecture.ko.md#the-frame-loop) | transport, 모든 effect 타이밍 |

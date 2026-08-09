@@ -67,6 +67,22 @@ prints derived Named Pipe names and does not probe by connecting.
 strictly non-consuming pipe-session inspector. Endpoint observations diagnose ownership;
 they do not certify a connected Lua writer.
 
+## macOS guardian
+
+```sh
+pgrep -fl voxpane-bridge-guardian
+```
+
+One daemonized guardian exists for the current advertised macOS session. It owns only safety
+read descriptors and the connected worker control socket; it does not consume channel data
+while the worker is alive. Its parent PID must no longer be Electron's PID; this is what keeps
+`pnpm dev` shutdown from including it in the signaled descendant tree. After a normal stop it
+can remain briefly while Lua closes old writers.
+After an Electron `SIGKILL`, it withdraws the matching `pipe-session` and remains until those
+writers reach EOF. A guardian that exits while the app is alive is reported as an endpoint
+failure and causes a fresh receiver session. Do not kill it independently when testing app
+crash recovery, and do not open a FIFO to inspect whether it is draining.
+
 ## Debug mode
 
 Settings > General > **Enable debug mode** draws note rectangles, the selected note, reach
@@ -82,7 +98,7 @@ overlay DevTools; development forwards them to the main terminal.
 
 ```sh
 pnpm --filter @voxpane/synthv-script build
-pnpm --filter @voxpane/synthv-script deploy
+pnpm --filter @voxpane/synthv-script run deploy
 ```
 
 After deploying, use **Scripts > Rescan** or restart SynthV. Rescan replaces old script
@@ -107,6 +123,7 @@ cd packages/windows-helper && cargo check --target x86_64-pc-windows-msvc
 | --- | --- |
 | App stopped | `dump` prints `pipe-session: unavailable`; this is normal |
 | Stale app state after a crash | `dump` prints `stale`; inspect the side panel after restarting the app |
+| SynthV stops after an app crash | verify the session guardian existed before the kill and that `pipe-session` becomes unavailable |
 | Overlay never draws | tray attachment, side-panel connection/error, then debug rectangles |
 | Pipe recovers repeatedly | diagnostic recoveries, malformed frames, endpoint failures, and disconnects |
 | New state is ignored | diagnostic invalid, `scrollSeq`, `notesSeq`, or `rev` mismatch observations |

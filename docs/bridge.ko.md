@@ -17,10 +17,14 @@ record이자 heartbeat다. `state`, `scroll`, `notes`는 data file이 아니라 
 ```mermaid
 sequenceDiagram
     participant W as App worker
+    participant G as Detached guardian
     participant R as pipe-session
     participant L as SynthV Lua
     participant P as Preload BridgeRuntime
     W->>W: create readers, framing, session gate
+    W->>G: start launcher and Unix control listener
+    G->>G: open FIFO readers, daemonize, reparent
+    G-->>W: READY
     W->>R: publish VPR1 appSession heartbeat
     L->>R: read 128 bytes
     L->>W: open three write endpoints
@@ -64,12 +68,27 @@ endpoint name은 `appSession`에서 deterministic하게 유도된다.
 
 ## Endpoint ownership
 
-macOS에서 앱은 각 endpoint를 `mkfifo`로 만들고, rendezvous를 advertise하기 전에 reader를 열어 그
-reader로 receive한다. Lua는 존재하는 FIFO를 write-only로 연다. disconnect 뒤 앱은 reconnect를 위한
-짧은 reader lifecycle을 유지한다. withdrawal 뒤에는 300 ms drain grace를 두고 exceptional reader
-teardown을 bound한다. Lua는 `EPIPE` 또는 open/write failure를 보면 모든 endpoint handle을 닫고
-rendezvous retry loop로 돌아간다. 앱은 endpoint teardown 전에 `pipe-session`을 withdraw하고, 여전히
-자기가 소유한 FIFO node만 지운다.
+macOS에서 앱은 각 endpoint를 `mkfifo`로 만들고, rendezvous를 advertise하기 전에 reader를 열어 그 reader로
+receive한다. session마다 short-lived Unix control listener를 만들고 guardian launcher도 하나 시작한다.
+guardian은 각 FIFO의 두 번째 nonblocking read descriptor를 열고 listener에 connect한 뒤, 자기 session으로
+fork하고 launcher가 exit하여 worker가 더는 process-tree ancestor가 아닐 때까지 기다린다. 그 다음 connected
+control socket으로 `READY`를 보고하지만 socket이 열린 동안에는 FIFO data를 읽지 않는다. worker는 connection을
+accept한 뒤 listener pathname을 지우고, `READY` 뒤에만 `pipe-session`을 publish한다. Lua는 존재하는 FIFO를
+write-only로 연다.
+
+control socket은 의도적으로 `ChildProcess` stdio와 독립적이다. `detached: true`는 process group을 분리하지만
+development supervisor는 descendant를 enumerate하여 `SIGINT`를 보낼 수 있다. readiness 전 reparenting이 그
+ancestry를 제거하고, 이미 연결된 Unix connection은 guardian을 Electron process tree에 두지 않으면서도
+kernel-delivered owner EOF를 제공한다.
+
+disconnect 뒤 앱은 reconnect를 위한 짧은 reader lifecycle을 유지한다. normal teardown은 rendezvous를
+withdraw하고 app reader와 그 300 ms drain grace를 stop한 뒤 guardian control socket을 닫는다. worker 또는
+Electron이 abruptly 죽어도 kernel에서 이 socket이 닫힌다. guardian은 rendezvous가 여전히 자기 session을
+가리킬 때만 withdraw하고, 같은 300 ms late-open grace 동안 FIFO path를 유지한 뒤 자기가 연 device/inode와
+일치하는 node만 지운다. Lua가 handle을 보유하는 동안 timeout을 두지 않고 old FIFO별 dedicated blocking
+thread로 writer EOF까지 drain한다. 따라서 `SIGPIPE`도 막고 stopped app의 FIFO buffer가 차서 SynthV를
+block하는 것도 막는다. Darwin `poll` path는 의도적으로 쓰지 않는다. measured large blocking write는 partial
+drain 뒤에도 sleep 상태로 남을 수 있지만 blocking reader는 kernel backpressure path를 계속 진행한다.
 
 Windows에서 앱은 Node `net` Named Pipe server를 쓴다. channel별 active socket은 하나이며 active한 동안
 overlapping socket을 reject하고 clean disconnect 뒤에만 다음 socket을 받는다. PowerShell helper도
@@ -81,8 +100,8 @@ connected-session validation이 normal late open을 bound하지만, stale regula
 편의상 prune하지 않는다. Cold open 전에는 같은 app session에서 strictly newer heartbeat를 관찰해야 한다.
 open/write failure가 난 `(appSession, heartbeat)`는 session이 바뀌거나 heartbeat가 전진할 때까지 quarantine한다.
 따라서 unchanged fresh-but-dead record로 readerless FIFO를 다시 여는 동작은 막는다. newer heartbeat 관찰
-후 open 전의 force-kill race는 피할 수 없다. Lua는 channel pipe를 읽지 않으며 `pipe-session`만 regular
-read한다.
+후 open 전 force-kill은 여전히 reconnect race지만 guardian read descriptor가 이를 readerless-FIFO
+`SIGPIPE`로 바뀌지 않게 한다. Lua는 channel pipe를 읽지 않으며 `pipe-session`만 regular read한다.
 
 ## Session gate and recovery
 
@@ -111,8 +130,11 @@ pipe payload는 bridge header, layout, channel, payload length로 frame된다. r
 ## Shutdown and failure
 
 graceful app quit은 receiver owner를 stop하고 work를 join한 뒤 rendezvous를 withdraw하고 owned endpoint를
-drain/remove한다. 이 순서가 normal case를 deterministic하게 만든다. 임의 instruction에서 killed process는
-막을 수 없으므로 stale rendezvous 또는 endpoint entry는 cleanup authority가 아니라 diagnose할 observation이다.
+drain/remove한 뒤 guardian을 release한다. 이 순서가 normal case를 deterministic하게 만든다. killed worker는
+이를 실행할 수 없으므로 guardian control EOF가 같은 ownership-checked withdrawal을 수행하고 독립적으로
+drain을 계속한다. worker가 살아 있는 동안 guardian control이 unexpectedly close되면 endpoint failure로 취급해
+receiver를 fresh app session으로 rotate한다. guardian readiness와 reparenting 전에는 어떤 session도
+advertise하지 않는다.
 
 ## Diagnostics
 

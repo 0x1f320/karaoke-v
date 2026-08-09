@@ -31,7 +31,10 @@ endpoint를 닫는다. open/write failure의 `(appSession, heartbeat)`는 sessio
 때까지 quarantine한다. `wb` mode는 기대한 endpoint가 없을 때 ordinary file을 만들 수 있다. 앱은 advertise
 전에 reader를 만들고 teardown 전에 rendezvous를 withdraw해서 normal case를 막는다. stale regular file과
 symlink는 의도적으로 지우지 않는다. Liveness proof는 unchanged fresh-but-dead advertisement 재사용을 막지만,
-heartbeat 전진 관찰 후 endpoint open 전 force-kill race까지 제거하지는 못한다.
+heartbeat 전진 관찰 후 endpoint open 전 force-kill race까지 제거하지는 못한다. macOS에서는 daemonized
+out-of-process guardian이 그 race의 위험한 쪽을 막는다. app advertise 전에 이미 read descriptor를 보유하고,
+더는 Electron descendant가 아니며, app death 뒤에는 모든 Lua writer가 닫힐 때까지 drain한다. Lua client는
+바뀌지 않으며 FIFO를 만들지 않는다.
 
 ## Publication
 
