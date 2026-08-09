@@ -190,6 +190,7 @@ function Overlay() {
     const scrollLatency = new BridgeScrollLatency()
     const audioMeterLabels = {
       title: t("debug.audioMeter.title"),
+      shortTerm: t("debug.audioMeter.shortTerm"),
       longTerm: t("debug.audioMeter.longTerm"),
       peak: t("debug.audioMeter.peak"),
       silent: t("debug.audioMeter.silent"),

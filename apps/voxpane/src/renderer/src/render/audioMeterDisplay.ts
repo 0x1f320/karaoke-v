@@ -1,10 +1,11 @@
 import type { AudioMeterSnapshot, AudioMeterState } from "../../../shared/audioMeter"
 
-export const AUDIO_METER_WIDTH = 104
-export const AUDIO_METER_HEIGHT = 116
+export const AUDIO_METER_WIDTH = 150
+export const AUDIO_METER_HEIGHT = 128
 export const AUDIO_METER_PAD_PX = 8
 const AUDIO_METER_MIN_DB = -60
-const AUDIO_METER_MAX_DB = 12
+const AUDIO_METER_MAX_DB = 2
+const AUDIO_METER_TICK_VALUES = [2, -10, -20, -30, -40, -50, -60] as const
 const AUDIO_METER_GRADIENT = [
   { at: 0, color: 0x2f8cff },
   { at: 0.42, color: 0x35d07f },
@@ -14,6 +15,7 @@ const AUDIO_METER_GRADIENT = [
 
 export interface AudioMeterLabels {
   title: string
+  shortTerm: string
   longTerm: string
   peak: string
   silent: string
@@ -34,7 +36,14 @@ export interface AudioMeterReadout {
   title: string
   primary: string
   secondary: string
+  tertiary: string
   state: AudioMeterState
+}
+
+export interface AudioMeterTick {
+  value: number
+  label: string
+  level: number
 }
 
 export function audioMeterRect(clip: AudioMeterRect): AudioMeterRect | null {
@@ -61,6 +70,14 @@ export function audioMeterLevel(momentaryLufs: number | null): number {
   return Math.max(0, Math.min(1, normalized))
 }
 
+export function audioMeterTicks(): AudioMeterTick[] {
+  return AUDIO_METER_TICK_VALUES.map((value) => ({
+    value,
+    label: formatTick(value),
+    level: audioMeterLevel(value),
+  }))
+}
+
 export function audioMeterLevelColor(level: number, state: AudioMeterState): number {
   if (state === "error" || state === "unsupported") {
     return 0xffc857
@@ -85,17 +102,15 @@ export function audioMeterReadout(
   const primary =
     snapshot.shortTermLufs === null
       ? stateLabel(snapshot.state, labels)
-      : formatDb(snapshot.shortTermLufs)
-  const secondary = [
-    snapshot.longTermLufs === null ? null : `${labels.longTerm} ${formatDb(snapshot.longTermLufs)}`,
-    snapshot.peakDb === null ? null : `${labels.peak} ${formatDb(snapshot.peakDb)}`,
-  ]
-    .filter((part) => part !== null)
-    .join("  ")
+      : `${labels.shortTerm} ${formatDb(snapshot.shortTermLufs)}`
+  const secondary =
+    snapshot.longTermLufs === null ? "" : `${labels.longTerm} ${formatDb(snapshot.longTermLufs)}`
+  const tertiary = snapshot.peakDb === null ? "" : `${labels.peak} ${formatDb(snapshot.peakDb)}`
   return {
     title: labels.title,
     primary,
-    secondary: secondary || stateLabel(snapshot.state, labels),
+    secondary: secondary || tertiary || stateLabel(snapshot.state, labels),
+    tertiary: secondary ? tertiary : "",
     state: snapshot.state,
   }
 }
@@ -119,6 +134,10 @@ function stateLabel(state: AudioMeterState, labels: AudioMeterLabels): string {
 
 function formatDb(value: number): string {
   return value.toFixed(1)
+}
+
+function formatTick(value: number): string {
+  return value > 0 ? `+${value}` : `${value}`
 }
 
 function mixColor(from: number, to: number, amount: number): number {

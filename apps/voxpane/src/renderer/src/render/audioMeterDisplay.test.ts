@@ -8,6 +8,7 @@ import {
   audioMeterLevelColor,
   audioMeterReadout,
   audioMeterRect,
+  audioMeterTicks,
 } from "./audioMeterDisplay"
 
 const BASE: AudioMeterSnapshot = {
@@ -24,6 +25,7 @@ const BASE: AudioMeterSnapshot = {
 
 const labels = {
   title: "LUFS",
+  shortTerm: "S",
   longTerm: "L",
   peak: "PK",
   silent: "silent",
@@ -51,8 +53,9 @@ describe("audio meter display", () => {
   it("formats running LUFS and peak values", () => {
     expect(audioMeterReadout(BASE, labels)).toEqual({
       title: "LUFS",
-      primary: "-19.5",
-      secondary: "L -20.8  PK -3.2",
+      primary: "S -19.5",
+      secondary: "L -20.8",
+      tertiary: "PK -3.2",
       state: "running",
     })
   })
@@ -73,6 +76,7 @@ describe("audio meter display", () => {
       title: "LUFS",
       primary: "silent",
       secondary: "PK -3.2",
+      tertiary: "",
       state: "silent",
     })
   })
@@ -80,10 +84,23 @@ describe("audio meter display", () => {
   it("maps loudness into a bounded fill level", () => {
     expect(audioMeterLevel(null)).toBe(0)
     expect(audioMeterLevel(-60)).toBe(0)
-    expect(audioMeterLevel(-42)).toBeCloseTo(0.25)
-    expect(audioMeterLevel(-24)).toBeCloseTo(0.5)
-    expect(audioMeterLevel(-6)).toBeCloseTo(0.75)
+    expect(audioMeterLevel(-44.5)).toBeCloseTo(0.25)
+    expect(audioMeterLevel(-29)).toBeCloseTo(0.5)
+    expect(audioMeterLevel(-13.5)).toBeCloseTo(0.75)
+    expect(audioMeterLevel(2)).toBe(1)
     expect(audioMeterLevel(12)).toBe(1)
+  })
+
+  it("builds readable meter ticks up to +2", () => {
+    expect(audioMeterTicks()).toEqual([
+      { value: 2, label: "+2", level: 1 },
+      { value: -10, label: "-10", level: 0.8064516129032258 },
+      { value: -20, label: "-20", level: 0.6451612903225806 },
+      { value: -30, label: "-30", level: 0.4838709677419355 },
+      { value: -40, label: "-40", level: 0.3225806451612903 },
+      { value: -50, label: "-50", level: 0.16129032258064516 },
+      { value: -60, label: "-60", level: 0 },
+    ])
   })
 
   it("maps meter height to a DAW-style gradient", () => {

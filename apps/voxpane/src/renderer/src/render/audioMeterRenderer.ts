@@ -7,6 +7,7 @@ import {
   audioMeterLevelColor,
   audioMeterReadout,
   audioMeterRect,
+  audioMeterTicks,
 } from "./audioMeterDisplay"
 
 export interface AudioMeterDrawParams {
@@ -15,36 +16,60 @@ export interface AudioMeterDrawParams {
   labels: AudioMeterLabels
 }
 
-const BAR_X = 8
-const BAR_Y = 30
-const BAR_W = 8
-const BAR_H = 72
-const TEXT_X = 22
+const TEXT_X = 8
+const BAR_X = 132
+const BAR_Y = 20
+const BAR_W = 10
+const BAR_H = 96
+const TICK_X = 116
+const TICK_LABEL_X = 88
 const RADIUS = 6
 
 export class AudioMeterRenderer {
   private readonly container = new Container()
   private readonly panel = new Graphics()
   private readonly bar = new Graphics()
+  private readonly ticks = new Graphics()
   private readonly title = new Text({
     text: "",
     style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 10 },
   })
   private readonly primary = new Text({
     text: "",
-    style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 22 },
+    style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 18 },
   })
   private readonly secondary = new Text({
     text: "",
     style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11 },
   })
+  private readonly tertiary = new Text({
+    text: "",
+    style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11 },
+  })
+  private readonly tickLabels = audioMeterTicks().map(
+    (tick) =>
+      new Text({
+        text: tick.label,
+        style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 8 },
+      }),
+  )
   private key = ""
 
   constructor(stage: Container) {
-    this.title.position.set(TEXT_X, 10)
-    this.primary.position.set(TEXT_X, 32)
-    this.secondary.position.set(TEXT_X, 66)
-    this.container.addChild(this.panel, this.bar, this.title, this.primary, this.secondary)
+    this.title.position.set(TEXT_X, 9)
+    this.primary.position.set(TEXT_X, 31)
+    this.secondary.position.set(TEXT_X, 61)
+    this.tertiary.position.set(TEXT_X, 80)
+    this.container.addChild(
+      this.panel,
+      this.ticks,
+      this.bar,
+      this.title,
+      this.primary,
+      this.secondary,
+      this.tertiary,
+      ...this.tickLabels,
+    )
     this.container.visible = false
     stage.addChild(this.container)
   }
@@ -72,6 +97,7 @@ export class AudioMeterRenderer {
       readout.title,
       readout.primary,
       readout.secondary,
+      readout.tertiary,
       readout.state,
     ].join("|")
     this.container.visible = true
@@ -81,13 +107,16 @@ export class AudioMeterRenderer {
     this.key = nextKey
     this.container.position.set(rect.x, rect.y)
     this.drawPanel(rect)
+    this.drawTicks()
     this.drawBar(level, readout.state)
     this.title.text = readout.title
     this.primary.text = readout.primary
     this.secondary.text = readout.secondary
+    this.tertiary.text = readout.tertiary
     this.title.style.fill = 0x9ba7b4
     this.primary.style.fill = readout.state === "error" ? 0xff746c : 0xffffff
     this.secondary.style.fill = readout.state === "unsupported" ? 0xffc857 : 0xb7c1cc
+    this.tertiary.style.fill = 0xb7c1cc
   }
 
   dispose(): void {
@@ -123,5 +152,19 @@ export class AudioMeterRenderer {
       alpha: 0.16,
       alignment: 1,
     })
+  }
+
+  private drawTicks(): void {
+    this.ticks.clear()
+    const ticks = audioMeterTicks()
+    for (let index = 0; index < ticks.length; index += 1) {
+      const tick = ticks[index]
+      const y = BAR_Y + BAR_H - Math.round(BAR_H * tick.level)
+      this.ticks.rect(TICK_X, y, BAR_X - TICK_X - 3, 1).fill({ color: 0xffffff, alpha: 0.28 })
+      const label = this.tickLabels[index]
+      label.text = tick.label
+      label.position.set(TICK_LABEL_X, y - 5)
+      label.style.fill = tick.value > 0 ? 0xffb0a8 : 0x8b98a8
+    }
   }
 }
