@@ -22,6 +22,23 @@ export interface StartOptions {
   onStatus(status: StickStatus): void
 }
 
+export type AudioMeterState = "unsupported" | "idle" | "starting" | "running" | "silent" | "error"
+
+export interface AudioMeterSnapshot {
+  state: AudioMeterState
+  updatedAtMs: number
+  momentaryLufs: number | null
+  rmsDb: number | null
+  peakDb: number | null
+  sampleRate: number | null
+  channels: number | null
+  error?: string
+}
+
+export function startAudioMeter(target?: string): AudioMeterSnapshot | Promise<AudioMeterSnapshot>
+export function stopAudioMeter(): AudioMeterSnapshot
+export function readAudioMeter(): AudioMeterSnapshot
+
 /**
  * The piano-roll canvas rectangle, in physical pixels. It is identified by
  * agreeing with the bridge about its size, which the caller works out from the

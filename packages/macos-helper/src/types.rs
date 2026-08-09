@@ -26,6 +26,18 @@ pub struct JsStatus {
 }
 
 #[napi(object)]
+pub struct JsAudioMeterSnapshot {
+    pub state: String,
+    pub updated_at_ms: f64,
+    pub momentary_lufs: Option<f64>,
+    pub rms_db: Option<f64>,
+    pub peak_db: Option<f64>,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<u32>,
+    pub error: Option<String>,
+}
+
+#[napi(object)]
 pub struct JsPianoRoll {
     pub canvas: JsRect,
     pub content_x: f64,

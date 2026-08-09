@@ -25,6 +25,24 @@ export interface StartOptions {
 export function start(options: StartOptions): void
 /** Stop tracking and release resources. */
 export function stop(): void
+
+export type AudioMeterState = "unsupported" | "idle" | "starting" | "running" | "silent" | "error"
+
+export interface AudioMeterSnapshot {
+  state: AudioMeterState
+  updatedAtMs: number
+  momentaryLufs: number | null
+  rmsDb: number | null
+  peakDb: number | null
+  sampleRate: number | null
+  channels: number | null
+  error?: string
+}
+
+export function startAudioMeter(target?: string): AudioMeterSnapshot | Promise<AudioMeterSnapshot>
+export function stopAudioMeter(): AudioMeterSnapshot
+export function readAudioMeter(): AudioMeterSnapshot
+
 /** Disable AppKit's automatic show/hide/order animations for a window. */
 export function disableAnimations(view: Buffer): void
 
