@@ -12,8 +12,10 @@ import { resourcePath } from "./resources"
 // by an older build, carries nothing to compare — the bytes do.
 //
 // Rewriting only on a difference matters. SynthV reads its scripts directory
-// when it starts, so a copy that changes nothing costs the user nothing, while
-// one that does is what a restart will pick up.
+// when it starts, so a copy that changes nothing should not touch the file.
+// Rescan is separate: it also restarts the side-panel timer for an already
+// installed script, which is what reconnects Lua to a fresh app session after
+// the app restarts.
 
 function digest(file: string): string | null {
   try {
@@ -46,6 +48,12 @@ function scriptsDirectory(): string | null {
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null
 }
 
+function rescanInstalledScript(): void {
+  if (native.rescanScripts?.(NATIVE_TARGET)) {
+    console.log("asked SynthV to rescan its scripts")
+  }
+}
+
 /**
  * Nothing here is fatal: SynthV may not be installed yet, and the overlay is
  * still allowed to run without a bridge — it simply finds no channels.
@@ -66,6 +74,7 @@ export function installBridgeScript(): void {
 
   const target = path.join(directory, BRIDGE_SCRIPT_FILE)
   if (digest(target) === source) {
+    rescanInstalledScript()
     return
   }
   try {
@@ -76,12 +85,9 @@ export function installBridgeScript(): void {
     return
   }
 
-  // Only after a write, and only because SynthV is allowed to be running: it
-  // reads the directory when it starts, so without this the copy that just
-  // landed would sit there until the user restarted it. A rescan re-executes
+  // SynthV reads the directory when it starts, so without this the copy that
+  // just landed would sit there until the user restarted it. A rescan re-executes
   // the file and drops the previous copy's timers, so the old bridge stops
   // rather than publishing alongside the new one.
-  if (native.rescanScripts?.(NATIVE_TARGET)) {
-    console.log("asked SynthV to rescan its scripts")
-  }
+  rescanInstalledScript()
 }
