@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process"
+import { chmodSync } from "node:fs"
+import { join } from "node:path"
 
 // Not a shell script: `pnpm build` has to work from a Windows checkout too, where
 // there is no `uname` and no way to run `./build.sh`.
@@ -12,9 +14,10 @@ if (process.platform !== "darwin") {
 // generated loader picks the .node by process.arch at runtime, so a missing slice
 // only shows up as a broken app on the other kind of Mac.
 const TARGETS = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+const GUARDIAN = "voxpane-bridge-guardian"
 
 function run(command, args) {
-  return spawnSync(command, args, { stdio: "inherit", shell: true }).status ?? 1
+  return spawnSync(command, args, { stdio: "inherit" }).status ?? 1
 }
 
 for (const target of TARGETS) {
@@ -42,4 +45,18 @@ for (const target of TARGETS) {
   if (status !== 0) {
     process.exit(status)
   }
+
+  const guardianStatus = run("cargo", ["build", "--release", "--bin", GUARDIAN, "--target", target])
+  if (guardianStatus !== 0) {
+    process.exit(guardianStatus)
+  }
 }
+
+const guardianOutput = join(process.cwd(), GUARDIAN)
+const guardianInputs = TARGETS.map((target) =>
+  join(process.cwd(), "target", target, "release", GUARDIAN),
+)
+if (run("/usr/bin/lipo", ["-create", ...guardianInputs, "-output", guardianOutput]) !== 0) {
+  process.exit(1)
+}
+chmodSync(guardianOutput, 0o755)

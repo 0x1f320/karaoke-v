@@ -1,4 +1,4 @@
-# Geometry (한국어)
+# Geometry
 
 > 원문: **[geometry.md](geometry.md)**. 영어판이 원본이다.
 
@@ -116,7 +116,7 @@ effect가 옆 note로 스냅해 버린다. 대신, note가 한 번 rect을 가�
 **3. `ReadAnchor` — 한 번의 매칭이 모든 note를 배치한다.** bridge의 view mapping은 그리기에는
 충분히 신선하지만, 빠른 scroll 중에는 mapping으로 만든 예측이 잘못된 note를 가리킬 만큼 낡을 수
 있다. 그래서 그 예측은 *어느* note를 보고 있는지에 대한 추측 이상이 될 수 없다. threshold를
-tuning하기 전에는 [debugging](debugging.ko.md#4-turn-on-debug-mode)의 latency probe로 그
+tuning하기 전에는 [debugging](debugging.ko.md#debug-mode)의 latency probe로 그
 age를 다시 측정한다.
 
 read는 자기 자신에 대해서는 그 질문에 답할 수 있다. piano roll의 모든 note는 blick에서 픽셀로

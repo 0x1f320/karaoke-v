@@ -6,8 +6,8 @@
  * the transport. That one could only speak in blips — the clipboard belongs to
  * the user, so it was taken for 150ms on a transport *event* and given back —
  * and so the script had to decide what counted as an event: is this a seek, a
- * loop wrap, an edit? A file has no such cost, so state simply goes out on every
- * tick and the app, which is already reading once a frame to draw, sees the
+ * loop wrap, an edit? The app-owned pipe transport lets state go out on every
+ * tick and the app, which receives it independently of drawing, sees the
  * discontinuity itself. `kind`, the seek tolerance and the anchor machinery all
  * belonged to the clipboard and left with it.
  *
@@ -27,8 +27,8 @@ const SCRIPT_TITLE = "Overlay Bridge"
 
 const CONFIG = {
   /**
-   * Publishing costs ~4us, so there is little to save by slowing down while
-   * the transport is stopped — and stopped is exactly when the user scrolls.
+   * Publishing state on every tick keeps viewport updates current while the
+   * transport is stopped, which is exactly when the user scrolls.
    * On Windows the view transform published here is the app's only source for
    * where the piano roll is scrolled to, so a slower idle tick is a scroll the
    * overlay follows a tick late.
@@ -90,6 +90,9 @@ class OverlayBridge {
 
   private toggle(): void {
     this.enabled = !this.enabled
+    if (!this.enabled) {
+      this.publisher.close()
+    }
     this.refresh()
   }
 
@@ -126,6 +129,7 @@ class OverlayBridge {
   }
 
   private tick(): void {
+    const preparation = this.publisher.prepare(this.ticks * CONFIG.tickInterval)
     this.ticks = this.ticks + 1
 
     const playback = SV.getPlayback()
@@ -140,9 +144,24 @@ class OverlayBridge {
       this.loopEnd = this.lastPlayhead
     }
 
-    // The schedule goes out before the state that indexes it, so `rev` and
-    // `notesSeq` describe this tick rather than the previous one.
-    if (status !== "stopped" && this.lastStatus === "stopped") {
+    if (preparation === "disconnected") {
+      if (status !== this.lastStatus) {
+        this.refresh()
+      }
+      this.lastStatus = status
+      this.lastPlayhead = head
+      return
+    }
+
+    if (preparation === "new-session") {
+      if (!this.publishNotes(true)) {
+        this.refresh()
+        this.lastStatus = status
+        this.lastPlayhead = head
+        return
+      }
+      this.refresh()
+    } else if (status !== "stopped" && this.lastStatus === "stopped") {
       // Playback just began: the app has no schedule if this session never
       // published one.
       this.publishNotes()
@@ -189,20 +208,27 @@ class OverlayBridge {
   }
 
   /**
-   * Publishing while stopped is the whole point of the file transport. The
+   * Publishing while stopped is the whole point of the pipe transport. The
    * clipboard could not do it — taking the user's clipboard on every note edit
    * was not a cost worth paying — so the app used to see an edited schedule only
    * once playback started.
    */
-  private publishNotes(): void {
+  private publishNotes(exactSnapshot = false): boolean {
     try {
       const notes = collectNotes()
       this.revision = currentRevision()
-      this.publisher.publishNotes(this.revision, notes)
+      if (!this.publisher.publishNotes(this.revision, notes)) {
+        return false
+      }
       this.notesPublished = notes.length
       this.lastError = "none"
+      return true
     } catch (error) {
       this.lastError = tostring(error)
+      if (exactSnapshot) {
+        this.publisher.abortSnapshot(this.lastError)
+      }
+      return false
     }
   }
 

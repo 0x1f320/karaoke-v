@@ -1,4 +1,4 @@
-# Note effects (한국어)
+# Note effects
 
 > 원문: **[effects.md](effects.md)**. 영어판이 원본이다.
 
@@ -81,8 +81,8 @@ vibrato를 더한다. **호출자는 어느 쪽을 받았는지 알 수 없고, 
 **speed는 상한 적용 전에 취한다.** intensity는 목소리를 따라가야지 그리기가 허용된 지점을
 따라가면 안 되기 때문이다.
 
-curve가 왜 그렇게 동작하는지는 [synthv.ko.md](synthv.ko.md#the-computed-pitch-curve),
-어떻게 이동하는지는 [bridge.ko.md](bridge.ko.md#the-record-layout).
+curve가 왜 그렇게 동작하는지는 [synthv.ko.md](synthv.ko.md#notes-and-pitch),
+어떻게 이동하는지는 [bridge.ko.md](bridge.ko.md#frame-boundaries).
 
 ## Techniques
 

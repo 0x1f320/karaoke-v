@@ -27,6 +27,8 @@ export interface NativeHelper {
   disableAnimations(view: Buffer): void
   /** Windows only: hand the window to the OS to keep glued to the target. */
   follow?(handle: Buffer): void
+  /** Windows only: release a followed window before destroying it. */
+  unfollow?(): void
   monotonicNow(): number
 
   /** macOS: press SynthV's Scripts menu so a new bridge script is loaded now. */

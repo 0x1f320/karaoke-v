@@ -1,261 +1,137 @@
-# Debugging (한국어)
+# Debugging
 
-> 원문: **[debugging.md](debugging.md)**. 영어판이 원본이다.
+> 원문: [debugging.md](debugging.md). English가 source of truth다.
 
-overlay에는 에러 상태가 없다. 잘못되면 아무것도 안 그리거나, 맞는 것을 틀린 곳에 그린다 —
-그래서 첫 수는 절대 grep이 아니라 **어느 계층이 답하기를 멈췄는지** 알아내는 것이다.
-
-경로를 따라 내려간다. 아래 각 단계에는 자기 상태를 볼 방법이 있다.
+overlay가 실패하면 app/window tracking, Lua publication, pipe reception, snapshot composition, native
+geometry, rendering 중 어느 owner가 응답을 멈췄는지 확인한다. channel endpoint를 열어 검사하지 말 것.
+FIFO나 Named Pipe를 열면 transport 자체가 바뀐다.
 
 ## Running it
 
 ```sh
 pnpm install
-pnpm dev            # turbo run dev --filter @voxpane/app
+pnpm dev
 ```
 
-체크아웃에는 Node뿐 아니라 **Rust**(`rustup`)가 필요하다: 두 플랫폼 helper가 Rust + napi-rs
-이고, `dev`가 `^build`에 의존한다. Node-API 덕분에 바이너리 하나를 Node와 Electron이 모두
-로드하므로 Electron용 재빌드 단계는 없다 — `rebuild:native`를 찾고 있다면, 그런 건 존재하지
-않는다.
+main process는 terminal에, overlay DevTools는 renderer output에 쓴다. Lua에는 외부에서 읽을 수 있는 log가
+없으므로 side panel과 non-consuming inspector가 운영상 source of truth다.
 
-macOS에서 앱은 무엇이든 시작하기 전에 **Accessibility**가 필요하고, permissions 창이 그
-게이트다. Screen Recording은 *필요 없다* — 점유 판정은 `CGWindowList`에서 bounds·pid·layer를
-읽는데, 그 권한이 관장하는 대상이 아니다.
+## App and overlay
 
-쓸모 있는 환경 변수: `SYNTHV_SCRIPTS_DIR`가 bridge script가 설치되는 위치를 override한다.
-기본 경로 어느 것도 해당되지 않는 SynthV 설치를 위한 것이고, Turbo가 `dev`로 전달한다.
+tray status는 app이 attached, waiting, hidden인지 또는 Accessibility permission에 막혔는지 보인다. SynthV가
+attach되기 전에는 bridge 어떤 것도 도움이 되지 않는다. 이후 overlay debug mode로 bad geometry와 bad
+effect를 분리한다. debug note rect가 틀리면 schedule/scroll/native anchor path부터 고친다.
 
-### Where output goes
+## Script side panel
 
-| 프로세스 | 어디로 |
-| --- | --- |
-| main | `pnpm dev`를 돌린 터미널 |
-| overlay renderer | 자체 DevTools 창 — dev에서 자동으로 열림 |
-| toolbar renderer | 자체 DevTools 창 — dev에서 자동으로 열림 |
-| settings / permissions renderer | 기본으로 DevTools 없음. 필요하면 `openDevTools`를 추가 |
-| Lua script | **SynthV 바깥 어디에도 없음** — 아래 참조 |
+SynthV의 **Overlay Bridge** side panel을 연다. loaded version, bridge on/off, connection과 app session,
+현재 sequence counter, transport state, note count, inferred loop bound, last error를 보여준다.
+`rendezvous unavailable`은 앱이 endpoint를 advertise하지 않았다는 뜻이다. endpoint open/write failure 또는
+`EPIPE`는 Lua가 endpoint set을 닫고 다른 app session 또는 newer heartbeat를 기다린다는 뜻이다. 첫
+connection도 같은 session의 heartbeat 전진을 기다리므로 이후 240 ms validation이 다음 heartbeat second를
+볼 때까지 `disconnected`가 보일 수 있다. app이 connected인데 sequence가 늘지 않으면 Lua tick이 멈췄거나
+표시된 last error를 확인한다.
 
-script가 사각지대다. 개발자가 볼 수 있는 어디에도 로그를 남길 수 없고, 그래서 side panel로
-보고하고 `dump`가 존재한다.
+**Resend schedule**은 full schedule을 의도적으로 요청한다. clean client reconnect에서도 script가 exact
+notes/scroll/state snapshot을 자동으로 보낸다.
 
-## 1. Is the app tracking SynthV?
-
-증상: SynthV가 분명히 열려 있는데 overlay가 아예 없거나 엉뚱한 곳에 있다.
-
-- **tray 메뉴에 답이 있다.** 메뉴 바 항목(macOS) / tray 아이콘(Windows)을 열면, 비활성화된
-  첫 줄이 추적 상태다. stick observer가 `attached` / `waiting` / `hidden` / `permission`을
-  보고한다. SynthV가 돌고 있는데 `waiting`이면 대상 탐색이 실패한 것이다 — macOS는 앱의 지역화된
-  이름(`"synth"`), Windows는 실행 파일(`"synthv-studio"`)로 매칭한다(`shared/native.ts`).
-  SynthV가 닫혀 있으면 5초 유예 뒤에 알림도 띄우는데, 로그인 시 자동 실행 경쟁 상황에서 알림이
-  뜨지 않게 하려고 있는 유예다.
-- `hidden`은 대상을 보여줄 수 없다는 뜻이다. macOS에서는 최소화·다른 Space뿐 아니라 **앞의
-  창에 15 % 이상 덮인 경우**도 포함한다. Windows에서는 최소화되었거나 보이지 않는 경우뿐이고 —
-  거기엔 점유 판정이 없다. overlay와 toolbar가 함께 숨는 것은 의도이지 버그가 아니다.
-- `permission`은 macOS 전용이다: 실행 중에 Accessibility가 회수됐고, 게이트가 다시 올라온다.
-- Windows에서 overlay 위치가 틀리면 다른 무엇보다 DIP transform을 먼저 의심할 것 —
-  [geometry](geometry.ko.md#physical-pixels-points-and-dips) 참조.
-
-이 단계가 `attached`라고 말하기 전까지는 아래 어느 것도 동작할 수 없다.
-
-## 2. Is the script alive?
-
-SynthV의 side panel을 열고 **Overlay Bridge**를 찾는다. 표시하는 것:
-
-| 행 | 읽는 법 |
-| --- | --- |
-| `Version` | 어느 빌드가 로드됐는가 — 작업 사본이면 커밋 해시, 릴리스면 버전 |
-| `Bridge` | `on` / `off`. 토글 버튼이 있다 |
-| `Channels` | 디렉터리, 그리고 `seq`·`notes` 카운터와 마지막 에러 |
-| `Transport` | script가 생각하는 재생 상태 |
-| `Notes published` | 마지막으로 schedule을 보낼 때 나간 note 수 |
-| `Loop` | 추론된 loop 경계, 또는 `not seen yet` — wrap에서만 학습된다 |
-| `Last error` | `none`, 또는 throw한 tick의 메시지 |
-
-버튼이 둘 있다: **Disable/Enable**, 그리고 note channel을 즉시 다시 발행하는
-**Resend schedule** — 낡은 schedule이 문제인지 낡은 `rev`가 문제인지 가릴 때 쓸모 있다.
-
-**panel이 아예 없다**는 것은 script가 로드되지 않았다는 뜻이다. 설치된 적이 없거나, SynthV가
-시작한 뒤에 떨어졌거나 — SynthV는 scripts 디렉터리를 *시작할 때* 읽는다. **Scripts ▸ Rescan**
-하거나 재시작할 것.
-
-**`Version`이 예상한 빌드가 아닌 것**이 헷갈리는 디버깅 세션의 단일 최대 원인이다.
-[Deploying a script change](#5-deploying-a-script-change) 참조.
-
-**`seq`가 안 늘어난다**는 것은 tick loop가 죽었거나 bridge가 꺼져 있다는 뜻이다. `Last error`를
-확인할 것 — 매번 throw하는 tick은 아무것도 발행하지 않아서 꺼진 bridge와 정확히 똑같아 보이고,
-그렇게 packing 버그가 한동안 눈에 띄지 않았다.
-
-## 3. Read the live state
+## Pipe-session inspector
 
 ```sh
-pnpm --filter @voxpane/synthv-script dump
+pnpm --filter @voxpane/synthv-script run dump
+pnpm --filter @voxpane/synthv-script run dump -- /path/to/bridge
 ```
 
-앱이 하는 방식대로 channel을 디코드한다. 아무것도 안 돌고 있으면:
+`dump`는 먼저 `pipe-session`을 `lstat`한다. `ENOENT`는 unavailable이고 symlink 또는 non-regular node는
+malformed이며 읽지 않는다. 그다음 정확한 128-byte VPR1 record와 checksum을 decode하고 app session,
+heartbeat age, freshness, 세 derived endpoint name을 출력한다. 앱은 regular record를 truncate 없이 열고
+opened handle과 path가 같은 regular file을 가리키는지
+검증한 뒤 positioned 128-byte write를 수행하고 나서 truncate한다. absent record는 exclusively create하며
+recovery는 file을 unlink한 뒤 recreate할 수 있다. 따라서 regular-or-absent gate는 recovery `ENOENT`를
+unavailable로, short 또는 invalid record를 malformed로 처리한다. macOS에서 `dump`는 endpoint에 `lstat`만
+써서 `fifo`, `missing`, `non-fifo`, `symlink`로 보고하며 열지 않는다. Windows에서는 derived Named Pipe
+name을 출력하고 connect probe를 하지 않는다.
 
-```
-directory: /Users/you/Library/Application Support/voxpane/bridge
+| Output | Meaning | Exit |
+| --- | --- | --- |
+| `pipe-session: unavailable` | app stopped, not yet started, 또는 rendezvous withdrawn | 0 |
+| `pipe-session: fresh` | current app session이 advertise됨 | 0 |
+| `pipe-session: stale` | app stop/crash 뒤 checksum-valid session이 남음 | 0 |
+| `pipe-session: malformed (...)` | symlink/non-regular node, bad shape/checksum, future heartbeat, 또는 decode할 수 없는 existing record | nonzero |
 
-session.json: ENOENT: no such file or directory, ...
-state: ENOENT: ...
-scroll: ENOENT: ...
-notes: ENOENT: ...
-```
+`dump`를 live playhead, note, bend, scroll, per-channel ordering에 쓰지 않는다. 이는 strictly
+non-consuming pipe-session inspector다. endpoint observation은 ownership을 diagnose하지만 connected Lua
+writer를 보증하지는 않는다.
 
-`ENOENT` 넷이 "여기에 script가 한 번이라도 publish한 적이 있는가"에 답한다 — 없다.
-
-실제로 출력될 때 볼 것:
-
-- **`session.json`** — `layout`이 `shared/bridgeChannels.ts`의 앱 쪽 `LAYOUT`과 일치해야 한다.
-  어긋나면 앱이 (정확하게) 모든 레코드를 거부하고 있는 것이고, overlay는 다른 증상 없이 조용해진다.
-  `host`도 실려 있어서, 사용자가 실제로 돌리는 editor 버전과 OS를 확인하는 가장 빠른 길이다.
-- **`seq`** — `dump`를 1초 간격으로 두 번 돌린다. 안 움직이면 script가 tick하지 않는 것이다.
-- **`status`**와 **`at`** — playhead가 SynthV가 보여주는 것과 맞는가?
-- **`scrollSeq` / `scroll`** — scroll하거나 zoom한 뒤 다시 dump한다. `scrollSeq`와 일치하는
-  record가 바뀌어야 한다. viewport가 그대로면 반복 dump에서도 `scrollSeq`가 같고, script가
-  scroll write를 하지 않으므로 파일 `mtime`도 그대로여야 한다.
-- **`rev` / `notesSeq`** — SynthV에서 note를 편집하고 다시 dump한다. 둘 다 바뀌어야 한다.
-  `rev`는 움직였는데 `notesSeq`가 그대로면 schedule 발행이 실패한 것이다.
-- **`notes`** — note 수와 각 note의 `bend`. 모든 note가 `bend none`이면 engine이 그 group의
-  계산된 pitch curve를 갖고 있지 않다는 뜻이고, 앱은 *합성된* contour를 그리고 있다. 지원되는
-  상태이지 결함이 아니다 — 다만 `playback/pitch.ts`에서 완전히 다른 코드 경로이고, pitch 버그를
-  파일의 엉뚱한 절반에서 디버깅하기 전에 알아둘 값어치가 있다.
-- `[min..max] cents`로 출력되는 bend 범위는 그럴듯해야 한다. −6900 근처 값은 무성 frame이
-  pitch로 읽히고 있다는 뜻이다 — [synthv](synthv.ko.md#the-computed-pitch-curve) 참조.
-
-`dump`는 선택적으로 디렉터리 인자를 받아, 다른 곳의 channel을 읽을 수 있다.
-
-## 4. Turn on debug mode
-
-설정 ▸ General ▸ **Enable debug mode**. overlay 자체에 그리는 것:
-
-- **모든 note의 rect** — 보이는 note set에 대한 current-frame prediction이고, effect와 같은
-  frame transform을 거쳐 표현된다. 박스가 틀렸으면 effect는 애초에 맞을 수 없었고, 버그는
-  effect가 아니라 [geometry](geometry.ko.md)에 있다.
-- 울리는 note의 **매칭된 rect** — 강조 표시된다. 스크롤하면서 이걸 볼 것: note 사이를 건너뛰면
-  그리기 버그가 아니라 매칭 버그다.
-- **reach band** — 보이는 각 note의 effect가 세로로 얼마나 갈 수 있는지. pitch following이
-  켜져 있고 *또한* 그 mode가 effect의 위치를 움직일 때만(`intensity`가 아닌 경우) 그린다.
-  piano roll 가장자리를 넘어가는 band는 mask에 잘려 사라져 보일 effect다.
-- **bridge channel diagnostics** — piano roll 우상단의 작은 panel에 `state`, `scroll`, `notes` 각각 한 줄로
-  표시한다. channel file의 filesystem `mtime` 기준 age, 마지막 size, accepted record가 현재
-  draw까지 기다린 시간, 최신 read cost, accepted `seq` / `notesSeq` / `scrollSeq` / `rev`를 보여준다.
-  state와 notes line은 debug collection이 켜진 뒤 서로 다른 accepted record들의 accepted-to-draw
-  `avg`, `min`, `max`, `p95`, `p99` 통계를 포함한다. `fail` line은 missing file, 거부된 record,
-  generation mismatch, `rev` mismatch를 세고, 마지막 `scroll applied` line은 현재 viewport 적용
-  timing과 scroll spike의 `avg`, `min`, `max`, `p95`, `p99`를 보여준다. `n/a`는 그 channel의 유효
-  record가 아직 overlay cache에 도달하지 않았다는 뜻이다.
-- **bridge timing graph** — piano roll 좌상단의 작은 graph에 최근 `state applied`, `state read`,
-  `scroll applied` timing을 그린다. note timing은 text panel에만 남기고 graph에는 그리지 않는다.
-  `scroll applied`는 bridge-derived viewport가 바뀐 때만 sample을 찍고, 그 scroll record가 overlay
-  cache에 도달한 시점부터 그것을 사용하는 draw까지를 잰다. graph는 viewport가 바뀌지 않는 동안
-  `scroll applied`를 `0`으로 그리므로, 실제로 새 scroll position을 적용한 frame만 spike로 보인다.
-  graph의 max scale은 한번 커지면 그 spike가 visible window 밖으로 지나간 뒤에도 debug collection이
-  reset될 때까지 유지된다. y-axis label은 유지된 scale 기준의 `max`, half-max, zero를 보여준다.
-  다른 없는 sample은 0으로 잇지 않고 line을 끊는다.
-
-debug mode가 켜져 있으면 scroll burst마다 overlay DevTools console에 latency report 한 줄도
-찍힌다. 개발 중에는 main process terminal로도 `[voxpane latency] ...`가 전달되며, 현재
-bottleneck 추정과 `native->applied`, `bridge->applied`, `applied->draw`, `viewportReadMax`
-timing을 함께 보여준다. debug mode 없이 같은 report만 켜려면 overlay DevTools console에서
-`localStorage.voxpaneLatencyProbe = "1"`을 설정한다.
-
-박스는 맞는데 effect가 틀리면 ⇒ renderer. 박스가 틀리면 ⇒ 그 아래는 전부 잡음이다.
-
-## 5. Deploying a script change
-
-앱은 **빌드될 때** 함께 들어간 `.lua`를 설치하고, 버전 번호가 아니라 내용 해시를 비교한다.
-그래서 앱의 번들 사본이 바뀌지 않았다면 앱을 다시 빌드해도 낡은 script가 살아남는다.
+## macOS guardian
 
 ```sh
-pnpm --filter @voxpane/synthv-script build    # typecheck → tstl → 앱 resources로 번들
-pnpm --filter @voxpane/synthv-script deploy   # SynthV의 scripts 디렉터리로 바로 복사
+pgrep -fl voxpane-bridge-guardian
 ```
 
-그다음 SynthV에서 **Scripts ▸ Rescan**(또는 재시작). rescan은 모든 script를 다시 실행하고 이전
-사본의 timer를 취소하므로, 옛 bridge가 새 것과 나란히 발행하는 대신 멈춘다. macOS에서는 앱이
-설치 후 이것을 대신 해준다. Windows에서는 아직 못 한다(#78).
+현재 advertise된 macOS session에는 daemonized guardian 하나가 있다. safety read descriptor와 connected
+worker control socket만 소유하며 worker가 살아 있는 동안 channel data를 consume하지 않는다. parent PID는
+더는 Electron PID가 아니어야 하며, 그래야 `pnpm dev` shutdown의 signaled descendant tree에 포함되지 않는다.
+normal stop 뒤에는 Lua가 old writer를 닫는 동안 잠깐 남을 수 있다. Electron `SIGKILL` 뒤에는 matching
+`pipe-session`을 withdraw하고 해당
+writer가 EOF에 도달할 때까지 남는다. 앱이 살아 있는 동안 guardian이 exit하면 endpoint failure로 보고되어
+fresh receiver session을 만든다. app crash recovery를 test할 때 guardian을 따로 kill하지 말고, drain 여부를
+inspect하려고 FIFO를 열지 않는다.
 
-무엇이 실제로 로드됐는지는 side panel의 `Version`을 읽어 확인할 것 — 방금 무엇을 실행했는지
-추론해서가 아니라.
+## Debug mode
 
-> **`deploy`는 `out/`의 모든 `.lua`를 복사한다.** bridge *와* Lua smoke script 둘 다다. smoke
-> script는 자기 16 ms loop로 **같은 channel에** 발행하는 두 번째 side panel section이라, 둘 다
-> 로드되면 두 writer가 `state`, `scroll`, `notes`를 두고 싸우고 앱은 뒤섞인 것을 본다. panel에
-> *voxpane Lua smoke*가 bridge와 나란히 보이면, scripts 디렉터리에서 `voxpane-lua-smoke.lua`를
-> 지우고 rescan할 것. 앱 자신의 설치기는 `overlay-bridge.lua`만 쓰므로, 이건 로컬 deploy에서만
-> 생기는 위험이다.
+Settings > General > **Enable debug mode**는 note rect, selected note, reach band, bridge diagnostics를
+그린다. diagnostic panel은 connection state, current app session, receipt/applied clock, recovery,
+malformed frame, endpoint failure, disconnect, invalid/sequence/revision mismatch observation을 보인다.
 
-smoke script는 Lua toolchain과 channel 계층에 대한 종단 검사로 존재한다 — bridge가 의존하는
-모든 메커니즘을 건드리는 가장 작은 script라, toolchain 회귀가 bridge 안이 아니라 거기서 드러난다.
-SynthV 바깥에서는 아무도 side panel을 읽을 수 없으므로, 자기 `smoke.json` 진단 channel을 쓴다.
+timing graph는 accepted state와 viewport application을 drawing과 비교한다. gap은 zero-duration read가 아니라
+accepted sample 부재다. renderer latency report는 overlay DevTools에, development에서는 main terminal에도
+나온다.
 
-## 6. Windows
+## Deployment and rescan
 
-저장소의 **`run-on-windows`** skill(`.agents/skills/run-on-windows/`)을 쓸 것. Windows에서
-네이티브로 돌리는 것과 Mac에서 Parallels VM을 모는 것을 모두 다룬다. 그것을 우회해서 임기응변
-하지 말 것 — 거기의 실패 방식이 특수해서 존재하는 문서다.
+```sh
+pnpm --filter @voxpane/synthv-script build
+pnpm --filter @voxpane/synthv-script run deploy
+```
 
-반복할 값어치가 있는 규칙 둘: 공유 폴더에서 절대 빌드하거나 실행하지 말 것 — 빌드 산출물은
-플랫폼·ABI에 특정적이라 호스트 체크아웃을 망가뜨린다 — 그리고 물어보지 않고 VM 상태를 바꾸지
-말 것.
+deploy 뒤 SynthV에서 **Scripts > Rescan** 또는 restart한다. Rescan은 old script timer를 교체한다. filesystem
+timestamp가 아니라 side panel version으로 loaded build를 확인한다. app installer는 `overlay-bridge.lua`를
+deploy한다. local `deploy`는 smoke script도 복사하므로 real bridge를 시험할 때는 rescan 전에
+`voxpane-lua-smoke.lua`를 지운다. 동시에 publish하면 같은 app-owned endpoint를 두 publisher가 다툰다.
 
-macOS 체크아웃에서도 Windows crate는 여전히 컴파일된다:
+## Windows
+
+native Windows checkout 또는 Parallels VM에는 repository의 `run-on-windows` skill을 쓴다. Windows는 Node
+Named Pipe server를 쓴다. 제거된 PowerShell helper를 되살리거나 two-second startup delay를 가정하지 않는다.
+macOS에서는 다음으로 Windows helper code를 typecheck한다.
 
 ```sh
 cd packages/windows-helper && cargo check --target x86_64-pc-windows-msvc
 ```
 
-`#[cfg(windows)]` 코드를 실제로 타입 체크하는 것이 그것이다. 다른 타깃에서는 crate가 비어 있게
-빌드되고 아무것도 알려주지 않는다.
+## Symptom to technique
 
-## 7. Symptom → technique
+| Symptom | First check |
+| --- | --- |
+| App stopped | `dump`의 `pipe-session: unavailable`은 정상 |
+| crash 뒤 stale app state | `dump`의 `stale`; app restart 후 side panel 확인 |
+| app crash 뒤 SynthV가 멈춤 | kill 전에 session guardian이 있었고 뒤에 `pipe-session`이 unavailable이 되는지 확인 |
+| overlay가 전혀 안 그림 | tray attachment, side-panel connection/error, debug rect 순서로 확인 |
+| pipe가 반복 recover | diagnostic recovery, malformed frame, endpoint failure, disconnect 확인 |
+| new state가 무시됨 | diagnostic invalid, `scrollSeq`, `notesSeq`, `rev` mismatch observation 확인 |
+| scroll 때 effect가 밀림 | debug rect와 [architecture.md](architecture.md#geometry-path)의 generation candidate matcher 확인 |
+| script change가 안 보임 | rebuild, deploy, **Scripts > Rescan**, side-panel version 순서로 확인 |
+| macOS endpoint가 FIFO가 아님 | `dump` endpoint type; 직접 열거나 remove하지 말 것 |
+| Windows endpoint가 unavailable처럼 보임 | `dump` derived name; client connect 대신 app/side panel 확인 |
 
-파일이 아니라 **technique**으로 라우팅한다: 찾고 있는 것은 이 증상을 만들어낼 수 있는
-메커니즘이다. 모든 항목이 그 메커니즘이 설명된 곳으로 링크되고, 각 설명은 자기 실패 방식으로
-끝난다.
-
-| 증상 | 의심할 technique | 확인 |
-| --- | --- | --- |
-| SynthV는 열려 있는데 overlay 없음 | window tracking, [visibility gating](overlay.ko.md#visibility-gating) | tray 상태. 1단계 |
-| overlay는 있는데 안 그려짐 | script, 또는 [layout 거부](bridge.ko.md#versioning) | side panel. `dump`. 2–3단계 |
-| 그리다가 한참 뒤 멈춤 | `seq` 정지 — 세션 중간에 script가 죽음 | `Last error`. 2단계 |
-| 스크롤할 때 overlay가 밀림 | [프레임 경로에 IPC 없음](overlay.ko.md#the-hot-path), `backgroundThrottling` | 뭔가 새로 main으로 넘어갔나? |
-| 드래그할 때 overlay가 창을 쫓아감 | [디바운스된 조정](overlay.ko.md#native-placement-with-debounced-reconciliation), [드래그 예측](overlay.ko.md#cursor-based-drag-prediction) | Windows 전용 |
-| overlay가 무관한 앱 위에 뜸 | [topmost가 아닌 소유권](overlay.ko.md#staying-above-synthv) | Windows 전용 |
-| effect가 엉뚱한 시점에 터짐 | [playhead 보간](architecture.ko.md#the-frame-loop) | `dump`의 `at` vs SynthV의 playhead |
-| effect가 엉뚱한 note에 붙음 | [예측-스냅 / 추적 / anchor](geometry.ko.md#matching-a-note-to-a-rectangle) | debug mode, 스크롤하면서 |
-| 스크롤 중 effect가 어긋남 | [frame transform](geometry.ko.md#staying-aligned), [짝 샘플링](overlay.ko.md#sampling-paired-values-together) | 스크롤하면서 debug 박스 |
-| read가 들어올 때 effect가 튐 | [좌표계 rebasing](effects.ko.md#coordinate-space-rebasing) | ~30 ms pump와 시점이 맞는가? |
-| effect가 세로로 lane 하나 어긋남 | 세로 기준 | macOS: 추적 chip. Windows: `refY` |
-| 스케일된 디스플레이에서 전부 어긋남 | [DIP transform](geometry.ko.md#physical-pixels-points-and-dips) | Windows 전용 |
-| 편집했는데 note가 옛것 | [`rev` / `notesSeq` 페어링](bridge.ko.md#pairing-the-channels) | 편집 전후로 `dump` |
-| effect가 빈 곳에서 터지거나 화면 밖으로 | pitch curve, [`NO_CURVE` padding](synthv.ko.md#the-computed-pitch-curve) | `dump`의 bend 범위 |
-| onset이 밋밋하거나 glow가 안 놓임 | [합산되는 두 envelope](effects.ko.md#two-summed-envelopes) | `noteStarted`가 발생하는가? |
-| note가 끝났는데 떨림이 이어짐 | [jitter는 곱해진다, 더해지지 않는다](effects.ko.md#smoothed-random-walk) | — |
-| 120 Hz 디스플레이에서 effect가 두 배 | [frame-rate independence](effects.ko.md#frame-rate-independence) | 프레임 단위로 세는 것이 있는가? |
-| 숨겼다 켜면 particle이 왈칵 터짐 | `dt` clamp | [frame-rate independence](effects.ko.md#frame-rate-independence) |
-| particle이 날아가다 사라짐 | [pool 포화](effects.ko.md#sprite-pooling-with-a-hard-cap) | 살아 있는 sprite가 재활용되는가? |
-| trail 뒤로 줄무늬가 남음 | [join rule](effects.ko.md#join-rules) — 또는 상류의 매칭 오류 | debug mode |
-| 계단, 또는 긴 trail에서 프레임 드랍 | [양자화된 fade](effects.ko.md#quantized-fade) | — |
-| import한 이미지가 안 나옴 | `asset://` scheme, 또는 실패한 로드 | DevTools 콘솔. 썸네일은 멀쩡한데 overlay만 안 되는가? |
-| group 전환 후 옛 effect가 남음 | schedule revision 처리 | #90 |
-| 한쪽 플랫폼에서만 동작 | [geometry 분기](geometry.ko.md#two-platforms-two-strategies) | — |
-
-증상이 여기 없으면 `docs/README.ko.md`에 전체
-[technique 색인](README.ko.md#technique-index)이 있다.
-
-## 8. Before changing anything
+## Before changing anything
 
 ```sh
-pnpm check        # Biome lint + format
+pnpm check
 pnpm typecheck
-pnpm test         # Vitest, 대상 파일 옆
+pnpm test
 ```
 
-테스트는 순수 로직만 다룬다 — bridge 디코딩, preferences, transport clock, note location,
-frame 수학, DIP transform. Electron이나 native addon이나 진짜 piano roll이 필요한 것은 범위
-밖이므로, **테스트가 초록이라는 것이 overlay가 정렬된다는 말은 전혀 아니다.** geometry 버그를
-고쳤다면 정직한 검증은 앱을 띄우고 debug mode를 켜는 것이고, 수정이 산술이었다면 순수 함수로
-빼서 그것을 테스트할 것.
+pure test는 codec, framed parser, session gate, runtime composition, endpoint lifecycle을 다룬다. real piano-roll
+alignment까지 증명하지는 않으므로 geometry는 running app과 debug mode로 검증한다.

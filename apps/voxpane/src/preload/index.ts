@@ -3,9 +3,9 @@ import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron"
 import type { BridgeSchedule, BridgeState } from "../shared/bridgeChannels"
 import type {
   BridgeChannelDiagnostics,
-  BridgeFileDiagnostics,
-  BridgeSamplerDiagnostics,
+  BridgeReceiptDiagnostics,
 } from "../shared/bridgeDiagnostics"
+import { BRIDGE_SHUTDOWN_COMPLETE, BRIDGE_SHUTDOWN_REQUEST } from "../shared/bridgeShutdownIpc"
 import {
   type CanvasSnapshot,
   type DipTransform,
@@ -21,37 +21,12 @@ import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
 import { expectedCanvasSize } from "../shared/pianoRollGeometry"
 import type { Preferences, PreferencesPatch } from "../shared/preferences"
 import { BridgeRuntime } from "./bridgeRuntime"
-
-interface StateMessage {
-  type: "state"
-  bytes: ArrayBuffer
-  diagnostics: BridgeFileDiagnostics | null
-}
-
-interface ScheduleMessage {
-  type: "schedule"
-  notesSeq: number
-  bytes: ArrayBuffer
-  diagnostics: BridgeFileDiagnostics | null
-}
-
-interface ScrollMessage {
-  type: "scroll"
-  scrollSeq: number
-  bytes: ArrayBuffer
-  diagnostics: BridgeFileDiagnostics | null
-}
-
-interface DiagnosticsMessage {
-  type: "diagnostics"
-  diagnostics: BridgeSamplerDiagnostics
-}
-
-type BridgeWorkerMessage = StateMessage | ScrollMessage | ScheduleMessage | DiagnosticsMessage
+import type { BridgeWorkerCommand, BridgeWorkerMessage } from "./bridgeWorkerProtocol"
+import { createPreloadShutdownHandler, PreloadBridgeStopController } from "./bridgeWorkerShutdown"
 
 interface BrowserWorker {
   onmessage: ((event: { data: BridgeWorkerMessage }) => void) | null
-  postMessage(message: unknown): void
+  postMessage(message: BridgeWorkerCommand): void
 }
 
 interface BrowserWorkerConstructor {
@@ -60,12 +35,18 @@ interface BrowserWorkerConstructor {
 
 let bridgeRuntime: BridgeRuntime | null = null
 let bridgeWorker: BrowserWorker | null = null
+let bridgeShuttingDown = false
+const bridgeStopController = new PreloadBridgeStopController()
 
 function cachedBridge(): BridgeRuntime {
-  if (bridgeRuntime && bridgeWorker) {
+  if (bridgeRuntime && (bridgeWorker || bridgeShuttingDown)) {
     return bridgeRuntime
   }
   const runtime = new BridgeRuntime()
+  bridgeRuntime = runtime
+  if (bridgeShuttingDown) {
+    return runtime
+  }
   const workerPath = join(__dirname, "bridgeWorker.js")
   const workerUrl = URL.createObjectURL(
     new Blob([`require(${JSON.stringify(workerPath)})`], { type: "text/javascript" }),
@@ -73,33 +54,54 @@ function cachedBridge(): BridgeRuntime {
   const Worker = (globalThis as unknown as { Worker: BrowserWorkerConstructor }).Worker
   const worker = new Worker(workerUrl)
   worker.onmessage = ({ data }) => {
-    if (data.type === "state") {
+    bridgeStopController.accept(data)
+    if (data.type === "shutdown-complete") {
+      return
+    }
+    if (data.type === "session") {
+      runtime.acceptSession(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
+    } else if (data.type === "state") {
       runtime.acceptState(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
     } else if (data.type === "scroll") {
-      runtime.acceptScroll(
-        data.scrollSeq,
-        new Uint8Array(data.bytes),
-        acceptDiagnostics(data.diagnostics),
-      )
+      runtime.acceptScroll(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
     } else if (data.type === "schedule") {
-      runtime.acceptSchedule(
-        data.notesSeq,
-        new Uint8Array(data.bytes),
-        acceptDiagnostics(data.diagnostics),
-      )
-    } else {
-      runtime.acceptSamplerDiagnostics(data.diagnostics)
+      runtime.acceptSchedule(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
+    } else if (data.type === "transport") {
+      runtime.acceptTransportDiagnostics({
+        status: data.status,
+        session: data.session,
+        recoveries: data.recoveries,
+        malformedFrames: data.malformedFrames,
+        endpointFailures: data.endpointFailures,
+        disconnects: data.disconnects,
+      })
     }
   }
   bridgeWorker = worker
-  bridgeRuntime = runtime
   return runtime
 }
 
+const handleBridgeShutdown = createPreloadShutdownHandler({
+  controller: bridgeStopController,
+  currentWorker: () => bridgeWorker,
+  acknowledge: (stopped) => ipcRenderer.send(BRIDGE_SHUTDOWN_COMPLETE, stopped),
+})
+
+ipcRenderer.on(BRIDGE_SHUTDOWN_REQUEST, () => {
+  bridgeShuttingDown = true
+  handleBridgeShutdown()
+})
+
 function acceptDiagnostics(
-  diagnostics: BridgeFileDiagnostics | null,
+  diagnostics: BridgeReceiptDiagnostics | null,
 ): BridgeChannelDiagnostics | null {
-  return diagnostics ? { ...diagnostics, acceptedAtMs: native.monotonicNow() } : null
+  return diagnostics
+    ? {
+        receivedAtMs: diagnostics.receivedAtMs,
+        sizeBytes: diagnostics.sizeBytes,
+        acceptedAtMs: native.monotonicNow(),
+      }
+    : null
 }
 
 // The helper reports in native units — points on macOS, physical pixels on
@@ -164,9 +166,9 @@ contextBridge.exposeInMainWorld("overlay", {
     nativeCanvasAsync().then((snapshot) => snapshot && toDipCanvasSnapshot(dip, snapshot)),
 })
 
-// A Node-enabled Web Worker reads the bridge independently of rAF and transfers
-// the newest records into this preload's cache. The renderer only asks for the
-// latest decoded object; neither file I/O nor Electron IPC occurs while drawing.
+// A Node-enabled Web Worker owns the bridge endpoints and transfers complete
+// records into this preload's cache. The renderer only asks for the latest
+// decoded object; neither filesystem access nor Electron IPC occurs while drawing.
 contextBridge.exposeInMainWorld("bridge", {
   readState: (): BridgeState | null => {
     const state = cachedBridge().readState()

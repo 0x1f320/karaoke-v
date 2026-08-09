@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import type { BridgeNote } from "../../shared/bridgeChannels"
+import type { BridgeTransportDiagnostics } from "../../shared/bridgeDiagnostics"
 import type { PianoRoll, Rect, Viewport } from "../../shared/geometry"
 import {
   DEFAULT_PREFERENCES,
@@ -127,33 +128,40 @@ function Overlay() {
     const diagnosticsGraphElement = diagnosticsGraphRef.current
     const renderer = new NoteRenderer(host)
     const diagnosticsLabels = {
+      connection: (values: {
+        status: string
+        session: string
+        recoveries: number
+        malformedFrames: number
+        endpointFailures: number
+        disconnects: number
+      }) => t("debug.channels.connection", values),
+      status: (status: BridgeTransportDiagnostics["status"] | null) =>
+        status === null
+          ? t("debug.channels.status.unavailable")
+          : t(`debug.channels.status.${status}`),
       state: t("debug.channels.state"),
       scroll: t("debug.channels.scroll"),
       notes: t("debug.channels.notes"),
-      age: t("debug.channels.age"),
+      received: t("debug.channels.received"),
       size: t("debug.channels.size"),
       applied: t("debug.channels.applied"),
       average: t("debug.channels.average"),
       current: t("debug.channels.current"),
       min: t("debug.channels.min"),
-      read: t("debug.channels.read"),
       seq: t("debug.channels.seq"),
       notesSeq: t("debug.channels.notesSeq"),
       scrollSeq: t("debug.channels.scrollSeq"),
       rev: t("debug.channels.rev"),
       failures: t("debug.channels.failures"),
-      stateMissing: t("debug.channels.stateMissing"),
       stateInvalid: t("debug.channels.stateInvalid"),
-      scrollMissing: t("debug.channels.scrollMissing"),
       scrollInvalid: t("debug.channels.scrollInvalid"),
       scrollSeqMismatch: t("debug.channels.scrollSeqMismatch"),
-      notesMissing: t("debug.channels.notesMissing"),
       notesInvalid: t("debug.channels.notesInvalid"),
+      notesSeqMismatch: t("debug.channels.notesSeqMismatch"),
       revMismatch: t("debug.channels.revMismatch"),
       stateApplied: t("debug.channels.stateApplied"),
       notesApplied: t("debug.channels.notesApplied"),
-      stateRead: t("debug.channels.stateRead"),
-      notesRead: t("debug.channels.notesRead"),
       scrollApplied: t("debug.channels.scrollApplied"),
       max: t("debug.channels.max"),
       p95: t("debug.channels.p95"),

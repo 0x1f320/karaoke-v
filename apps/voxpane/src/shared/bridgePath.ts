@@ -1,5 +1,6 @@
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { RENDEZVOUS_FILE } from "./bridgeRendezvous"
 import { isWindows } from "./native"
 
 // Where the script and the app meet. It has to be reachable from both with no
@@ -14,6 +15,10 @@ export function bridgeDirectory(): string {
     return join(local, APP_DIRECTORY, "bridge")
   }
   return join(homedir(), "Library", "Application Support", APP_DIRECTORY, "bridge")
+}
+
+export function rendezvousPath(directory = bridgeDirectory()): string {
+  return join(directory, RENDEZVOUS_FILE)
 }
 
 export const CHANNEL_STATE = "state"

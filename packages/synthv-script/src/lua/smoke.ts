@@ -5,17 +5,14 @@
  *
  * It is a side panel section (the bridge is one), it loops on `SV:setTimeout`,
  * it reads notes through 1-based indices, and it publishes them through the
- * real channels — hot state on every tick, the note list only when the button
- * is pressed.
+ * real pipe client.
  */
 
-import { hotChannel } from "./bridge/channels"
 import { collectNotes, currentRevision, viewMapping } from "./bridge/model"
-import { bridgeDirectory } from "./bridge/paths"
 import { createPublisher } from "./bridge/publisher"
-import { encodeJson } from "./json"
 
 const SCRIPT_TITLE = "voxpane Lua smoke"
+const TICK_INTERVAL = 16
 
 let ticks = 0
 let lastCallback = "none yet"
@@ -25,39 +22,48 @@ let lastError = "none"
 const publisher = createPublisher()
 const notesButton = SV.create("WidgetValue")
 
-// The panel says what went wrong, but nobody outside SynthV can read the panel.
-const directory = bridgeDirectory()
-const diagnostics = directory !== undefined ? hotChannel(directory, "smoke.json", 512) : undefined
-
-function report(): void {
-  diagnostics?.publish(
-    encodeJson({
-      ticks,
-      lastCallback,
-      lastNotes,
-      lastError,
-      channels: publisher.describe(),
-    }),
-  )
+function publishCurrentNotes(exactSnapshot = false): string | undefined {
+  try {
+    const notes = collectNotes()
+    const revision = currentRevision()
+    if (!publisher.publishNotes(revision, notes)) {
+      return undefined
+    }
+    lastNotes = notes.length
+    lastError = "none"
+    return revision
+  } catch (error) {
+    lastError = tostring(error)
+    if (exactSnapshot) {
+      publisher.abortSnapshot(lastError)
+    }
+    return undefined
+  }
 }
 
 notesButton.setValueChangeCallback((value) => {
   lastCallback = `button value=${tostring(value)} (${type(value)})`
-  try {
-    const notes = collectNotes()
-    lastNotes = notes.length
-    publisher.publishNotes(currentRevision(), notes)
-    lastError = "none"
-  } catch (error) {
-    lastError = tostring(error)
-  }
-  report()
+  publishCurrentNotes()
   SV.refreshSidePanel()
 })
 
 function loop(): void {
+  const preparation = publisher.prepare(ticks * TICK_INTERVAL)
   ticks = ticks + 1
+  if (preparation === "disconnected") {
+    if (ticks % 120 === 0) {
+      SV.refreshSidePanel()
+    }
+    SV.setTimeout(TICK_INTERVAL, loop)
+    return
+  }
+
   const playback = SV.getPlayback()
+  const revision = preparation === "new-session" ? publishCurrentNotes(true) : currentRevision()
+  if (revision === undefined) {
+    SV.setTimeout(TICK_INTERVAL, loop)
+    return
+  }
   const px = viewMapping()
   publisher.publishState({
     at: playback.getPlayhead(),
@@ -69,15 +75,14 @@ function loop(): void {
     viewRight: px.viewRight,
     viewTop: px.viewTop,
     viewBottom: px.viewBottom,
-    rev: currentRevision(),
+    rev: revision,
   })
   // Rebuilding the panel is not free and it churns the widgets the user is
   // trying to click: at ten ticks the button never received a press at all.
   if (ticks % 120 === 0) {
-    report()
     SV.refreshSidePanel()
   }
-  SV.setTimeout(16, loop)
+  SV.setTimeout(TICK_INTERVAL, loop)
 }
 
 loop()

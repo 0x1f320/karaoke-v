@@ -31,8 +31,8 @@ Plus `setIgnoreMouseEvents(true, { forward: true })` — clicks pass through to 
 
 Two `webPreferences` entries are load-bearing:
 
-- **`sandbox: false`.** The preload requires the native addons and opens the bridge channel
-  files. This is what lets the renderer read geometry and playback state with **no IPC hop
+- **`sandbox: false`.** The preload requires the native addons and starts the bridge endpoint
+  worker. This is what lets the renderer read geometry and playback state with **no IPC hop
   in the per-frame path** — see [the hot path](#the-hot-path).
 - **`backgroundThrottling: false`.** The overlay is never focused, and Electron throttles
   rAF and timers in unfocused windows. Without this the overlay visibly lags behind a scroll.
@@ -187,7 +187,7 @@ The per-frame path deliberately does not cross a process boundary.
 
 | Step | Where | Cost |
 | --- | --- | --- |
-| sample the bridge files | preload worker | every ~4 ms, independent of rAF |
+| receive bridge pipe frames | preload worker | event-driven, independent of rAF |
 | read the latest bridge `state` | preload memory cache | allocation-free, no file I/O |
 | refresh the canvas snapshot | preload, async native task | every ~250 ms, off the rAF call stack |
 | decide and draw | renderer | one transform on a plain scroll |

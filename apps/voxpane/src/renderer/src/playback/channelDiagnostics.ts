@@ -1,34 +1,42 @@
-import type { BridgeChannelDiagnostics, BridgeDiagnostics } from "../../../shared/bridgeDiagnostics"
+import type {
+  BridgeChannelDiagnostics,
+  BridgeDiagnostics,
+  BridgeTransportDiagnostics,
+} from "../../../shared/bridgeDiagnostics"
 import type { Rect, Viewport } from "../../../shared/geometry"
 
 export interface BridgeDiagnosticsLabels {
+  connection: (values: {
+    status: string
+    session: string
+    recoveries: number
+    malformedFrames: number
+    endpointFailures: number
+    disconnects: number
+  }) => string
+  status: (status: BridgeTransportDiagnostics["status"] | null) => string
   state: string
   scroll: string
   notes: string
-  age: string
+  received: string
   size: string
   applied: string
   average: string
   current: string
   min: string
-  read: string
   seq: string
   notesSeq: string
   scrollSeq: string
   rev: string
   failures: string
-  stateMissing: string
   stateInvalid: string
-  scrollMissing: string
   scrollInvalid: string
   scrollSeqMismatch: string
-  notesMissing: string
   notesInvalid: string
+  notesSeqMismatch: string
   revMismatch: string
   stateApplied: string
   notesApplied: string
-  stateRead: string
-  notesRead: string
   scrollApplied: string
   max: string
   p95: string
@@ -53,8 +61,6 @@ export interface BridgeDiagnosticsStatsSnapshot {
 export interface BridgeDiagnosticsGraphSample {
   stateAppliedMs: number | null
   notesAppliedMs: number | null
-  stateReadMs: number | null
-  notesReadMs: number | null
   scrollAppliedMs: number | null
 }
 
@@ -68,11 +74,6 @@ const GRAPH_SERIES = [
     key: "stateAppliedMs",
     color: "rgba(96, 165, 250, 0.75)",
     label: (labels: BridgeDiagnosticsLabels) => labels.stateApplied,
-  },
-  {
-    key: "stateReadMs",
-    color: "rgba(245, 158, 11, 0.75)",
-    label: (labels: BridgeDiagnosticsLabels) => labels.stateRead,
   },
   {
     key: "scrollAppliedMs",
@@ -104,11 +105,12 @@ export function formatBridgeDiagnostics(
 ): string[] {
   const { labels } = options
   return [
+    formatConnection(diagnostics, labels),
     formatChannel("state", labels.state, diagnostics, options),
     formatChannel("scroll", labels.scroll, diagnostics, options),
     formatChannel("notes", labels.notes, diagnostics, options),
     formatFailures(diagnostics, labels),
-    `${labels.scrollApplied} ${labels.current}=${formatCost(options.scrollAppliedMs, labels.missing)} ${formatStats(options.stats.scroll, labels)}`,
+    `${labels.scrollApplied} ${labels.current}=${formatOptionalMs(options.scrollAppliedMs, labels.missing)} ${formatStats(options.stats.scroll, labels)}`,
   ]
 }
 
@@ -144,8 +146,6 @@ export function diagnosticsGraphSample(
     notesAppliedMs: diagnostics.notes
       ? Math.max(0, nowMonotonicMs - diagnostics.notes.acceptedAtMs)
       : null,
-    stateReadMs: diagnostics.costs.stateReadMs,
-    notesReadMs: diagnostics.costs.notesReadMs,
     scrollAppliedMs,
   }
 }
@@ -213,7 +213,7 @@ export class BridgeDiagnosticsGraphHistory {
 export function diagnosticsGraphScale(samples: readonly BridgeDiagnosticsGraphSample[]): number {
   let max = 0
   for (const sample of samples) {
-    for (const value of [sample.stateAppliedMs, sample.stateReadMs, sample.scrollAppliedMs]) {
+    for (const value of [sample.stateAppliedMs, sample.scrollAppliedMs]) {
       if (value !== null) {
         max = Math.max(max, value)
       }
@@ -409,32 +409,42 @@ function formatChannel(
   const { labels } = options
   const channelDiagnostics = diagnostics[channel]
   let stats: BridgeDiagnosticsStatValues | null
-  let cost: number | null
   let prefix: string
   if (channel === "state") {
     const record = diagnostics.stateRecord
     stats = options.stats.state
-    cost = diagnostics.costs.stateReadMs
     prefix = `${labels.seq}=${record?.seq ?? labels.missing} ${labels.notesSeq}=${record?.notesSeq ?? labels.missing} ${labels.scrollSeq}=${record?.scrollSeq ?? labels.missing} ${labels.rev}=${formatRev(record?.rev ?? null, labels.missing)}`
   } else if (channel === "scroll") {
     stats = null
-    cost = diagnostics.costs.scrollReadMs
     prefix = `${labels.scrollSeq}=${diagnostics.scrollRecord?.scrollSeq ?? labels.missing}`
   } else {
     const record = diagnostics.notesRecord
     stats = options.stats.notes
-    cost = diagnostics.costs.notesReadMs
     prefix = `${labels.notesSeq}=${record?.notesSeq ?? labels.missing} ${labels.rev}=${formatRev(record?.rev ?? null, labels.missing)}`
   }
   if (!channelDiagnostics) {
-    return `${name} ${prefix} ${labels.age}=${labels.missing} ${labels.size}=${labels.missing} ${labels.read}=${formatCost(cost, labels.missing)} ${labels.applied}=${labels.missing} ${formatStats(stats, labels)}`
+    return `${name} ${prefix} ${labels.received}=${labels.missing} ${labels.size}=${labels.missing} ${labels.applied}=${labels.missing} ${formatStats(stats, labels)}`
   }
-  return `${name} ${prefix} ${labels.age}=${formatMs(options.nowEpochMs - channelDiagnostics.modifiedAtMs)} ${labels.size}=${formatBytes(channelDiagnostics.sizeBytes)} ${labels.read}=${formatCost(cost, labels.missing)} ${labels.applied}=${formatMs(options.nowMonotonicMs - channelDiagnostics.acceptedAtMs)} ${formatStats(stats, labels)}`
+  return `${name} ${prefix} ${labels.received}=${formatMs(options.nowEpochMs - channelDiagnostics.receivedAtMs)} ${labels.size}=${formatBytes(channelDiagnostics.sizeBytes)} ${labels.applied}=${formatMs(options.nowMonotonicMs - channelDiagnostics.acceptedAtMs)} ${formatStats(stats, labels)}`
 }
 
 function formatFailures(diagnostics: BridgeDiagnostics, labels: BridgeDiagnosticsLabels): string {
   const { counters } = diagnostics
-  return `${labels.failures} ${labels.stateMissing}=${counters.stateMissing} ${labels.stateInvalid}=${counters.stateInvalid} ${labels.scrollMissing}=${counters.scrollMissing} ${labels.scrollInvalid}=${counters.scrollInvalid} ${labels.scrollSeqMismatch}=${counters.scrollSeqMismatch} ${labels.notesMissing}=${counters.notesMissing} ${labels.notesInvalid}=${counters.notesInvalid} ${labels.revMismatch}=${counters.revMismatch}`
+  return `${labels.failures} ${labels.stateInvalid}=${counters.stateInvalid} ${labels.scrollInvalid}=${counters.scrollInvalid} ${labels.scrollSeqMismatch}=${counters.scrollSeqMismatch} ${labels.notesInvalid}=${counters.notesInvalid} ${labels.notesSeqMismatch}=${counters.notesSeqMismatch} ${labels.revMismatch}=${counters.revMismatch}`
+}
+
+function formatConnection(diagnostics: BridgeDiagnostics, labels: BridgeDiagnosticsLabels): string {
+  const transport = diagnostics.transport
+  return labels.connection({
+    status: labels.status(transport?.status ?? null),
+    session: formatSession(transport?.session ?? null, labels.missing),
+    recoveries: transport?.recoveries ?? 0,
+    malformedFrames: transport?.malformedFrames ?? 0,
+    endpointFailures: transport?.endpointFailures ?? 0,
+    disconnects: transport
+      ? transport.disconnects.state + transport.disconnects.scroll + transport.disconnects.notes
+      : 0,
+  })
 }
 
 export class BridgeDiagnosticsStats {
@@ -537,12 +547,16 @@ function formatMs(value: number): string {
   return `${Math.max(0, value).toFixed(1)}ms`
 }
 
-function formatCost(value: number | null, missing: string): string {
+function formatOptionalMs(value: number | null, missing: string): string {
   return value === null ? missing : formatMs(value)
 }
 
 function formatRev(value: string | null, missing: string): string {
   return value ? value.slice(0, 6) : missing
+}
+
+function formatSession(value: string | null, missing: string): string {
+  return value ? value.slice(0, 8) : missing
 }
 
 function formatBytes(value: number): string {

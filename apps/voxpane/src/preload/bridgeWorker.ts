@@ -1,65 +1,25 @@
-import type {
-  BridgeFileDiagnostics,
-  BridgeRecordRead,
-  BridgeSamplerDiagnostics,
-} from "../shared/bridgeDiagnostics"
-import { readScheduleRecord, readScrollRecord, readStateRecord } from "./bridgeReader"
-import { BridgeSampler } from "./bridgeSampler"
+import { BridgeReceiver } from "./bridgeReceiver"
+import type { BridgeWorkerCommand, BridgeWorkerMessage } from "./bridgeWorkerProtocol"
+import { createBridgeWorkerCommandHandler } from "./bridgeWorkerShutdown"
 
 interface WorkerScope {
-  postMessage(message: unknown, transfer: ArrayBuffer[]): void
+  postMessage(message: BridgeWorkerMessage, transfer: ArrayBuffer[]): void
   onmessage: ((event: { data: WorkerCommand }) => void) | null
 }
 
-interface WorkerCommand {
-  type: "diagnostics"
-  enabled: boolean
-}
+type WorkerCommand = BridgeWorkerCommand
 
 const scope = globalThis as unknown as WorkerScope
-let diagnosticsEnabled = false
-
-function transferRecord(record: BridgeRecordRead): {
-  bytes: ArrayBuffer
-  diagnostics: BridgeFileDiagnostics | null
-} {
-  const copy = Uint8Array.from(record.bytes)
-  return { bytes: copy.buffer, diagnostics: record.diagnostics }
-}
-
-const sampler = new BridgeSampler({
-  now: () => performance.now(),
-  readState: readStateRecord,
-  readScroll: readScrollRecord,
-  readSchedule: readScheduleRecord,
-  publishState: (record) => {
-    const message = transferRecord(record)
-    scope.postMessage({ type: "state", ...message }, [message.bytes])
-  },
-  publishScroll: (scrollSeq, record) => {
-    const message = transferRecord(record)
-    scope.postMessage({ type: "scroll", scrollSeq, ...message }, [message.bytes])
-  },
-  publishSchedule: (notesSeq, record) => {
-    const message = transferRecord(record)
-    scope.postMessage({ type: "schedule", notesSeq, ...message }, [message.bytes])
-  },
-  publishDiagnostics: (diagnostics: BridgeSamplerDiagnostics) => {
-    scope.postMessage({ type: "diagnostics", diagnostics }, [])
-  },
+const receiver = new BridgeReceiver({
+  publish: (message, transfer) => scope.postMessage(message, transfer),
 })
 
-scope.onmessage = ({ data }) => {
-  if (data.type === "diagnostics") {
-    diagnosticsEnabled = data.enabled
-  }
-}
+const handleCommand = createBridgeWorkerCommandHandler({
+  setDiagnosticsEnabled: (enabled) => receiver.setDiagnosticsEnabled(enabled),
+  stopReceiver: () => receiver.stop(),
+  publish: (message) => scope.postMessage(message, []),
+})
 
-const sample = (): void => {
-  try {
-    sampler.sample(diagnosticsEnabled)
-  } catch {}
-  setTimeout(sample, 4)
-}
+scope.onmessage = ({ data }) => handleCommand(data)
 
-sample()
+void receiver.start()
