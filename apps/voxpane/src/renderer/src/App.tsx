@@ -213,7 +213,9 @@ function Overlay() {
         }
       })
     const audioMeterTimer = window.setInterval(() => {
-      audioMeterSnapshot = window.audioMeter.read()
+      void window.audioMeter.read().then((snapshot) => {
+        audioMeterSnapshot = snapshot
+      })
     }, AUDIO_METER_POLL_MS)
 
     // Bounding boxes are a debug visualization. Default off, and off until the

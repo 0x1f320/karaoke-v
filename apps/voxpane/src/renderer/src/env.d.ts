@@ -13,7 +13,7 @@ declare global {
     audioMeter: {
       start(): Promise<AudioMeterSnapshot>
       stop(): Promise<AudioMeterSnapshot>
-      read(): AudioMeterSnapshot
+      read(): Promise<AudioMeterSnapshot>
     }
     bridge: {
       /** The hot channel: playhead, transport and view transform. Safe per-frame. */

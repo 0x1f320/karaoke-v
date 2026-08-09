@@ -1,10 +1,6 @@
 import { join } from "node:path"
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron"
-import {
-  type AudioMeterSnapshot,
-  EMPTY_AUDIO_METER_SNAPSHOT,
-  unsupportedAudioMeterSnapshot,
-} from "../shared/audioMeter"
+import type { AudioMeterSnapshot } from "../shared/audioMeter"
 import type { BridgeSchedule, BridgeState } from "../shared/bridgeChannels"
 import type {
   BridgeChannelDiagnostics,
@@ -171,24 +167,21 @@ contextBridge.exposeInMainWorld("overlay", {
     nativeCanvasAsync().then((snapshot) => snapshot && toDipCanvasSnapshot(dip, snapshot)),
 })
 
-function readAudioMeter(): AudioMeterSnapshot {
-  return native.readAudioMeter?.() ?? unsupportedAudioMeterSnapshot("audio meter is unavailable")
+async function readAudioMeter(): Promise<AudioMeterSnapshot> {
+  return ipcRenderer.invoke("audioMeter:read")
 }
 
 async function startAudioMeter(): Promise<AudioMeterSnapshot> {
-  return (
-    (await native.startAudioMeter?.(NATIVE_TARGET)) ??
-    unsupportedAudioMeterSnapshot("audio meter is unavailable")
-  )
+  return ipcRenderer.invoke("audioMeter:start")
 }
 
-function stopAudioMeter(): AudioMeterSnapshot {
-  return native.stopAudioMeter?.() ?? EMPTY_AUDIO_METER_SNAPSHOT
+async function stopAudioMeter(): Promise<AudioMeterSnapshot> {
+  return ipcRenderer.invoke("audioMeter:stop")
 }
 
 contextBridge.exposeInMainWorld("audioMeter", {
   start: startAudioMeter,
-  stop: (): Promise<AudioMeterSnapshot> => Promise.resolve(stopAudioMeter()),
+  stop: stopAudioMeter,
   read: readAudioMeter,
 })
 

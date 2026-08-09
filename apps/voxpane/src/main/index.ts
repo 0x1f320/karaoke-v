@@ -5,6 +5,7 @@ import { BRIDGE_SHUTDOWN_COMPLETE, BRIDGE_SHUTDOWN_REQUEST } from "../shared/bri
 import { APP_NAME } from "../shared/i18n"
 import { NATIVE_TARGET, native, type Rect } from "../shared/native"
 import { registerAssetIpc, registerAssetScheme } from "./assets"
+import { registerAudioMeterIpc } from "./audioMeter"
 import { prepareBridgeDirectory } from "./bridge"
 import { installBridgeScript } from "./bridgeScript"
 import {
@@ -259,6 +260,7 @@ app.whenReady().then(() => {
   initI18n()
   // After i18n: the import dialog spells its file-type filter.
   registerAssetIpc()
+  registerAudioMeterIpc()
   registerDipIpc()
   registerPermissionsIpc()
   registerToolbarIpc(syncToolbar)
