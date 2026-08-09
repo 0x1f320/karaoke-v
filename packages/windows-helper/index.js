@@ -148,16 +148,29 @@ function listElements(target = "synthv-studio") {
   return loadNative().listElements(target)
 }
 
+function normalizeAudioMeterSnapshot(snapshot) {
+  return {
+    state: snapshot?.state ?? "error",
+    updatedAtMs: snapshot?.updatedAtMs ?? 0,
+    momentaryLufs: snapshot?.momentaryLufs ?? null,
+    rmsDb: snapshot?.rmsDb ?? null,
+    peakDb: snapshot?.peakDb ?? null,
+    sampleRate: snapshot?.sampleRate ?? null,
+    channels: snapshot?.channels ?? null,
+    error: snapshot?.error ?? null,
+  }
+}
+
 function startAudioMeter(target = "synthv-studio") {
-  return loadNative().startAudioMeter(target)
+  return normalizeAudioMeterSnapshot(loadNative().startAudioMeter(target))
 }
 
 function stopAudioMeter() {
-  return loadNative().stopAudioMeter()
+  return normalizeAudioMeterSnapshot(loadNative().stopAudioMeter())
 }
 
 function readAudioMeter() {
-  return loadNative().readAudioMeter()
+  return normalizeAudioMeterSnapshot(loadNative().readAudioMeter())
 }
 
 module.exports = {
