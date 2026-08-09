@@ -1,3 +1,9 @@
+## [1.0.0-dev.8](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.7...v1.0.0-dev.8) (2026-08-09)
+
+### ✨ Features
+
+* **native:** add SynthV LUFS metering ([#103](https://github.com/0x1f320/voxpane/issues/103)) ([3f73d99](https://github.com/0x1f320/voxpane/commit/3f73d9934bf7d12b74efda4e8041b450262b9e95))
+
 ## [1.0.0-dev.7](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.6...v1.0.0-dev.7) (2026-08-09)
 
 ### ✨ Features
