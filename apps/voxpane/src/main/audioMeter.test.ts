@@ -41,6 +41,7 @@ describe("registerAudioMeterIpc", () => {
         },
       },
       "synth",
+      () => "granted",
     )
 
     await expect(ipc.handlers.get("audioMeter:start")?.(null)).resolves.toEqual(SNAPSHOT)
@@ -51,5 +52,33 @@ describe("registerAudioMeterIpc", () => {
       momentaryLufs: null,
     })
     expect(calls).toEqual(["start:synth", "read", "stop"])
+  })
+
+  it("does not touch ScreenCaptureKit while screen recording permission is missing", async () => {
+    const ipc = new Ipc()
+    let started = false
+    registerAudioMeterIpc(
+      ipc,
+      {
+        startAudioMeter: () => {
+          started = true
+          return SNAPSHOT
+        },
+      },
+      "synth",
+      () => "denied",
+    )
+
+    await expect(ipc.handlers.get("audioMeter:start")?.(null)).resolves.toEqual({
+      state: "unsupported",
+      updatedAtMs: 0,
+      momentaryLufs: null,
+      rmsDb: null,
+      peakDb: null,
+      sampleRate: null,
+      channels: null,
+      error: "screen recording permission is not granted",
+    })
+    expect(started).toBe(false)
   })
 })

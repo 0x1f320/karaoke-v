@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use block2::RcBlock;
 use dispatch2::{DispatchQueue, DispatchQueueAttr, DispatchRetained};
+use napi::bindgen_prelude::{AsyncTask, Env, Result as NapiResult, Task};
 use objc2::define_class;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
@@ -521,8 +522,7 @@ fn stop_runtime(runtime: AudioMeterRuntime) {
     drop(runtime.queue);
 }
 
-#[napi]
-pub fn start_audio_meter(target: Option<String>) -> JsAudioMeterSnapshot {
+fn start_audio_meter_blocking(target: Option<String>) -> JsAudioMeterSnapshot {
     let target = target.unwrap_or_else(|| DEFAULT_TARGET.to_string());
     if !objc2::available!(macos = 13.0) {
         return unsupported_snapshot(
@@ -559,6 +559,28 @@ pub fn start_audio_meter(target: Option<String>) -> JsAudioMeterSnapshot {
             snapshot
         }
     }
+}
+
+pub struct StartAudioMeterTask {
+    target: Option<String>,
+}
+
+impl Task for StartAudioMeterTask {
+    type Output = JsAudioMeterSnapshot;
+    type JsValue = JsAudioMeterSnapshot;
+
+    fn compute(&mut self) -> NapiResult<Self::Output> {
+        Ok(start_audio_meter_blocking(self.target.clone()))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> NapiResult<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+#[napi]
+pub fn start_audio_meter(target: Option<String>) -> AsyncTask<StartAudioMeterTask> {
+    AsyncTask::new(StartAudioMeterTask { target })
 }
 
 #[napi]

@@ -132,7 +132,10 @@ function normalizeAudioMeterSnapshot(snapshot) {
 }
 
 function startAudioMeter(target = "synthesizer") {
-  return normalizeAudioMeterSnapshot(loadNative().startAudioMeter(target))
+  const snapshot = loadNative().startAudioMeter(target)
+  return typeof snapshot?.then === "function"
+    ? snapshot.then(normalizeAudioMeterSnapshot)
+    : normalizeAudioMeterSnapshot(snapshot)
 }
 
 function stopAudioMeter() {
