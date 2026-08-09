@@ -1,5 +1,10 @@
 import { join } from "node:path"
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron"
+import {
+  type AudioMeterSnapshot,
+  EMPTY_AUDIO_METER_SNAPSHOT,
+  unsupportedAudioMeterSnapshot,
+} from "../shared/audioMeter"
 import type { BridgeSchedule, BridgeState } from "../shared/bridgeChannels"
 import type {
   BridgeChannelDiagnostics,
@@ -164,6 +169,27 @@ async function nativeCanvasAsync(): Promise<CanvasSnapshot | null> {
 contextBridge.exposeInMainWorld("overlay", {
   getCanvasAsync: (): Promise<CanvasSnapshot | null> =>
     nativeCanvasAsync().then((snapshot) => snapshot && toDipCanvasSnapshot(dip, snapshot)),
+})
+
+function readAudioMeter(): AudioMeterSnapshot {
+  return native.readAudioMeter?.() ?? unsupportedAudioMeterSnapshot("audio meter is unavailable")
+}
+
+async function startAudioMeter(): Promise<AudioMeterSnapshot> {
+  return (
+    (await native.startAudioMeter?.(NATIVE_TARGET)) ??
+    unsupportedAudioMeterSnapshot("audio meter is unavailable")
+  )
+}
+
+function stopAudioMeter(): AudioMeterSnapshot {
+  return native.stopAudioMeter?.() ?? EMPTY_AUDIO_METER_SNAPSHOT
+}
+
+contextBridge.exposeInMainWorld("audioMeter", {
+  start: startAudioMeter,
+  stop: (): Promise<AudioMeterSnapshot> => Promise.resolve(stopAudioMeter()),
+  read: readAudioMeter,
 })
 
 // A Node-enabled Web Worker owns the bridge endpoints and transfers complete
