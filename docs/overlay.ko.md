@@ -163,8 +163,9 @@ $p_0$와 $c_0$는 드래그가 시작될 때의 창 frame과 커서 위치다.
 **Windows**는 `IsWindowVisible`과 `IsIconic`만 본다 — **거기엔 점유 판정이 없다.** 소유권이
 이미 다른 창들이 overlay를 자연스럽게 덮게 해주기 때문이다.
 
-Screen Recording은 의도적으로 요청하지 *않는다*: 이 판정은 bounds·pid·layer를 읽는데, 그 권한이
-관장하는 것은 창 제목과 픽셀 캡처다.
+visibility 판정은 의도적으로 Screen Recording을 요청하지 *않는다*: 이 판정은 bounds·pid·layer를
+읽는데, 그 권한이 관장하는 것은 창 제목과 픽셀 캡처다. 선택 기능인 LUFS meter는 별개이며,
+toolbar switch를 켤 때만 Screen Recording을 요청한다.
 
 **깨지면:** SynthV를 덮고 있는 무관한 앱 위에 overlay가 떠 있음(macOS 점유) · 최소화했는데
 overlay가 살아남음.

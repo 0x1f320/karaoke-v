@@ -175,8 +175,10 @@ cannot find on screen, as hidden.
 **Windows** checks `IsWindowVisible` and `IsIconic` only — **there is no occlusion check
 there**, because ownership already lets other windows cover the overlay naturally.
 
-Screen Recording is deliberately *not* requested: the check reads bounds, pid and layer, none
-of which that permission gates — it covers window titles and pixel capture.
+Visibility deliberately does *not* request Screen Recording: the check reads bounds, pid and
+layer, none of which that permission gates — it covers window titles and pixel capture. The
+optional LUFS meter is separate; it requests Screen Recording only when the toolbar switch is
+turned on.
 
 **Breaks as:** the overlay floating over an unrelated app that is covering SynthV (macOS
 occlusion) · the overlay surviving a minimise.

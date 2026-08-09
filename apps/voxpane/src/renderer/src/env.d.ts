@@ -11,6 +11,7 @@ declare global {
       getCanvasAsync(): Promise<CanvasSnapshot | null>
     }
     audioMeter: {
+      requestAccess(): Promise<boolean>
       start(): Promise<AudioMeterSnapshot>
       stop(): Promise<AudioMeterSnapshot>
       read(): Promise<AudioMeterSnapshot>

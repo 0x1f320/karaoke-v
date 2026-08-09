@@ -153,11 +153,16 @@ async function startAudioMeter(): Promise<AudioMeterSnapshot> {
   return ipcRenderer.invoke("audioMeter:start")
 }
 
+async function requestAudioMeterAccess(): Promise<boolean> {
+  return ipcRenderer.invoke("audioMeter:requestAccess")
+}
+
 async function stopAudioMeter(): Promise<AudioMeterSnapshot> {
   return ipcRenderer.invoke("audioMeter:stop")
 }
 
 contextBridge.exposeInMainWorld("audioMeter", {
+  requestAccess: requestAudioMeterAccess,
   start: startAudioMeter,
   stop: stopAudioMeter,
   read: readAudioMeter,

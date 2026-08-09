@@ -80,5 +80,28 @@ describe("registerAudioMeterIpc", () => {
       error: "screen recording permission is not granted",
     })
     expect(started).toBe(false)
+    expect(ipc.handlers.get("audioMeter:read")?.(null)).toEqual({
+      state: "unsupported",
+      updatedAtMs: 0,
+      momentaryLufs: null,
+      rmsDb: null,
+      peakDb: null,
+      sampleRate: null,
+      channels: null,
+      error: "screen recording permission is not granted",
+    })
+  })
+
+  it("exposes a permission request for the toolbar toggle", async () => {
+    const ipc = new Ipc()
+    registerAudioMeterIpc(
+      ipc,
+      {},
+      "synth",
+      () => "denied",
+      async () => true,
+    )
+
+    await expect(ipc.handlers.get("audioMeter:requestAccess")?.(null)).resolves.toBe(true)
   })
 })

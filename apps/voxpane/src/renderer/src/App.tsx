@@ -1,6 +1,10 @@
 import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
-import { type AudioMeterSnapshot, EMPTY_AUDIO_METER_SNAPSHOT } from "../../shared/audioMeter"
+import {
+  type AudioMeterSnapshot,
+  type AudioMeterState,
+  EMPTY_AUDIO_METER_SNAPSHOT,
+} from "../../shared/audioMeter"
 import type { BridgeNote } from "../../shared/bridgeChannels"
 import type { BridgeTransportDiagnostics } from "../../shared/bridgeDiagnostics"
 import type { PianoRoll, Rect, Viewport } from "../../shared/geometry"
@@ -67,6 +71,10 @@ const DIAGNOSTICS_GRAPH_W = 260
 const DIAGNOSTICS_GRAPH_H = 132
 const DIAGNOSTICS_GRAPH_SAMPLES = 180
 const AUDIO_METER_POLL_MS = 125
+
+function audioMeterCanPoll(state: AudioMeterState): boolean {
+  return state === "starting" || state === "running" || state === "silent"
+}
 
 /**
  * The note whose contour covers `seconds` — the one sounding, or, in the gap
@@ -196,15 +204,46 @@ function Overlay() {
     let read: PianoRoll | null = null
     let audioMeterSnapshot: AudioMeterSnapshot = {
       ...EMPTY_AUDIO_METER_SNAPSHOT,
-      state: "starting",
-      updatedAtMs: window.bridge.monotonicNow(),
     }
-    void window.audioMeter
-      .start()
-      .then((snapshot) => {
-        audioMeterSnapshot = snapshot
-      })
-      .catch((error) => {
+    let audioMeterEnabled = DEFAULT_PREFERENCES.audioMeter
+    let audioMeterStarting = false
+    let audioMeterPolling = false
+    const setAudioMeterError = (error: unknown) => {
+      audioMeterStarting = false
+      audioMeterPolling = false
+      audioMeterSnapshot = {
+        ...EMPTY_AUDIO_METER_SNAPSHOT,
+        state: "error",
+        updatedAtMs: window.bridge.monotonicNow(),
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+    const startAudioMeter = () => {
+      if (!audioMeterEnabled || audioMeterStarting || audioMeterCanPoll(audioMeterSnapshot.state)) {
+        return
+      }
+      audioMeterStarting = true
+      audioMeterPolling = false
+      audioMeterSnapshot = {
+        ...EMPTY_AUDIO_METER_SNAPSHOT,
+        state: "starting",
+        updatedAtMs: window.bridge.monotonicNow(),
+      }
+      void window.audioMeter
+        .start()
+        .then((snapshot) => {
+          audioMeterStarting = false
+          audioMeterSnapshot = snapshot
+          audioMeterPolling = audioMeterCanPoll(snapshot.state)
+        })
+        .catch(setAudioMeterError)
+    }
+    const stopAudioMeter = () => {
+      audioMeterEnabled = false
+      audioMeterStarting = false
+      audioMeterPolling = false
+      audioMeterSnapshot = { ...EMPTY_AUDIO_METER_SNAPSHOT }
+      void window.audioMeter.stop().catch((error) => {
         audioMeterSnapshot = {
           ...EMPTY_AUDIO_METER_SNAPSHOT,
           state: "error",
@@ -212,11 +251,22 @@ function Overlay() {
           error: error instanceof Error ? error.message : String(error),
         }
       })
+    }
     const audioMeterTimer = window.setInterval(() => {
-      void window.audioMeter.read().then((snapshot) => {
-        audioMeterSnapshot = snapshot
-      })
+      if (!audioMeterEnabled || !audioMeterPolling) {
+        return
+      }
+      void window.audioMeter
+        .read()
+        .then((snapshot) => {
+          audioMeterSnapshot = snapshot
+          audioMeterPolling = audioMeterCanPoll(snapshot.state)
+        })
+        .catch(setAudioMeterError)
     }, AUDIO_METER_POLL_MS)
+    if (audioMeterEnabled) {
+      startAudioMeter()
+    }
 
     // Bounding boxes are a debug visualization. Default off, and off until the
     // stored value arrives, so nothing flashes on startup.
@@ -228,6 +278,7 @@ function Overlay() {
     const adopt = (p: {
       debug: boolean
       effects: boolean
+      audioMeter: boolean
       particles: ParticlePreferences
       glow: GlowPreferences
       trail: TrailPreferences
@@ -243,6 +294,12 @@ function Overlay() {
       }
       if (!debug && diagnosticsGraphElement) {
         diagnosticsGraphElement.classList.add("hidden")
+      }
+      audioMeterEnabled = p.audioMeter
+      if (audioMeterEnabled) {
+        startAudioMeter()
+      } else if (audioMeterSnapshot.state !== "idle" || audioMeterStarting || audioMeterPolling) {
+        stopAudioMeter()
       }
       particles = { ...particleParams(p.particles), enabled: p.effects && p.particles.enabled }
       glow = { ...glowParams(p.glow), enabled: p.effects && p.glow.enabled }

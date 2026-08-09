@@ -24,6 +24,7 @@
   "toolbar": {
     "quit": "{{app}} 종료",
     "effects": "노트 이펙트",
+    "audioMeter": "LUFS 게이지",
     "settings": "설정"
   },
   "debug": {

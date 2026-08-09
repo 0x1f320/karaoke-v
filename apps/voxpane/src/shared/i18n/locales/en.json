@@ -24,6 +24,7 @@
   "toolbar": {
     "quit": "Quit {{app}}",
     "effects": "Note effects",
+    "audioMeter": "LUFS meter",
     "settings": "Settings"
   },
   "debug": {
