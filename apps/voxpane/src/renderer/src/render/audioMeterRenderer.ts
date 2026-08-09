@@ -22,7 +22,7 @@ const BAR_Y = 20
 const BAR_W = 10
 const BAR_H = 96
 const TICK_X = 116
-const TICK_LABEL_X = 88
+const TICK_LABEL_RIGHT_X = TICK_X - 5
 const RADIUS = 6
 
 export class AudioMeterRenderer {
@@ -56,6 +56,9 @@ export class AudioMeterRenderer {
   private key = ""
 
   constructor(stage: Container) {
+    for (const label of this.tickLabels) {
+      label.anchor.set(1, 0)
+    }
     this.title.position.set(TEXT_X, 9)
     this.primary.position.set(TEXT_X, 31)
     this.secondary.position.set(TEXT_X, 61)
@@ -163,7 +166,7 @@ export class AudioMeterRenderer {
       this.ticks.rect(TICK_X, y, BAR_X - TICK_X - 3, 1).fill({ color: 0xffffff, alpha: 0.28 })
       const label = this.tickLabels[index]
       label.text = tick.label
-      label.position.set(TICK_LABEL_X, y - 5)
+      label.position.set(TICK_LABEL_RIGHT_X, y - 5)
       label.style.fill = tick.value > 0 ? 0xffb0a8 : 0x8b98a8
     }
   }
