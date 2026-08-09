@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type { PianoRoll, Rect } from "../shared/geometry"
 import type { DipTransform } from "../shared/native"
 import { createOverlayCanvasReader, registerOverlayGeometryIpc } from "./overlayGeometry"
+
+vi.mock("electron", () => ({
+  ipcMain: { handle: vi.fn() },
+}))
 
 class Ipc {
   handlers = new Map<string, () => unknown>()

@@ -32,6 +32,18 @@ class Ipc {
   }
 }
 
+async function withPlatform<T>(platform: NodeJS.Platform, run: () => Promise<T>): Promise<T> {
+  const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
+  Object.defineProperty(process, "platform", { value: platform })
+  try {
+    return await run()
+  } finally {
+    if (descriptor) {
+      Object.defineProperty(process, "platform", descriptor)
+    }
+  }
+}
+
 describe("registerAudioMeterIpc", () => {
   beforeEach(() => {
     electron.openExternal.mockClear()
@@ -134,29 +146,31 @@ describe("registerAudioMeterIpc", () => {
   })
 
   it("asks the native helper for Screen Recording access from the toolbar toggle", async () => {
-    const ipc = new Ipc()
-    let started = false
-    let requested = false
-    registerAudioMeterIpc(
-      ipc,
-      {
-        requestScreenCaptureAccess: () => {
-          requested = true
-          return true
+    await withPlatform("darwin", async () => {
+      const ipc = new Ipc()
+      let started = false
+      let requested = false
+      registerAudioMeterIpc(
+        ipc,
+        {
+          requestScreenCaptureAccess: () => {
+            requested = true
+            return true
+          },
+          startAudioMeter: () => {
+            started = true
+            return SNAPSHOT
+          },
         },
-        startAudioMeter: () => {
-          started = true
-          return SNAPSHOT
-        },
-      },
-      "synth",
-      () => "denied",
-    )
+        "synth",
+        () => "denied",
+      )
 
-    await expect(ipc.handlers.get("audioMeter:requestAccess")?.(null)).resolves.toBe(true)
-    expect(requested).toBe(true)
-    expect(started).toBe(false)
-    expect(electron.openExternal).not.toHaveBeenCalled()
+      await expect(ipc.handlers.get("audioMeter:requestAccess")?.(null)).resolves.toBe(true)
+      expect(requested).toBe(true)
+      expect(started).toBe(false)
+      expect(electron.openExternal).not.toHaveBeenCalled()
+    })
   })
 
   it("uses native Screen Recording preflight for the start permission gate", async () => {

@@ -159,22 +159,18 @@ fn error_snapshot(error: String) -> JsAudioMeterSnapshot {
 
 fn levels_snapshot(
     state: &str,
-    momentary_lufs: Option<f64>,
-    short_term_lufs: Option<f64>,
-    long_term_lufs: Option<f64>,
-    rms_db: Option<f64>,
-    peak_db: Option<f64>,
+    levels: MeterLevels,
     sample_rate: u32,
     channels: u32,
 ) -> JsAudioMeterSnapshot {
     JsAudioMeterSnapshot {
         state: state.to_string(),
         updated_at_ms: monotonic_now(),
-        momentary_lufs,
-        short_term_lufs,
-        long_term_lufs,
-        rms_db,
-        peak_db,
+        momentary_lufs: levels.momentary_lufs,
+        short_term_lufs: levels.short_term_lufs,
+        long_term_lufs: levels.long_term_lufs,
+        rms_db: levels.rms_db,
+        peak_db: levels.peak_db,
         sample_rate: Some(sample_rate),
         channels: Some(channels),
         error: None,
@@ -195,16 +191,7 @@ fn store_sample_snapshot(samples: &[f32], sample_rate: u32, channels: u32) {
         } else {
             "running"
         };
-        state.snapshot = levels_snapshot(
-            snapshot_state,
-            levels.momentary_lufs,
-            levels.short_term_lufs,
-            levels.long_term_lufs,
-            levels.rms_db,
-            levels.peak_db,
-            sample_rate,
-            channels,
-        );
+        state.snapshot = levels_snapshot(snapshot_state, levels, sample_rate, channels);
     }
 }
 
@@ -213,16 +200,7 @@ fn store_silence_snapshot(sample_count: usize, sample_rate: u32, channels: u32) 
         let levels = state
             .meter
             .ingest_silence(sample_count, sample_rate, channels);
-        state.snapshot = levels_snapshot(
-            "silent",
-            levels.momentary_lufs,
-            levels.short_term_lufs,
-            levels.long_term_lufs,
-            levels.rms_db,
-            levels.peak_db,
-            sample_rate,
-            channels,
-        );
+        state.snapshot = levels_snapshot("silent", levels, sample_rate, channels);
     }
 }
 
@@ -572,18 +550,21 @@ fn ns_error_message(error: *mut NSError) -> Option<String> {
     })
 }
 
+type WaitPair<T> = Arc<(Mutex<Option<Result<T, String>>>, Condvar)>;
+
 fn wait_for_shareable_content() -> Result<Retained<SCShareableContent>, String> {
-    let pair = Arc::new((Mutex::new(None), Condvar::new()));
+    let pair: WaitPair<usize> = Arc::new((Mutex::new(None), Condvar::new()));
     let callback_pair = Arc::clone(&pair);
     let block = RcBlock::new(
         move |content: *mut SCShareableContent, error: *mut NSError| {
             let result = if let Some(message) = ns_error_message(error) {
                 Err(message)
             } else if let Some(content) = NonNull::new(content) {
-                Ok(unsafe {
+                let retained = unsafe {
                     Retained::retain(content.as_ptr())
                         .expect("SCShareableContent pointer should retain")
-                })
+                };
+                Ok(Retained::into_raw(retained) as usize)
             } else {
                 Err("ScreenCaptureKit returned no shareable content".to_string())
             };
@@ -604,10 +585,14 @@ fn wait_for_shareable_content() -> Result<Retained<SCShareableContent>, String> 
         START_TIMEOUT,
         "timed out reading ScreenCaptureKit content",
     )
+    .and_then(|content| unsafe {
+        Retained::from_raw(content as *mut SCShareableContent)
+            .ok_or_else(|| "ScreenCaptureKit returned an invalid content pointer".to_string())
+    })
 }
 
 fn wait_for_result<T>(
-    pair: Arc<(Mutex<Option<Result<T, String>>>, Condvar)>,
+    pair: WaitPair<T>,
     timeout: Duration,
     timeout_message: &str,
 ) -> Result<T, String> {
@@ -641,10 +626,7 @@ fn target_app(
 }
 
 fn first_display(content: &SCShareableContent) -> Option<Retained<SCDisplay>> {
-    unsafe { content.displays() }
-        .iter()
-        .next()
-        .map(|display| display.clone())
+    unsafe { content.displays() }.iter().next()
 }
 
 fn start_capture(target: &str) -> Result<AudioMeterRuntime, String> {
@@ -777,11 +759,7 @@ fn start_audio_meter_blocking(target: Option<String>) -> JsAudioMeterSnapshot {
                 state.meter = RollingAudioMeter::default();
                 state.snapshot = levels_snapshot(
                     "silent",
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
+                    MeterLevels::empty(),
                     CAPTURE_SAMPLE_RATE,
                     CAPTURE_CHANNELS,
                 );

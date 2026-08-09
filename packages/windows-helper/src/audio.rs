@@ -86,7 +86,7 @@ struct AudioMeterState {
 
 struct ActivationState {
     completed: bool,
-    result: Option<Result<IUnknown, String>>,
+    result: Option<Result<usize, String>>,
 }
 
 static AUDIO_METER: OnceLock<Mutex<AudioMeterState>> = OnceLock::new();
@@ -475,7 +475,8 @@ impl IActivateAudioInterfaceCompletionHandler_Impl for ActivationCompletion_Impl
         activate_operation: Ref<IActivateAudioInterfaceAsyncOperation>,
     ) -> windows::core::Result<()> {
         let (lock, cvar) = &*self.pair;
-        let result = read_activation_result(&activate_operation);
+        let result =
+            read_activation_result(&activate_operation).map(|unknown| unknown.into_raw() as usize);
         if let Ok(mut state) = lock.lock() {
             state.completed = true;
             state.result = Some(result);
@@ -563,6 +564,7 @@ fn activate_process_loopback(pid: u32) -> Result<IAudioClient, String> {
         .result
         .take()
         .unwrap_or_else(|| Err("process loopback activation returned no result".to_string()))?;
+    let unknown = unsafe { IUnknown::from_raw(unknown as *mut _) };
     unknown
         .cast::<IAudioClient>()
         .map_err(|error| format!("process loopback returned an unexpected interface: {error}"))
