@@ -146,6 +146,14 @@ function readAudioMeter() {
   return normalizeAudioMeterSnapshot(loadNative().readAudioMeter())
 }
 
+function preflightScreenCaptureAccess() {
+  return loadNative().preflightScreenCaptureAccess()
+}
+
+function requestScreenCaptureAccess() {
+  return loadNative().requestScreenCaptureAccess()
+}
+
 module.exports = {
   start,
   stop,
@@ -160,4 +168,6 @@ module.exports = {
   startAudioMeter,
   stopAudioMeter,
   readAudioMeter,
+  preflightScreenCaptureAccess,
+  requestScreenCaptureAccess,
 }

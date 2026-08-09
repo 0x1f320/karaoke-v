@@ -48,6 +48,8 @@ export interface NativeHelper {
   startAudioMeter?(target?: string): AudioMeterSnapshot | Promise<AudioMeterSnapshot>
   stopAudioMeter?(): AudioMeterSnapshot
   readAudioMeter?(): AudioMeterSnapshot
+  preflightScreenCaptureAccess?(): boolean
+  requestScreenCaptureAccess?(): boolean
 }
 
 export const isWindows = process.platform === "win32"

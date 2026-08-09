@@ -9,10 +9,14 @@ interface AudioMeterIpc {
 type ScreenAccessStatus = "not-determined" | "granted" | "denied" | "restricted" | "unknown"
 type RequestScreenRecordingAccess = () => boolean | Promise<boolean>
 
-function screenRecordingStatus(): ScreenAccessStatus {
-  return process.platform === "darwin"
-    ? systemPreferences.getMediaAccessStatus("screen")
-    : "granted"
+function screenRecordingStatus(helper: Partial<NativeHelper> = native): ScreenAccessStatus {
+  if (process.platform !== "darwin") {
+    return "granted"
+  }
+  if (helper.preflightScreenCaptureAccess?.()) {
+    return "granted"
+  }
+  return systemPreferences.getMediaAccessStatus("screen")
 }
 
 function blockedScreenRecordingStatus(status: ScreenAccessStatus): boolean {
@@ -31,8 +35,8 @@ async function requestScreenRecordingAccess(
   if (process.platform !== "darwin" || getScreenRecordingStatus() === "granted") {
     return true
   }
-  if (blockedScreenRecordingStatus(getScreenRecordingStatus())) {
-    return false
+  if (helper.requestScreenCaptureAccess) {
+    return helper.requestScreenCaptureAccess()
   }
   const snapshot =
     (await helper.startAudioMeter?.(target)) ??
@@ -45,7 +49,7 @@ export function registerAudioMeterIpc(
   ipc: AudioMeterIpc = ipcMain,
   helper: Partial<NativeHelper> = native,
   target = NATIVE_TARGET,
-  getScreenRecordingStatus = screenRecordingStatus,
+  getScreenRecordingStatus = () => screenRecordingStatus(helper),
   requestAccess: RequestScreenRecordingAccess = () =>
     requestScreenRecordingAccess(helper, target, getScreenRecordingStatus),
 ): void {

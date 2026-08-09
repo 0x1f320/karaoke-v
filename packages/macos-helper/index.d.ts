@@ -42,6 +42,8 @@ export interface AudioMeterSnapshot {
 export function startAudioMeter(target?: string): AudioMeterSnapshot | Promise<AudioMeterSnapshot>
 export function stopAudioMeter(): AudioMeterSnapshot
 export function readAudioMeter(): AudioMeterSnapshot
+export function preflightScreenCaptureAccess(): boolean
+export function requestScreenCaptureAccess(): boolean
 
 /** Disable AppKit's automatic show/hide/order animations for a window. */
 export function disableAnimations(view: Buffer): void

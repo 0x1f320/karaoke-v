@@ -119,12 +119,17 @@ describe("registerAudioMeterIpc", () => {
     await expect(ipc.handlers.get("audioMeter:requestAccess")?.(null)).resolves.toBe(true)
   })
 
-  it("does not open System Settings when the toolbar asks for access", async () => {
+  it("asks the native helper for Screen Recording access from the toolbar toggle", async () => {
     const ipc = new Ipc()
     let started = false
+    let requested = false
     registerAudioMeterIpc(
       ipc,
       {
+        requestScreenCaptureAccess: () => {
+          requested = true
+          return true
+        },
         startAudioMeter: () => {
           started = true
           return SNAPSHOT
@@ -134,8 +139,28 @@ describe("registerAudioMeterIpc", () => {
       () => "denied",
     )
 
-    await expect(ipc.handlers.get("audioMeter:requestAccess")?.(null)).resolves.toBe(false)
+    await expect(ipc.handlers.get("audioMeter:requestAccess")?.(null)).resolves.toBe(true)
+    expect(requested).toBe(true)
     expect(started).toBe(false)
     expect(electron.openExternal).not.toHaveBeenCalled()
+  })
+
+  it("uses native Screen Recording preflight for the start permission gate", async () => {
+    const ipc = new Ipc()
+    let started = false
+    registerAudioMeterIpc(
+      ipc,
+      {
+        preflightScreenCaptureAccess: () => true,
+        startAudioMeter: () => {
+          started = true
+          return SNAPSHOT
+        },
+      },
+      "synth",
+    )
+
+    await expect(ipc.handlers.get("audioMeter:start")?.(null)).resolves.toEqual(SNAPSHOT)
+    expect(started).toBe(true)
   })
 })
