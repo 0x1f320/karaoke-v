@@ -25,7 +25,7 @@ task는 native helper가 SynthV process audio를 capture하고, raw PCM을 Elect
 - 공유되고 test된 meter-state contract와 pure loudness helper를 추가한다.
 - 기존 overlay 규칙을 보존한다: per-frame renderer path는 main-process IPC나 native audio read에 의존하지
   않는다.
-- 나중의 macOS ScreenCaptureKit 구현이 별도 API를 만들지 않고 들어올 수 있게 한다.
+- macOS에서도 ScreenCaptureKit audio capture로 같은 native snapshot API를 증명한다.
 
 ## Non-goals
 
@@ -33,7 +33,7 @@ task는 native helper가 SynthV process audio를 capture하고, raw PCM을 Elect
 - Integrated LUFS history, export, recording, waveform display는 만들지 않는다.
 - Endpoint-wide Windows loopback fallback을 primary implementation으로 두지 않는다.
 - Renderer code로 raw PCM을 전달하지 않는다.
-- 첫 task에는 macOS ScreenCaptureKit audio capture 구현을 포함하지 않는다.
+- OS Screen Recording consent sheet 외의 application-level permission prompt UI는 만들지 않는다.
 
 ## Decision
 
@@ -121,14 +121,16 @@ Spike는 SynthV의 audio rendering이 target process에서 일어나는지 child
 한다. SynthV가 다른 process에 rendering을 위임한다면, 구현은 관찰한 process tree를 문서화하고 그것을
 include하거나 명확히 실패해야 한다.
 
-## macOS Surface
+## macOS Spike
 
-macOS는 ScreenCaptureKit system audio capture가 맞을 가능성이 크지만, 이 spike에는 해당 구현을 포함하지
-않는다. macOS helper는 Windows와 같은 API surface를 노출하고 ScreenCaptureKit 구현을 설계하기 전까지
-`unsupported` 또는 capability-only state를 반환한다.
+macOS는 Windows와 같은 `start` / `stop` / `read` snapshot contract로 ScreenCaptureKit을 사용한다.
+Helper는 `SCShareableContent`에서 target SynthV application을 찾고, 해당 application을 include하는
+content filter를 만든 뒤, `capturesAudio`를 켜고 current process audio는 제외하며 audio stream output만
+붙인다.
 
-이렇게 하면 preload와 future UI code를 platform-neutral하게 유지하면서 반쯤 구현된 macOS audio capture
-path를 피할 수 있다.
+Stream output은 `CMSampleBuffer` audio buffer를 받고 linear PCM sample을 normalized `f32`로 변환해 최신
+`AudioMeterSnapshot`을 갱신한다. ScreenCaptureKit을 사용할 수 없거나 Screen Recording permission이
+거절되면 helper는 `unsupported` 또는 `error` snapshot을 반환하고 overlay path는 건드리지 않는다.
 
 ## Preload Boundary
 
@@ -177,4 +179,3 @@ Native Windows capture는 macOS에서 증명할 수 없다. Implementation plan�
 Spike가 code로 landing되면, committed behavior가 문서화된 invariant를 바꾸는 경우에만 architecture 또는
 debugging docs를 갱신한다. User-facing behavior가 없는 pure spike API는 meter가 앱에 보이기 전까지 이
 design과 GitHub issue에만 문서화해도 된다.
-

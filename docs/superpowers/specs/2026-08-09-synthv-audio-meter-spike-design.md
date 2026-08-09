@@ -26,7 +26,7 @@ moving raw PCM through Electron or the renderer frame loop.
 - Add a shared, tested meter-state contract and pure loudness helpers.
 - Preserve the existing overlay rule: no per-frame renderer path may depend on main-process IPC
   or native audio reads.
-- Leave room for a later macOS ScreenCaptureKit implementation without designing a second API.
+- Prove the same native snapshot API on macOS through ScreenCaptureKit audio capture.
 
 ## Non-goals
 
@@ -34,7 +34,7 @@ moving raw PCM through Electron or the renderer frame loop.
 - No integrated LUFS history, export, recording, or waveform display.
 - No endpoint-wide Windows loopback fallback as the primary implementation.
 - No raw PCM delivery to renderer code.
-- No macOS ScreenCaptureKit audio capture implementation in this first task.
+- No application-level permission prompt UI beyond the OS Screen Recording consent sheet.
 
 ## Decision
 
@@ -124,14 +124,17 @@ The spike must verify whether SynthV's audio rendering happens in the target pro
 process. If SynthV delegates rendering elsewhere, the implementation should document the observed
 process tree and either include it or fail clearly.
 
-## macOS Surface
+## macOS Spike
 
-macOS likely belongs on ScreenCaptureKit system audio capture, but that implementation is not part
-of this spike. The macOS helper should expose the same API surface as Windows and return
-`unsupported` or capability-only state until the ScreenCaptureKit implementation is designed.
+macOS uses ScreenCaptureKit with the same `start` / `stop` / `read` snapshot contract as Windows.
+The helper resolves the target SynthV application from `SCShareableContent`, creates a content
+filter that includes that application, enables `capturesAudio`, excludes the current process'
+audio, and attaches only an audio stream output.
 
-This keeps preload and future UI code platform-neutral while avoiding a half-finished macOS audio
-capture path.
+The stream output receives `CMSampleBuffer` audio buffers, converts linear PCM samples to normalized
+`f32`, and updates the latest `AudioMeterSnapshot`. If ScreenCaptureKit is unavailable or Screen
+Recording permission is denied, the helper returns an `unsupported` or `error` snapshot and leaves
+the overlay path untouched.
 
 ## Preload Boundary
 
@@ -180,4 +183,3 @@ Native Windows capture cannot be proven on macOS. The implementation plan must i
 If the spike lands code, update the architecture or debugging docs only when the committed behavior
 changes a documented invariant. A pure spike API with no user-facing behavior can remain documented
 in this design and the GitHub issue until the meter becomes visible in the app.
-
