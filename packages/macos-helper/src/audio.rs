@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::ptr::NonNull;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
@@ -21,7 +22,7 @@ use objc2_core_media::{
 use objc2_foundation::{NSArray, NSError, NSObject, NSObjectProtocol};
 use objc2_screen_capture_kit::{
     SCContentFilter, SCDisplay, SCRunningApplication, SCShareableContent, SCStream,
-    SCStreamConfiguration, SCStreamOutput, SCStreamOutputType,
+    SCStreamConfiguration, SCStreamDelegate, SCStreamOutput, SCStreamOutputType,
 };
 
 use crate::clock::monotonic_now;
@@ -32,9 +33,31 @@ const CAPTURE_SAMPLE_RATE: u32 = 48_000;
 const CAPTURE_CHANNELS: u32 = 2;
 const START_TIMEOUT: Duration = Duration::from_secs(8);
 const STOP_TIMEOUT: Duration = Duration::from_secs(3);
+const MOMENTARY_WINDOW_MS: u32 = 400;
+const SHORT_TERM_WINDOW_MS: u32 = 3_000;
+
+#[derive(Clone, Copy)]
+struct MeterBlock {
+    samples: usize,
+    sum_squares: f64,
+    peak: f64,
+}
+
+#[derive(Default)]
+struct RollingAudioMeter {
+    momentary: VecDeque<MeterBlock>,
+    short_term: VecDeque<MeterBlock>,
+    momentary_samples: usize,
+    short_term_samples: usize,
+    momentary_sum_squares: f64,
+    short_term_sum_squares: f64,
+    long_term_samples: usize,
+    long_term_sum_squares: f64,
+}
 
 struct AudioMeterRuntime {
     stream: Retained<SCStream>,
+    _delegate: Retained<AudioStreamDelegate>,
     output: Retained<AudioStreamOutput>,
     queue: DispatchRetained<DispatchQueue>,
 }
@@ -44,6 +67,7 @@ unsafe impl Send for AudioMeterRuntime {}
 struct AudioMeterState {
     snapshot: JsAudioMeterSnapshot,
     runtime: Option<AudioMeterRuntime>,
+    meter: RollingAudioMeter,
 }
 
 static AUDIO_METER: OnceLock<Mutex<AudioMeterState>> = OnceLock::new();
@@ -53,6 +77,7 @@ fn meter_state() -> &'static Mutex<AudioMeterState> {
         Mutex::new(AudioMeterState {
             snapshot: idle_snapshot(),
             runtime: None,
+            meter: RollingAudioMeter::default(),
         })
     })
 }
@@ -62,6 +87,8 @@ fn clone_snapshot(snapshot: &JsAudioMeterSnapshot) -> JsAudioMeterSnapshot {
         state: snapshot.state.clone(),
         updated_at_ms: snapshot.updated_at_ms,
         momentary_lufs: snapshot.momentary_lufs,
+        short_term_lufs: snapshot.short_term_lufs,
+        long_term_lufs: snapshot.long_term_lufs,
         rms_db: snapshot.rms_db,
         peak_db: snapshot.peak_db,
         sample_rate: snapshot.sample_rate,
@@ -75,6 +102,8 @@ fn idle_snapshot() -> JsAudioMeterSnapshot {
         state: "idle".to_string(),
         updated_at_ms: monotonic_now(),
         momentary_lufs: None,
+        short_term_lufs: None,
+        long_term_lufs: None,
         rms_db: None,
         peak_db: None,
         sample_rate: None,
@@ -88,6 +117,8 @@ fn starting_snapshot() -> JsAudioMeterSnapshot {
         state: "starting".to_string(),
         updated_at_ms: monotonic_now(),
         momentary_lufs: None,
+        short_term_lufs: None,
+        long_term_lufs: None,
         rms_db: None,
         peak_db: None,
         sample_rate: None,
@@ -101,6 +132,8 @@ fn unsupported_snapshot(reason: String) -> JsAudioMeterSnapshot {
         state: "unsupported".to_string(),
         updated_at_ms: monotonic_now(),
         momentary_lufs: None,
+        short_term_lufs: None,
+        long_term_lufs: None,
         rms_db: None,
         peak_db: None,
         sample_rate: None,
@@ -114,6 +147,8 @@ fn error_snapshot(error: String) -> JsAudioMeterSnapshot {
         state: "error".to_string(),
         updated_at_ms: monotonic_now(),
         momentary_lufs: None,
+        short_term_lufs: None,
+        long_term_lufs: None,
         rms_db: None,
         peak_db: None,
         sample_rate: None,
@@ -125,6 +160,8 @@ fn error_snapshot(error: String) -> JsAudioMeterSnapshot {
 fn levels_snapshot(
     state: &str,
     momentary_lufs: Option<f64>,
+    short_term_lufs: Option<f64>,
+    long_term_lufs: Option<f64>,
     rms_db: Option<f64>,
     peak_db: Option<f64>,
     sample_rate: u32,
@@ -134,6 +171,8 @@ fn levels_snapshot(
         state: state.to_string(),
         updated_at_ms: monotonic_now(),
         momentary_lufs,
+        short_term_lufs,
+        long_term_lufs,
         rms_db,
         peak_db,
         sample_rate: Some(sample_rate),
@@ -145,6 +184,45 @@ fn levels_snapshot(
 fn store_snapshot(snapshot: JsAudioMeterSnapshot) {
     if let Ok(mut state) = meter_state().lock() {
         state.snapshot = snapshot;
+    }
+}
+
+fn store_sample_snapshot(samples: &[f32], sample_rate: u32, channels: u32) {
+    if let Ok(mut state) = meter_state().lock() {
+        let levels = state.meter.ingest(samples, sample_rate, channels);
+        let snapshot_state = if levels.peak_db.is_none() {
+            "silent"
+        } else {
+            "running"
+        };
+        state.snapshot = levels_snapshot(
+            snapshot_state,
+            levels.momentary_lufs,
+            levels.short_term_lufs,
+            levels.long_term_lufs,
+            levels.rms_db,
+            levels.peak_db,
+            sample_rate,
+            channels,
+        );
+    }
+}
+
+fn store_silence_snapshot(sample_count: usize, sample_rate: u32, channels: u32) {
+    if let Ok(mut state) = meter_state().lock() {
+        let levels = state
+            .meter
+            .ingest_silence(sample_count, sample_rate, channels);
+        state.snapshot = levels_snapshot(
+            "silent",
+            levels.momentary_lufs,
+            levels.short_term_lufs,
+            levels.long_term_lufs,
+            levels.rms_db,
+            levels.peak_db,
+            sample_rate,
+            channels,
+        );
     }
 }
 
@@ -164,6 +242,140 @@ fn amplitude_to_db(amplitude: f64) -> Option<f64> {
     }
 }
 
+fn lufs_from_mean_square(mean_square: f64) -> Option<f64> {
+    amplitude_to_db(mean_square.sqrt()).map(|db| db - 0.691)
+}
+
+fn window_samples(sample_rate: u32, channels: u32, window_ms: u32) -> usize {
+    let samples = sample_rate as u64 * channels.max(1) as u64 * window_ms.max(1) as u64 / 1_000;
+    samples.max(channels.max(1) as u64) as usize
+}
+
+impl RollingAudioMeter {
+    fn ingest(&mut self, samples: &[f32], sample_rate: u32, channels: u32) -> MeterLevels {
+        let block = meter_block(samples);
+        self.ingest_block(block, sample_rate, channels)
+    }
+
+    fn ingest_silence(
+        &mut self,
+        sample_count: usize,
+        sample_rate: u32,
+        channels: u32,
+    ) -> MeterLevels {
+        self.ingest_block(
+            MeterBlock {
+                samples: sample_count,
+                sum_squares: 0.0,
+                peak: 0.0,
+            },
+            sample_rate,
+            channels,
+        )
+    }
+
+    fn ingest_block(&mut self, block: MeterBlock, sample_rate: u32, channels: u32) -> MeterLevels {
+        if block.samples == 0 {
+            return MeterLevels::empty();
+        }
+        self.long_term_samples += block.samples;
+        self.long_term_sum_squares += block.sum_squares;
+        push_window(
+            &mut self.momentary,
+            &mut self.momentary_samples,
+            &mut self.momentary_sum_squares,
+            block,
+            window_samples(sample_rate, channels, MOMENTARY_WINDOW_MS),
+        );
+        push_window(
+            &mut self.short_term,
+            &mut self.short_term_samples,
+            &mut self.short_term_sum_squares,
+            block,
+            window_samples(sample_rate, channels, SHORT_TERM_WINDOW_MS),
+        );
+        MeterLevels {
+            momentary_lufs: lufs_from_window(self.momentary_samples, self.momentary_sum_squares),
+            short_term_lufs: lufs_from_window(self.short_term_samples, self.short_term_sum_squares),
+            long_term_lufs: lufs_from_window(self.long_term_samples, self.long_term_sum_squares),
+            rms_db: amplitude_to_db((block.sum_squares / block.samples as f64).sqrt()),
+            peak_db: amplitude_to_db(block.peak),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct MeterLevels {
+    momentary_lufs: Option<f64>,
+    short_term_lufs: Option<f64>,
+    long_term_lufs: Option<f64>,
+    rms_db: Option<f64>,
+    peak_db: Option<f64>,
+}
+
+impl MeterLevels {
+    fn empty() -> Self {
+        Self {
+            momentary_lufs: None,
+            short_term_lufs: None,
+            long_term_lufs: None,
+            rms_db: None,
+            peak_db: None,
+        }
+    }
+}
+
+fn lufs_from_window(samples: usize, sum_squares: f64) -> Option<f64> {
+    if samples == 0 {
+        None
+    } else {
+        lufs_from_mean_square(sum_squares / samples as f64)
+    }
+}
+
+fn meter_block(samples: &[f32]) -> MeterBlock {
+    let mut peak: f64 = 0.0;
+    let mut sum_squares = 0.0;
+    for sample in samples {
+        let clamped = clamp_sample(*sample);
+        peak = peak.max(clamped.abs());
+        sum_squares += clamped * clamped;
+    }
+    MeterBlock {
+        samples: samples.len(),
+        sum_squares,
+        peak,
+    }
+}
+
+fn push_window(
+    window: &mut VecDeque<MeterBlock>,
+    sample_count: &mut usize,
+    sum_squares: &mut f64,
+    block: MeterBlock,
+    max_samples: usize,
+) {
+    window.push_back(block);
+    *sample_count += block.samples;
+    *sum_squares += block.sum_squares;
+    while *sample_count > max_samples {
+        let trim = *sample_count - max_samples;
+        if let Some(front) = window.front_mut() {
+            let remove = trim.min(front.samples);
+            let ratio = remove as f64 / front.samples as f64;
+            front.samples -= remove;
+            front.sum_squares -= front.sum_squares * ratio;
+            *sample_count -= remove;
+            *sum_squares -= front.sum_squares * 0.0 + block.sum_squares * 0.0;
+        }
+        if matches!(window.front(), Some(front) if front.samples == 0) {
+            window.pop_front();
+        }
+        *sum_squares = window.iter().map(|block| block.sum_squares).sum();
+    }
+}
+
+#[cfg(test)]
 fn levels_from_f32(samples: &[f32]) -> (Option<f64>, Option<f64>, Option<f64>) {
     if samples.is_empty() {
         return (None, None, None);
@@ -276,25 +488,10 @@ fn handle_sample_buffer(sample_buffer: &CMSampleBuffer) -> Result<(), String> {
         CAPTURE_SAMPLE_RATE
     };
     let channels = stream_description.mChannelsPerFrame.max(1);
-    let (momentary_lufs, rms_db, peak_db) = levels_from_f32(&samples);
-    if peak_db.is_none() {
-        store_snapshot(levels_snapshot(
-            "silent",
-            None,
-            None,
-            None,
-            sample_rate,
-            channels,
-        ));
+    if samples.is_empty() {
+        store_silence_snapshot(0, sample_rate, channels);
     } else {
-        store_snapshot(levels_snapshot(
-            "running",
-            momentary_lufs,
-            rms_db,
-            peak_db,
-            sample_rate,
-            channels,
-        ));
+        store_sample_snapshot(&samples, sample_rate, channels);
     }
     if let Some(block_buffer) = NonNull::new(block_buffer) {
         unsafe {
@@ -335,6 +532,35 @@ define_class!(
 impl AudioStreamOutput {
     fn new() -> Retained<Self> {
         let this = Self::alloc().set_ivars(AudioStreamOutputIvars);
+        unsafe { objc2::msg_send![super(this), init] }
+    }
+}
+
+#[derive(Default)]
+struct AudioStreamDelegateIvars;
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[ivars = AudioStreamDelegateIvars]
+    struct AudioStreamDelegate;
+
+    unsafe impl NSObjectProtocol for AudioStreamDelegate {}
+
+    #[allow(non_snake_case)]
+    unsafe impl SCStreamDelegate for AudioStreamDelegate {
+        #[unsafe(method(stream:didStopWithError:))]
+        unsafe fn stream_didStopWithError(&self, _stream: &SCStream, error: &NSError) {
+            store_snapshot(error_snapshot(format!(
+                "audio capture stopped: {}",
+                error.localizedDescription()
+            )));
+        }
+    }
+);
+
+impl AudioStreamDelegate {
+    fn new() -> Retained<Self> {
+        let this = Self::alloc().set_ivars(AudioStreamDelegateIvars);
         unsafe { objc2::msg_send![super(this), init] }
     }
 }
@@ -447,8 +673,15 @@ fn start_capture(target: &str) -> Result<AudioMeterRuntime, String> {
         config.setSampleRate(CAPTURE_SAMPLE_RATE as isize);
         config.setChannelCount(CAPTURE_CHANNELS as isize);
     }
+    let delegate = AudioStreamDelegate::new();
+    let delegate_protocol = ProtocolObject::from_ref(&*delegate);
     let stream = unsafe {
-        SCStream::initWithFilter_configuration_delegate(SCStream::alloc(), &filter, &config, None)
+        SCStream::initWithFilter_configuration_delegate(
+            SCStream::alloc(),
+            &filter,
+            &config,
+            Some(delegate_protocol),
+        )
     };
     let output = AudioStreamOutput::new();
     let output_protocol = ProtocolObject::from_ref(&*output);
@@ -465,6 +698,7 @@ fn start_capture(target: &str) -> Result<AudioMeterRuntime, String> {
     wait_for_stream_start(&stream)?;
     Ok(AudioMeterRuntime {
         stream,
+        _delegate: delegate,
         output,
         queue,
     })
@@ -540,8 +774,11 @@ fn start_audio_meter_blocking(target: Option<String>) -> JsAudioMeterSnapshot {
         Ok(runtime) => {
             if let Ok(mut state) = meter_state().lock() {
                 state.runtime = Some(runtime);
+                state.meter = RollingAudioMeter::default();
                 state.snapshot = levels_snapshot(
                     "silent",
+                    None,
+                    None,
                     None,
                     None,
                     None,
@@ -622,6 +859,28 @@ mod tests {
         let (_lufs, rms, peak) = levels_from_f32(&[1.0, -1.0]);
         assert!((peak.unwrap() - 0.0).abs() < 0.000001);
         assert!((rms.unwrap() - 0.0).abs() < 0.000001);
+    }
+
+    #[test]
+    fn rolling_meter_separates_momentary_short_and_long_windows() {
+        let mut meter = RollingAudioMeter::default();
+        let loud = meter.ingest(&[1.0, -1.0, 1.0, -1.0], 10, 1);
+        assert!((loud.momentary_lufs.unwrap() + 0.691).abs() < 0.000001);
+        assert!((loud.short_term_lufs.unwrap() + 0.691).abs() < 0.000001);
+        assert!((loud.long_term_lufs.unwrap() + 0.691).abs() < 0.000001);
+
+        let decayed = meter.ingest_silence(26, 10, 1);
+        assert_eq!(decayed.momentary_lufs, None);
+        assert!(decayed.short_term_lufs.is_some());
+        assert!(decayed.long_term_lufs.is_some());
+        assert!(
+            (decayed.short_term_lufs.unwrap() - decayed.long_term_lufs.unwrap()).abs() < 0.000001
+        );
+
+        let long_only = meter.ingest_silence(30, 10, 1);
+        assert_eq!(long_only.momentary_lufs, None);
+        assert_eq!(long_only.short_term_lufs, None);
+        assert!(long_only.long_term_lufs.is_some());
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::mem::{size_of, ManuallyDrop};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,6 +36,27 @@ const CAPTURE_SAMPLE_RATE: u32 = 44_100;
 const CAPTURE_CHANNELS: u16 = 2;
 const CAPTURE_BITS_PER_SAMPLE: u16 = 16;
 const CAPTURE_BUFFER_MS: i64 = 100;
+const MOMENTARY_WINDOW_MS: u32 = 400;
+const SHORT_TERM_WINDOW_MS: u32 = 3_000;
+
+#[derive(Clone, Copy)]
+struct MeterBlock {
+    samples: usize,
+    sum_squares: f64,
+    peak: f64,
+}
+
+#[derive(Default)]
+struct RollingAudioMeter {
+    momentary: VecDeque<MeterBlock>,
+    short_term: VecDeque<MeterBlock>,
+    momentary_samples: usize,
+    short_term_samples: usize,
+    momentary_sum_squares: f64,
+    short_term_sum_squares: f64,
+    long_term_samples: usize,
+    long_term_sum_squares: f64,
+}
 
 #[repr(C)]
 struct RtlOsVersionInfoW {
@@ -59,6 +81,7 @@ struct AudioMeterRuntime {
 struct AudioMeterState {
     snapshot: JsAudioMeterSnapshot,
     runtime: Option<AudioMeterRuntime>,
+    meter: RollingAudioMeter,
 }
 
 struct ActivationState {
@@ -73,6 +96,7 @@ fn meter_state() -> &'static Mutex<AudioMeterState> {
         Mutex::new(AudioMeterState {
             snapshot: idle_snapshot(),
             runtime: None,
+            meter: RollingAudioMeter::default(),
         })
     })
 }
@@ -82,6 +106,8 @@ fn clone_snapshot(snapshot: &JsAudioMeterSnapshot) -> JsAudioMeterSnapshot {
         state: snapshot.state.clone(),
         updated_at_ms: snapshot.updated_at_ms,
         momentary_lufs: snapshot.momentary_lufs,
+        short_term_lufs: snapshot.short_term_lufs,
+        long_term_lufs: snapshot.long_term_lufs,
         rms_db: snapshot.rms_db,
         peak_db: snapshot.peak_db,
         sample_rate: snapshot.sample_rate,
@@ -95,6 +121,8 @@ fn idle_snapshot() -> JsAudioMeterSnapshot {
         state: "idle".to_string(),
         updated_at_ms: monotonic_now(),
         momentary_lufs: None,
+        short_term_lufs: None,
+        long_term_lufs: None,
         rms_db: None,
         peak_db: None,
         sample_rate: None,
@@ -108,6 +136,8 @@ fn starting_snapshot() -> JsAudioMeterSnapshot {
         state: "starting".to_string(),
         updated_at_ms: monotonic_now(),
         momentary_lufs: None,
+        short_term_lufs: None,
+        long_term_lufs: None,
         rms_db: None,
         peak_db: None,
         sample_rate: None,
@@ -121,6 +151,8 @@ fn unsupported_snapshot(reason: String) -> JsAudioMeterSnapshot {
         state: "unsupported".to_string(),
         updated_at_ms: monotonic_now(),
         momentary_lufs: None,
+        short_term_lufs: None,
+        long_term_lufs: None,
         rms_db: None,
         peak_db: None,
         sample_rate: None,
@@ -134,6 +166,8 @@ fn error_snapshot(error: String) -> JsAudioMeterSnapshot {
         state: "error".to_string(),
         updated_at_ms: monotonic_now(),
         momentary_lufs: None,
+        short_term_lufs: None,
+        long_term_lufs: None,
         rms_db: None,
         peak_db: None,
         sample_rate: None,
@@ -145,6 +179,8 @@ fn error_snapshot(error: String) -> JsAudioMeterSnapshot {
 fn levels_snapshot(
     state: &str,
     momentary_lufs: Option<f64>,
+    short_term_lufs: Option<f64>,
+    long_term_lufs: Option<f64>,
     rms_db: Option<f64>,
     peak_db: Option<f64>,
 ) -> JsAudioMeterSnapshot {
@@ -152,6 +188,8 @@ fn levels_snapshot(
         state: state.to_string(),
         updated_at_ms: monotonic_now(),
         momentary_lufs,
+        short_term_lufs,
+        long_term_lufs,
         rms_db,
         peak_db,
         sample_rate: Some(CAPTURE_SAMPLE_RATE),
@@ -163,6 +201,44 @@ fn levels_snapshot(
 fn store_snapshot(snapshot: JsAudioMeterSnapshot) {
     if let Ok(mut state) = meter_state().lock() {
         state.snapshot = snapshot;
+    }
+}
+
+fn store_sample_snapshot(samples: &[f32]) {
+    if let Ok(mut state) = meter_state().lock() {
+        let levels = state
+            .meter
+            .ingest(samples, CAPTURE_SAMPLE_RATE, CAPTURE_CHANNELS as u32);
+        let snapshot_state = if levels.peak_db.is_none() {
+            "silent"
+        } else {
+            "running"
+        };
+        state.snapshot = levels_snapshot(
+            snapshot_state,
+            levels.momentary_lufs,
+            levels.short_term_lufs,
+            levels.long_term_lufs,
+            levels.rms_db,
+            levels.peak_db,
+        );
+    }
+}
+
+fn store_silence_snapshot(sample_count: usize) {
+    if let Ok(mut state) = meter_state().lock() {
+        let levels =
+            state
+                .meter
+                .ingest_silence(sample_count, CAPTURE_SAMPLE_RATE, CAPTURE_CHANNELS as u32);
+        state.snapshot = levels_snapshot(
+            "silent",
+            levels.momentary_lufs,
+            levels.short_term_lufs,
+            levels.long_term_lufs,
+            levels.rms_db,
+            levels.peak_db,
+        );
     }
 }
 
@@ -228,6 +304,139 @@ fn amplitude_to_db(amplitude: f64) -> Option<f64> {
     }
 }
 
+fn lufs_from_mean_square(mean_square: f64) -> Option<f64> {
+    amplitude_to_db(mean_square.sqrt()).map(|db| db - 0.691)
+}
+
+fn window_samples(sample_rate: u32, channels: u32, window_ms: u32) -> usize {
+    let samples = sample_rate as u64 * channels.max(1) as u64 * window_ms.max(1) as u64 / 1_000;
+    samples.max(channels.max(1) as u64) as usize
+}
+
+impl RollingAudioMeter {
+    fn ingest(&mut self, samples: &[f32], sample_rate: u32, channels: u32) -> MeterLevels {
+        let block = meter_block(samples);
+        self.ingest_block(block, sample_rate, channels)
+    }
+
+    fn ingest_silence(
+        &mut self,
+        sample_count: usize,
+        sample_rate: u32,
+        channels: u32,
+    ) -> MeterLevels {
+        self.ingest_block(
+            MeterBlock {
+                samples: sample_count,
+                sum_squares: 0.0,
+                peak: 0.0,
+            },
+            sample_rate,
+            channels,
+        )
+    }
+
+    fn ingest_block(&mut self, block: MeterBlock, sample_rate: u32, channels: u32) -> MeterLevels {
+        if block.samples == 0 {
+            return MeterLevels::empty();
+        }
+        self.long_term_samples += block.samples;
+        self.long_term_sum_squares += block.sum_squares;
+        push_window(
+            &mut self.momentary,
+            &mut self.momentary_samples,
+            &mut self.momentary_sum_squares,
+            block,
+            window_samples(sample_rate, channels, MOMENTARY_WINDOW_MS),
+        );
+        push_window(
+            &mut self.short_term,
+            &mut self.short_term_samples,
+            &mut self.short_term_sum_squares,
+            block,
+            window_samples(sample_rate, channels, SHORT_TERM_WINDOW_MS),
+        );
+        MeterLevels {
+            momentary_lufs: lufs_from_window(self.momentary_samples, self.momentary_sum_squares),
+            short_term_lufs: lufs_from_window(self.short_term_samples, self.short_term_sum_squares),
+            long_term_lufs: lufs_from_window(self.long_term_samples, self.long_term_sum_squares),
+            rms_db: amplitude_to_db((block.sum_squares / block.samples as f64).sqrt()),
+            peak_db: amplitude_to_db(block.peak),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct MeterLevels {
+    momentary_lufs: Option<f64>,
+    short_term_lufs: Option<f64>,
+    long_term_lufs: Option<f64>,
+    rms_db: Option<f64>,
+    peak_db: Option<f64>,
+}
+
+impl MeterLevels {
+    fn empty() -> Self {
+        Self {
+            momentary_lufs: None,
+            short_term_lufs: None,
+            long_term_lufs: None,
+            rms_db: None,
+            peak_db: None,
+        }
+    }
+}
+
+fn lufs_from_window(samples: usize, sum_squares: f64) -> Option<f64> {
+    if samples == 0 {
+        None
+    } else {
+        lufs_from_mean_square(sum_squares / samples as f64)
+    }
+}
+
+fn meter_block(samples: &[f32]) -> MeterBlock {
+    let mut peak: f64 = 0.0;
+    let mut sum_squares = 0.0;
+    for sample in samples {
+        let clamped = clamp_sample(*sample);
+        peak = peak.max(clamped.abs());
+        sum_squares += clamped * clamped;
+    }
+    MeterBlock {
+        samples: samples.len(),
+        sum_squares,
+        peak,
+    }
+}
+
+fn push_window(
+    window: &mut VecDeque<MeterBlock>,
+    sample_count: &mut usize,
+    sum_squares: &mut f64,
+    block: MeterBlock,
+    max_samples: usize,
+) {
+    window.push_back(block);
+    *sample_count += block.samples;
+    *sum_squares += block.sum_squares;
+    while *sample_count > max_samples {
+        let trim = *sample_count - max_samples;
+        if let Some(front) = window.front_mut() {
+            let remove = trim.min(front.samples);
+            let ratio = remove as f64 / front.samples as f64;
+            front.samples -= remove;
+            front.sum_squares -= front.sum_squares * ratio;
+            *sample_count -= remove;
+        }
+        if matches!(window.front(), Some(front) if front.samples == 0) {
+            window.pop_front();
+        }
+        *sum_squares = window.iter().map(|block| block.sum_squares).sum();
+    }
+}
+
+#[cfg(test)]
 fn levels_from_f32(samples: &[f32]) -> (Option<f64>, Option<f64>, Option<f64>) {
     if samples.is_empty() {
         return (None, None, None);
@@ -400,7 +609,7 @@ fn capture_process_loopback_inner(pid: u32, stop: Arc<AtomicBool>) -> Result<(),
         .map_err(|error| format!("failed to open process loopback capture client: {error}"))?;
     unsafe { audio_client.Start() }
         .map_err(|error| format!("failed to start process loopback capture: {error}"))?;
-    store_snapshot(levels_snapshot("silent", None, None, None));
+    store_snapshot(levels_snapshot("silent", None, None, None, None, None));
     while !stop.load(Ordering::Relaxed) {
         read_capture_packets(&capture_client)?;
         thread::sleep(Duration::from_millis(10));
@@ -422,20 +631,14 @@ fn read_capture_packets(capture_client: &IAudioCaptureClient) -> Result<(), Stri
         unsafe { capture_client.GetBuffer(&mut data, &mut frames, &mut flags, None, None) }
             .map_err(|error| format!("failed to read process loopback buffer: {error}"))?;
         let bytes = frames as usize * CAPTURE_CHANNELS as usize * 2;
-        let snapshot = if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 || data.is_null() {
-            levels_snapshot("silent", None, None, None)
+        if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 || data.is_null() {
+            store_silence_snapshot(frames as usize * CAPTURE_CHANNELS as usize);
         } else {
             let buffer = unsafe { std::slice::from_raw_parts(data, bytes) };
             let samples = pcm_i16_to_f32(buffer);
-            let (momentary_lufs, rms_db, peak_db) = levels_from_f32(&samples);
-            if peak_db.is_none() {
-                levels_snapshot("silent", None, None, None)
-            } else {
-                levels_snapshot("running", momentary_lufs, rms_db, peak_db)
-            }
-        };
+            store_sample_snapshot(&samples);
+        }
         let release = unsafe { capture_client.ReleaseBuffer(frames) };
-        store_snapshot(snapshot);
         release.map_err(|error| format!("failed to release process loopback buffer: {error}"))?;
     }
 }
@@ -487,6 +690,7 @@ pub fn start_audio_meter(target: Option<String>) -> JsAudioMeterSnapshot {
         }
     });
     state.snapshot = starting_snapshot();
+    state.meter = RollingAudioMeter::default();
     state.runtime = Some(AudioMeterRuntime {
         stop,
         thread: Some(thread),
@@ -538,5 +742,27 @@ mod tests {
         let (_lufs, rms, peak) = levels_from_f32(&[0.25, -0.25]);
         assert!((peak.unwrap() + 12.041199826559248).abs() < 0.000001);
         assert!((rms.unwrap() + 12.041199826559248).abs() < 0.000001);
+    }
+
+    #[test]
+    fn rolling_meter_separates_momentary_short_and_long_windows() {
+        let mut meter = RollingAudioMeter::default();
+        let loud = meter.ingest(&[1.0, -1.0, 1.0, -1.0], 10, 1);
+        assert!((loud.momentary_lufs.unwrap() + 0.691).abs() < 0.000001);
+        assert!((loud.short_term_lufs.unwrap() + 0.691).abs() < 0.000001);
+        assert!((loud.long_term_lufs.unwrap() + 0.691).abs() < 0.000001);
+
+        let decayed = meter.ingest_silence(26, 10, 1);
+        assert_eq!(decayed.momentary_lufs, None);
+        assert!(decayed.short_term_lufs.is_some());
+        assert!(decayed.long_term_lufs.is_some());
+        assert!(
+            (decayed.short_term_lufs.unwrap() - decayed.long_term_lufs.unwrap()).abs() < 0.000001
+        );
+
+        let long_only = meter.ingest_silence(30, 10, 1);
+        assert_eq!(long_only.momentary_lufs, None);
+        assert_eq!(long_only.short_term_lufs, None);
+        assert!(long_only.long_term_lufs.is_some());
     }
 }

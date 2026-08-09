@@ -16,6 +16,8 @@ const SNAPSHOT: AudioMeterSnapshot = {
   state: "running",
   updatedAtMs: 1,
   momentaryLufs: -18,
+  shortTermLufs: -19,
+  longTermLufs: -20,
   rmsDb: -17,
   peakDb: -3,
   sampleRate: 48000,
@@ -51,7 +53,13 @@ describe("registerAudioMeterIpc", () => {
         },
         stopAudioMeter: () => {
           calls.push("stop")
-          return { ...SNAPSHOT, state: "idle", momentaryLufs: null }
+          return {
+            ...SNAPSHOT,
+            state: "idle",
+            momentaryLufs: null,
+            shortTermLufs: null,
+            longTermLufs: null,
+          }
         },
       },
       "synth",
@@ -64,6 +72,8 @@ describe("registerAudioMeterIpc", () => {
       ...SNAPSHOT,
       state: "idle",
       momentaryLufs: null,
+      shortTermLufs: null,
+      longTermLufs: null,
     })
     expect(calls).toEqual(["start:synth", "read", "stop"])
   })
@@ -87,6 +97,8 @@ describe("registerAudioMeterIpc", () => {
       state: "unsupported",
       updatedAtMs: 0,
       momentaryLufs: null,
+      shortTermLufs: null,
+      longTermLufs: null,
       rmsDb: null,
       peakDb: null,
       sampleRate: null,
@@ -98,6 +110,8 @@ describe("registerAudioMeterIpc", () => {
       state: "unsupported",
       updatedAtMs: 0,
       momentaryLufs: null,
+      shortTermLufs: null,
+      longTermLufs: null,
       rmsDb: null,
       peakDb: null,
       sampleRate: null,

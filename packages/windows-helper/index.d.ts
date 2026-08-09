@@ -28,6 +28,8 @@ export interface AudioMeterSnapshot {
   state: AudioMeterState
   updatedAtMs: number
   momentaryLufs: number | null
+  shortTermLufs: number | null
+  longTermLufs: number | null
   rmsDb: number | null
   peakDb: number | null
   sampleRate: number | null

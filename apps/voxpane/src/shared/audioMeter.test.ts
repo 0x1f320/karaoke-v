@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
+  audioMeterCanPoll,
+  audioMeterShouldDisableAfterRead,
   clampPcmSample,
   EMPTY_AUDIO_METER_SNAPSHOT,
   estimateMomentaryLufs,
@@ -15,6 +17,8 @@ describe("audio meter snapshots", () => {
       state: "idle",
       updatedAtMs: 0,
       momentaryLufs: null,
+      shortTermLufs: null,
+      longTermLufs: null,
       rmsDb: null,
       peakDb: null,
       sampleRate: null,
@@ -27,6 +31,8 @@ describe("audio meter snapshots", () => {
       state: "unsupported",
       updatedAtMs: 12,
       momentaryLufs: null,
+      shortTermLufs: null,
+      longTermLufs: null,
       rmsDb: null,
       peakDb: null,
       sampleRate: null,
@@ -40,11 +46,27 @@ describe("audio meter snapshots", () => {
       state: "silent",
       updatedAtMs: 34,
       momentaryLufs: null,
+      shortTermLufs: null,
+      longTermLufs: null,
       rmsDb: null,
       peakDb: null,
       sampleRate: 48000,
       channels: 2,
     })
+  })
+})
+
+describe("audio meter polling state", () => {
+  it("keeps polling active capture states", () => {
+    expect(audioMeterCanPoll("starting")).toBe(true)
+    expect(audioMeterCanPoll("running")).toBe(true)
+    expect(audioMeterCanPoll("silent")).toBe(true)
+  })
+
+  it("disables the meter after terminal read states", () => {
+    expect(audioMeterShouldDisableAfterRead("idle")).toBe(true)
+    expect(audioMeterShouldDisableAfterRead("unsupported")).toBe(true)
+    expect(audioMeterShouldDisableAfterRead("error")).toBe(true)
   })
 })
 

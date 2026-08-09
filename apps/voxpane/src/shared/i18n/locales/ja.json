@@ -68,6 +68,7 @@
     },
     "audioMeter": {
       "title": "LUFS",
+      "longTerm": "L",
       "peak": "PK",
       "silent": "無音",
       "starting": "開始中",

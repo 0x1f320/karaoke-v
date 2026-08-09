@@ -34,6 +34,8 @@ pub struct JsAudioMeterSnapshot {
     pub state: String,
     pub updated_at_ms: f64,
     pub momentary_lufs: Option<f64>,
+    pub short_term_lufs: Option<f64>,
+    pub long_term_lufs: Option<f64>,
     pub rms_db: Option<f64>,
     pub peak_db: Option<f64>,
     pub sample_rate: Option<u32>,

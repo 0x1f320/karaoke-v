@@ -4,6 +4,8 @@ export interface AudioMeterSnapshot {
   state: AudioMeterState
   updatedAtMs: number
   momentaryLufs: number | null
+  shortTermLufs: number | null
+  longTermLufs: number | null
   rmsDb: number | null
   peakDb: number | null
   sampleRate: number | null
@@ -15,6 +17,8 @@ export const EMPTY_AUDIO_METER_SNAPSHOT: AudioMeterSnapshot = {
   state: "idle",
   updatedAtMs: 0,
   momentaryLufs: null,
+  shortTermLufs: null,
+  longTermLufs: null,
   rmsDb: null,
   peakDb: null,
   sampleRate: null,
@@ -42,6 +46,14 @@ export function silentAudioMeterSnapshot(
     sampleRate,
     channels,
   }
+}
+
+export function audioMeterCanPoll(state: AudioMeterState): boolean {
+  return state === "starting" || state === "running" || state === "silent"
+}
+
+export function audioMeterShouldDisableAfterRead(state: AudioMeterState): boolean {
+  return !audioMeterCanPoll(state)
 }
 
 export function clampPcmSample(sample: number): number {

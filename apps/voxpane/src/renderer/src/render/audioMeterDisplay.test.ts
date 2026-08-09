@@ -13,6 +13,8 @@ const BASE: AudioMeterSnapshot = {
   state: "running",
   updatedAtMs: 10,
   momentaryLufs: -18.25,
+  shortTermLufs: -19.5,
+  longTermLufs: -20.75,
   rmsDb: -17.5,
   peakDb: -3.2,
   sampleRate: 48000,
@@ -21,6 +23,7 @@ const BASE: AudioMeterSnapshot = {
 
 const labels = {
   title: "LUFS",
+  longTerm: "L",
   peak: "PK",
   silent: "silent",
   starting: "starting",
@@ -47,14 +50,25 @@ describe("audio meter display", () => {
   it("formats running LUFS and peak values", () => {
     expect(audioMeterReadout(BASE, labels)).toEqual({
       title: "LUFS",
-      primary: "-18.3",
-      secondary: "PK -3.2",
+      primary: "-19.5",
+      secondary: "L -20.8  PK -3.2",
       state: "running",
     })
   })
 
   it("uses state labels when no measured value exists", () => {
-    expect(audioMeterReadout({ ...BASE, state: "silent", momentaryLufs: null }, labels)).toEqual({
+    expect(
+      audioMeterReadout(
+        {
+          ...BASE,
+          state: "silent",
+          momentaryLufs: null,
+          shortTermLufs: null,
+          longTermLufs: null,
+        },
+        labels,
+      ),
+    ).toEqual({
       title: "LUFS",
       primary: "silent",
       secondary: "PK -3.2",

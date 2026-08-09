@@ -1,6 +1,6 @@
 import type { AudioMeterSnapshot, AudioMeterState } from "../../../shared/audioMeter"
 
-export const AUDIO_METER_WIDTH = 84
+export const AUDIO_METER_WIDTH = 104
 export const AUDIO_METER_HEIGHT = 116
 export const AUDIO_METER_PAD_PX = 8
 const AUDIO_METER_MIN_DB = -60
@@ -8,6 +8,7 @@ const AUDIO_METER_MAX_DB = 12
 
 export interface AudioMeterLabels {
   title: string
+  longTerm: string
   peak: string
   silent: string
   starting: string
@@ -59,17 +60,19 @@ export function audioMeterReadout(
   labels: AudioMeterLabels,
 ): AudioMeterReadout {
   const primary =
-    snapshot.momentaryLufs === null
+    snapshot.shortTermLufs === null
       ? stateLabel(snapshot.state, labels)
-      : formatDb(snapshot.momentaryLufs)
-  const secondary =
-    snapshot.peakDb === null
-      ? stateLabel(snapshot.state, labels)
-      : `${labels.peak} ${formatDb(snapshot.peakDb)}`
+      : formatDb(snapshot.shortTermLufs)
+  const secondary = [
+    snapshot.longTermLufs === null ? null : `${labels.longTerm} ${formatDb(snapshot.longTermLufs)}`,
+    snapshot.peakDb === null ? null : `${labels.peak} ${formatDb(snapshot.peakDb)}`,
+  ]
+    .filter((part) => part !== null)
+    .join("  ")
   return {
     title: labels.title,
     primary,
-    secondary,
+    secondary: secondary || stateLabel(snapshot.state, labels),
     state: snapshot.state,
   }
 }

@@ -153,6 +153,8 @@ function normalizeAudioMeterSnapshot(snapshot) {
     state: snapshot?.state ?? "error",
     updatedAtMs: snapshot?.updatedAtMs ?? 0,
     momentaryLufs: snapshot?.momentaryLufs ?? null,
+    shortTermLufs: snapshot?.shortTermLufs ?? null,
+    longTermLufs: snapshot?.longTermLufs ?? null,
     rmsDb: snapshot?.rmsDb ?? null,
     peakDb: snapshot?.peakDb ?? null,
     sampleRate: snapshot?.sampleRate ?? null,

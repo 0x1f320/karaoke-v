@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import {
   type AudioMeterSnapshot,
-  type AudioMeterState,
+  audioMeterCanPoll,
+  audioMeterShouldDisableAfterRead,
   EMPTY_AUDIO_METER_SNAPSHOT,
 } from "../../shared/audioMeter"
 import type { BridgeNote } from "../../shared/bridgeChannels"
@@ -70,11 +71,7 @@ const DIAGNOSTICS_PANEL_PAD_PX = 8
 const DIAGNOSTICS_GRAPH_W = 260
 const DIAGNOSTICS_GRAPH_H = 132
 const DIAGNOSTICS_GRAPH_SAMPLES = 180
-const AUDIO_METER_POLL_MS = 125
-
-function audioMeterCanPoll(state: AudioMeterState): boolean {
-  return state === "starting" || state === "running" || state === "silent"
-}
+const AUDIO_METER_POLL_MS = 50
 
 /**
  * The note whose contour covers `seconds` — the one sounding, or, in the gap
@@ -193,6 +190,7 @@ function Overlay() {
     const scrollLatency = new BridgeScrollLatency()
     const audioMeterLabels = {
       title: t("debug.audioMeter.title"),
+      longTerm: t("debug.audioMeter.longTerm"),
       peak: t("debug.audioMeter.peak"),
       silent: t("debug.audioMeter.silent"),
       starting: t("debug.audioMeter.starting"),
@@ -261,6 +259,10 @@ function Overlay() {
         .then((snapshot) => {
           audioMeterSnapshot = snapshot
           audioMeterPolling = audioMeterCanPoll(snapshot.state)
+          if (audioMeterShouldDisableAfterRead(snapshot.state)) {
+            audioMeterEnabled = false
+            void window.preferences.update({ audioMeter: false })
+          }
         })
         .catch(setAudioMeterError)
     }, AUDIO_METER_POLL_MS)
