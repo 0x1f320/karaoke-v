@@ -64,6 +64,15 @@
       "p95": "p95",
       "p99": "p99",
       "missing": "n/a"
+    },
+    "audioMeter": {
+      "title": "LUFS",
+      "peak": "PK",
+      "silent": "無音",
+      "starting": "開始中",
+      "idle": "待機",
+      "unsupported": "未対応",
+      "error": "エラー"
     }
   },
   "permissions": {

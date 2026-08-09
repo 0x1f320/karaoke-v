@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
+import { type AudioMeterSnapshot, EMPTY_AUDIO_METER_SNAPSHOT } from "../../shared/audioMeter"
 import type { BridgeNote } from "../../shared/bridgeChannels"
 import type { BridgeTransportDiagnostics } from "../../shared/bridgeDiagnostics"
 import type { PianoRoll, Rect, Viewport } from "../../shared/geometry"
@@ -65,6 +66,7 @@ const DIAGNOSTICS_PANEL_PAD_PX = 8
 const DIAGNOSTICS_GRAPH_W = 260
 const DIAGNOSTICS_GRAPH_H = 132
 const DIAGNOSTICS_GRAPH_SAMPLES = 180
+const AUDIO_METER_POLL_MS = 125
 
 /**
  * The note whose contour covers `seconds` — the one sounding, or, in the gap
@@ -95,6 +97,16 @@ function latencyProbeEnabled(debug: boolean): boolean {
     return debug || window.localStorage.getItem("voxpaneLatencyProbe") === "1"
   } catch {
     return debug
+  }
+}
+
+function viewportClip(vp: Viewport): Rect {
+  const origin = vp.origin ?? { x: window.screenX, y: window.screenY }
+  return {
+    x: vp.canvas.x - origin.x,
+    y: vp.canvas.y - origin.y,
+    w: vp.canvas.w,
+    h: vp.canvas.h,
   }
 }
 
@@ -171,8 +183,38 @@ function Overlay() {
     const diagnosticsStats = new BridgeDiagnosticsStats()
     const diagnosticsGraph = new BridgeDiagnosticsGraphHistory(DIAGNOSTICS_GRAPH_SAMPLES)
     const scrollLatency = new BridgeScrollLatency()
+    const audioMeterLabels = {
+      title: t("debug.audioMeter.title"),
+      peak: t("debug.audioMeter.peak"),
+      silent: t("debug.audioMeter.silent"),
+      starting: t("debug.audioMeter.starting"),
+      idle: t("debug.audioMeter.idle"),
+      unsupported: t("debug.audioMeter.unsupported"),
+      error: t("debug.audioMeter.error"),
+    }
 
     let read: PianoRoll | null = null
+    let audioMeterSnapshot: AudioMeterSnapshot = {
+      ...EMPTY_AUDIO_METER_SNAPSHOT,
+      state: "starting",
+      updatedAtMs: window.bridge.monotonicNow(),
+    }
+    void window.audioMeter
+      .start()
+      .then((snapshot) => {
+        audioMeterSnapshot = snapshot
+      })
+      .catch((error) => {
+        audioMeterSnapshot = {
+          ...EMPTY_AUDIO_METER_SNAPSHOT,
+          state: "error",
+          updatedAtMs: window.bridge.monotonicNow(),
+          error: error instanceof Error ? error.message : String(error),
+        }
+      })
+    const audioMeterTimer = window.setInterval(() => {
+      audioMeterSnapshot = window.audioMeter.read()
+    }, AUDIO_METER_POLL_MS)
 
     // Bounding boxes are a debug visualization. Default off, and off until the
     // stored value arrives, so nothing flashes on startup.
@@ -296,7 +338,12 @@ function Overlay() {
       const w = window.innerWidth
       const h = window.innerHeight
 
-      const vp = debug || transport.playing || renderer.effectsActive ? latestViewport : null
+      const audioMeter =
+        audioMeterSnapshot.state === "idle"
+          ? null
+          : { snapshot: audioMeterSnapshot, labels: audioMeterLabels }
+      const vp =
+        debug || transport.playing || renderer.effectsActive || audioMeter ? latestViewport : null
 
       if (!vp || !read || vp.refY === undefined) {
         updateDiagnostics(nowMs, null, null)
@@ -312,7 +359,7 @@ function Overlay() {
           offsetX: 0,
           offsetY: 0,
           scaleX: 1,
-          clip: { x: 0, y: 0, w: 0, h: 0 },
+          clip: vp ? viewportClip(vp) : { x: 0, y: 0, w: 0, h: 0 },
           fill: FILL,
           stroke: STROKE,
           border: BORDER_PX,
@@ -327,6 +374,8 @@ function Overlay() {
           noteStarted: false,
           glow,
           trail,
+          audioMeter:
+            audioMeter && vp ? { snapshot: audioMeter.snapshot, labels: audioMeter.labels } : null,
         })
         latencyProbe.sample({
           atMs: nowMs,
@@ -511,6 +560,7 @@ function Overlay() {
         noteStarted,
         glow: boost === 1 ? glow : { ...glow, level: Math.min(glow.level * boost, 1) },
         trail,
+        audioMeter,
       })
       latencyProbe.sample({
         atMs: nowMs,
@@ -526,6 +576,8 @@ function Overlay() {
     return () => {
       window.bridge.setDiagnosticsEnabled(false)
       canvasManager.stop()
+      window.clearInterval(audioMeterTimer)
+      void window.audioMeter.stop()
       cancelAnimationFrame(raf)
       unsubscribe()
       renderer.dispose()

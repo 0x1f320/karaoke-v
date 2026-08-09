@@ -1,0 +1,127 @@
+import { Container, Graphics, Text } from "pixi.js"
+import type { AudioMeterSnapshot } from "../../../shared/audioMeter"
+import {
+  type AudioMeterLabels,
+  type AudioMeterRect,
+  audioMeterLevel,
+  audioMeterReadout,
+  audioMeterRect,
+} from "./audioMeterDisplay"
+
+export interface AudioMeterDrawParams {
+  clip: AudioMeterRect
+  snapshot: AudioMeterSnapshot
+  labels: AudioMeterLabels
+}
+
+const BAR_X = 8
+const BAR_Y = 30
+const BAR_W = 8
+const BAR_H = 72
+const TEXT_X = 22
+const RADIUS = 6
+
+export class AudioMeterRenderer {
+  private readonly container = new Container()
+  private readonly panel = new Graphics()
+  private readonly bar = new Graphics()
+  private readonly title = new Text({
+    text: "",
+    style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 10 },
+  })
+  private readonly primary = new Text({
+    text: "",
+    style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 22 },
+  })
+  private readonly secondary = new Text({
+    text: "",
+    style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11 },
+  })
+  private key = ""
+
+  constructor(stage: Container) {
+    this.title.position.set(TEXT_X, 10)
+    this.primary.position.set(TEXT_X, 32)
+    this.secondary.position.set(TEXT_X, 66)
+    this.container.addChild(this.panel, this.bar, this.title, this.primary, this.secondary)
+    this.container.visible = false
+    stage.addChild(this.container)
+  }
+
+  update(params: AudioMeterDrawParams | null): void {
+    if (!params) {
+      this.container.visible = false
+      this.key = ""
+      return
+    }
+    const rect = audioMeterRect(params.clip)
+    if (!rect) {
+      this.container.visible = false
+      this.key = ""
+      return
+    }
+    const readout = audioMeterReadout(params.snapshot, params.labels)
+    const level = audioMeterLevel(params.snapshot.momentaryLufs)
+    const nextKey = [
+      rect.x,
+      rect.y,
+      rect.w,
+      rect.h,
+      level,
+      readout.title,
+      readout.primary,
+      readout.secondary,
+      readout.state,
+    ].join("|")
+    this.container.visible = true
+    if (nextKey === this.key) {
+      return
+    }
+    this.key = nextKey
+    this.container.position.set(rect.x, rect.y)
+    this.drawPanel(rect)
+    this.drawBar(level, readout.state)
+    this.title.text = readout.title
+    this.primary.text = readout.primary
+    this.secondary.text = readout.secondary
+    this.title.style.fill = 0x9ba7b4
+    this.primary.style.fill = readout.state === "error" ? 0xff746c : 0xffffff
+    this.secondary.style.fill = readout.state === "unsupported" ? 0xffc857 : 0xb7c1cc
+  }
+
+  dispose(): void {
+    this.container.destroy({ children: true })
+  }
+
+  private drawPanel(rect: AudioMeterRect): void {
+    this.panel
+      .clear()
+      .roundRect(0, 0, rect.w, rect.h, RADIUS)
+      .fill({ color: 0x05070a, alpha: 0.62 })
+      .stroke({ width: 1, color: 0xffffff, alpha: 0.18, alignment: 1 })
+  }
+
+  private drawBar(level: number, state: AudioMeterSnapshot["state"]): void {
+    const fillH = Math.round(BAR_H * level)
+    this.bar.clear().roundRect(BAR_X, BAR_Y, BAR_W, BAR_H, 4).fill({ color: 0xffffff, alpha: 0.12 })
+    if (fillH <= 0) {
+      return
+    }
+    this.bar
+      .roundRect(BAR_X, BAR_Y + BAR_H - fillH, BAR_W, fillH, 4)
+      .fill({ color: meterColor(level, state), alpha: 0.92 })
+  }
+}
+
+function meterColor(level: number, state: AudioMeterSnapshot["state"]): number {
+  if (state === "error" || state === "unsupported") {
+    return 0xffc857
+  }
+  if (level > 0.86) {
+    return 0xff5f57
+  }
+  if (level > 0.68) {
+    return 0xfebc2e
+  }
+  return 0x50b4ff
+}

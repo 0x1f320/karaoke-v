@@ -131,6 +131,7 @@ export function EffectPreview({
         noteStarted: emit !== null && strike !== lastStrike,
         glow: boost === 1 ? glowLook : { ...glowLook, level: Math.min(glowLook.level * boost, 1) },
         trail: trailParams(trail),
+        audioMeter: null,
       })
       if (emit) {
         lastStrike = strike

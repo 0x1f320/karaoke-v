@@ -1,5 +1,8 @@
 import type { Rect } from "@voxpane/macos-helper"
 import { Application, Container, Graphics, type Texture } from "pixi.js"
+import type { AudioMeterSnapshot } from "../../../shared/audioMeter"
+import type { AudioMeterLabels } from "./audioMeterDisplay"
+import { AudioMeterRenderer } from "./audioMeterRenderer"
 import { GlowFlash, type GlowParams } from "./glow"
 import { ParticleField, type ParticleParams } from "./particles"
 import { PitchTrail, type TrailParams } from "./trail"
@@ -61,6 +64,7 @@ export interface DrawParams {
   noteStarted: boolean
   glow: GlowParams
   trail: TrailParams
+  audioMeter: { snapshot: AudioMeterSnapshot; labels: AudioMeterLabels } | null
 }
 
 interface Style {
@@ -95,6 +99,7 @@ export class NoteRenderer {
   private particles: ParticleField | null = null
   private glow: GlowFlash | null = null
   private trail: PitchTrail | null = null
+  private audioMeter: AudioMeterRenderer | null = null
   private disposed = false
 
   // Emission is a rate, not a per-frame count, so it stays the same whether the
@@ -199,6 +204,7 @@ export class NoteRenderer {
     this.trail = new PitchTrail(effects, spark)
     this.glow = new GlowFlash(effects)
     this.particles = new ParticleField(effects, spark)
+    this.audioMeter = new AudioMeterRenderer(app.stage)
     this.clip = clip
     this.geometryDirty = true
     this.clipRect = { x: 0, y: 0, w: 0, h: 0 }
@@ -402,6 +408,7 @@ export class NoteRenderer {
     // The only per-frame work on a plain scroll: one transform.
     this.content.scale.set(p.scaleX, 1)
     this.content.position.set(p.offsetX, p.offsetY)
+    this.audioMeter?.update(p.audioMeter ? { ...p.audioMeter, clip: p.clip } : null)
 
     this.stepEffects(p)
     app.render()
@@ -455,6 +462,8 @@ export class NoteRenderer {
     this.glow = null
     this.trail?.dispose()
     this.trail = null
+    this.audioMeter?.dispose()
+    this.audioMeter = null
     this.app?.destroy({ removeView: true }, { children: true })
     this.app = null
     // Also covers disposal before init resolved, when there is no app to take
