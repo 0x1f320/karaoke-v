@@ -5,6 +5,7 @@ import {
   AUDIO_METER_PAD_PX,
   AUDIO_METER_WIDTH,
   audioMeterLevel,
+  audioMeterLevelColor,
   audioMeterReadout,
   audioMeterRect,
 } from "./audioMeterDisplay"
@@ -83,5 +84,14 @@ describe("audio meter display", () => {
     expect(audioMeterLevel(-24)).toBeCloseTo(0.5)
     expect(audioMeterLevel(-6)).toBeCloseTo(0.75)
     expect(audioMeterLevel(12)).toBe(1)
+  })
+
+  it("maps meter height to a DAW-style gradient", () => {
+    expect(audioMeterLevelColor(0, "running")).toBe(0x2f8cff)
+    expect(audioMeterLevelColor(0.42, "running")).toBe(0x35d07f)
+    expect(audioMeterLevelColor(0.72, "running")).toBe(0xf7d748)
+    expect(audioMeterLevelColor(1, "running")).toBe(0xff4f5f)
+    expect(audioMeterLevelColor(0.72, "unsupported")).toBe(0xffc857)
+    expect(audioMeterLevelColor(0.72, "error")).toBe(0xffc857)
   })
 })

@@ -5,6 +5,12 @@ export const AUDIO_METER_HEIGHT = 116
 export const AUDIO_METER_PAD_PX = 8
 const AUDIO_METER_MIN_DB = -60
 const AUDIO_METER_MAX_DB = 12
+const AUDIO_METER_GRADIENT = [
+  { at: 0, color: 0x2f8cff },
+  { at: 0.42, color: 0x35d07f },
+  { at: 0.72, color: 0xf7d748 },
+  { at: 1, color: 0xff4f5f },
+] as const
 
 export interface AudioMeterLabels {
   title: string
@@ -55,6 +61,23 @@ export function audioMeterLevel(momentaryLufs: number | null): number {
   return Math.max(0, Math.min(1, normalized))
 }
 
+export function audioMeterLevelColor(level: number, state: AudioMeterState): number {
+  if (state === "error" || state === "unsupported") {
+    return 0xffc857
+  }
+  const bounded = Math.max(0, Math.min(1, level))
+  for (let index = 1; index < AUDIO_METER_GRADIENT.length; index += 1) {
+    const previous = AUDIO_METER_GRADIENT[index - 1]
+    const next = AUDIO_METER_GRADIENT[index]
+    if (bounded <= next.at) {
+      const span = next.at - previous.at
+      const amount = span === 0 ? 0 : (bounded - previous.at) / span
+      return mixColor(previous.color, next.color, amount)
+    }
+  }
+  return AUDIO_METER_GRADIENT[AUDIO_METER_GRADIENT.length - 1].color
+}
+
 export function audioMeterReadout(
   snapshot: AudioMeterSnapshot,
   labels: AudioMeterLabels,
@@ -96,4 +119,16 @@ function stateLabel(state: AudioMeterState, labels: AudioMeterLabels): string {
 
 function formatDb(value: number): string {
   return value.toFixed(1)
+}
+
+function mixColor(from: number, to: number, amount: number): number {
+  const bounded = Math.max(0, Math.min(1, amount))
+  const r = mixChannel((from >> 16) & 0xff, (to >> 16) & 0xff, bounded)
+  const g = mixChannel((from >> 8) & 0xff, (to >> 8) & 0xff, bounded)
+  const b = mixChannel(from & 0xff, to & 0xff, bounded)
+  return (r << 16) | (g << 8) | b
+}
+
+function mixChannel(from: number, to: number, amount: number): number {
+  return Math.round(from + (to - from) * amount)
 }

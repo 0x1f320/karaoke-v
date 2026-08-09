@@ -4,6 +4,7 @@ import {
   type AudioMeterLabels,
   type AudioMeterRect,
   audioMeterLevel,
+  audioMeterLevelColor,
   audioMeterReadout,
   audioMeterRect,
 } from "./audioMeterDisplay"
@@ -107,21 +108,20 @@ export class AudioMeterRenderer {
     if (fillH <= 0) {
       return
     }
-    this.bar
-      .roundRect(BAR_X, BAR_Y + BAR_H - fillH, BAR_W, fillH, 4)
-      .fill({ color: meterColor(level, state), alpha: 0.92 })
+    const top = BAR_Y + BAR_H - fillH
+    for (let row = 0; row < fillH; row += 1) {
+      const y = top + row
+      const position = 1 - (y - BAR_Y) / BAR_H
+      this.bar.rect(BAR_X, y, BAR_W, 1).fill({
+        color: audioMeterLevelColor(position, state),
+        alpha: 0.94,
+      })
+    }
+    this.bar.roundRect(BAR_X, top, BAR_W, fillH, 4).stroke({
+      width: 1,
+      color: 0xffffff,
+      alpha: 0.16,
+      alignment: 1,
+    })
   }
-}
-
-function meterColor(level: number, state: AudioMeterSnapshot["state"]): number {
-  if (state === "error" || state === "unsupported") {
-    return 0xffc857
-  }
-  if (level > 0.86) {
-    return 0xff5f57
-  }
-  if (level > 0.68) {
-    return 0xfebc2e
-  }
-  return 0x50b4ff
 }
