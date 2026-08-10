@@ -51,6 +51,12 @@ Three things about this are easy to get wrong:
 - **The trail gets its own point.** `emit` follows the pitch only when the user asked for
   it; `trailEmit` follows it always, because drawing the sung curve is what the trail *is*.
 
+Before matching a note to a rectangle, the frame loop can drop SynthV helper lyrics:
+`br`, `sil`, and `cl`. That filter is a shared effect option, defaulted on, because those
+notes mark breath, silence, or consonant structure rather than a voice target the user
+expects effects to track. Turning it off lets the overlay treat those notes like any other
+scheduled note.
+
 ## Pitch following
 
 `playback/pitch.ts` answers "how far is the voice from the note's own pitch, right now, and
@@ -327,6 +333,10 @@ dead and silently draw nothing.
 user-editable name. `activePreset` answers "where did these values come from", which is *not*
 the same question as "which preset do they equal" — editing after loading leaves the values
 matching nothing, and saving still needs to know what to overwrite.
+
+The `br`/`sil`/`cl` filter is deliberately not part of a preset. It is a shared option about
+which scheduled notes are eligible for tracking at all, while presets describe what the
+eligible note effects look like.
 
 **Images** are imported through main, copied into `userData/effect-assets` under a hashed
 name, and served back over a privileged `asset://` scheme. Preferences only ever carry the

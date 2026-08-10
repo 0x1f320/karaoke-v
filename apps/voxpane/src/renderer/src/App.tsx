@@ -6,7 +6,6 @@ import {
   audioMeterShouldDisableAfterRead,
   EMPTY_AUDIO_METER_SNAPSHOT,
 } from "../../shared/audioMeter"
-import type { BridgeNote } from "../../shared/bridgeChannels"
 import type { BridgeTransportDiagnostics } from "../../shared/bridgeDiagnostics"
 import type { PianoRoll, Rect, Viewport } from "../../shared/geometry"
 import {
@@ -40,7 +39,8 @@ import {
   type ReadAnchor,
   rebaseAnchor,
 } from "./playback/locate"
-import { intensityScale, overhangSeconds, pitchExtent, samplePitch } from "./playback/pitch"
+import { acceptsEffectNote, effectNoteAt, noteInContour } from "./playback/noteFilter"
+import { intensityScale, pitchExtent, samplePitch } from "./playback/pitch"
 import { Transport } from "./playback/transport"
 import { NoteRenderer } from "./render/noteRenderer"
 import {
@@ -72,30 +72,6 @@ const DIAGNOSTICS_GRAPH_W = 260
 const DIAGNOSTICS_GRAPH_H = 132
 const DIAGNOSTICS_GRAPH_SAMPLES = 180
 const AUDIO_METER_POLL_MS = 50
-
-/**
- * The note whose contour covers `seconds` — the one sounding, or, in the gap
- * between two, whichever of them still reaches this far.
- *
- * A note's contour does not begin at its onset or end at its end: the glide in
- * and the release out are the parts that travel furthest from it. Stopping the
- * effect at the note's own edges left those undrawn, and left the band claiming
- * a reach the effect never went to.
- */
-function noteInContour(transport: Transport, seconds: number): BridgeNote | null {
-  const sounding = transport.noteAt(seconds)
-  if (sounding) {
-    return sounding
-  }
-  const { before, after } = transport.neighbours(seconds)
-  if (before && seconds - before.offS <= overhangSeconds(before).tail) {
-    return before
-  }
-  if (after && after.onS - seconds <= overhangSeconds(after).lead) {
-    return after
-  }
-  return null
-}
 
 function latencyProbeEnabled(debug: boolean): boolean {
   try {
@@ -278,16 +254,19 @@ function Overlay() {
     let glow = glowParams(DEFAULT_PREFERENCES.glow)
     let trail = trailParams(DEFAULT_PREFERENCES.trail)
     let pitch = DEFAULT_PREFERENCES.pitch
+    let ignoreSilenceLyrics = DEFAULT_PREFERENCES.ignoreSilenceLyrics
     const adopt = (p: {
       debug: boolean
       effects: boolean
       audioMeter: boolean
+      ignoreSilenceLyrics: boolean
       particles: ParticlePreferences
       glow: GlowPreferences
       trail: TrailPreferences
       pitch: PitchPreferences
     }) => {
       debug = p.debug
+      ignoreSilenceLyrics = p.ignoreSilenceLyrics
       window.bridge.setDiagnosticsEnabled(debug)
       if (!debug && diagnosticsElement) {
         diagnosticsElement.classList.add("hidden")
@@ -513,7 +492,9 @@ function Overlay() {
       const seconds = transport.playing ? transport.playhead(nowMs) : null
       if (view && seconds !== null) {
         const riding = pitch.enabled || trail.enabled
-        const note = riding ? noteInContour(transport, seconds) : transport.noteAt(seconds)
+        const note = riding
+          ? noteInContour(transport, seconds, ignoreSilenceLyrics)
+          : effectNoteAt(transport, seconds, ignoreSilenceLyrics)
         if (note) {
           onset = note.onB
           if (match?.onset !== onset) {
@@ -566,6 +547,9 @@ function Overlay() {
         const xform = { scaleX: transform.scaleX, offsetX: transform.contentOffsetX }
         const bands: Rect[] = []
         for (const note of transport.notesBetween(view.mapping.viewLeft, view.mapping.viewRight)) {
+          if (!acceptsEffectNote(note, ignoreSilenceLyrics)) {
+            continue
+          }
           const rect = locateNote(note, view, vp, read.notes, xform)
           if (!rect) {
             continue

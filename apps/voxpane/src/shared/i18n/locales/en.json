@@ -136,6 +136,10 @@
         "overwriteWarning": "A preset by that name already exists. It will be overwritten.",
         "overwrite": "Overwrite"
       },
+      "ignoreSilenceLyrics": {
+        "label": "Ignore br/sil/cl notes",
+        "description": "Do not draw note effects on notes used for breaths, silence, and consonants."
+      },
       "image": {
         "source": {
           "label": "Source",

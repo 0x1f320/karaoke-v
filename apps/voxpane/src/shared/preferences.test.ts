@@ -64,13 +64,25 @@ describe("mergePreferences", () => {
   })
 
   it("keeps booleans that are explicitly false", () => {
-    const base = { ...DEFAULT_PREFERENCES, debug: true, effects: true, audioMeter: true }
+    const base = {
+      ...DEFAULT_PREFERENCES,
+      debug: true,
+      effects: true,
+      audioMeter: true,
+      ignoreSilenceLyrics: true,
+    }
     expect(
-      mergePreferences(base, { debug: false, effects: false, audioMeter: false }),
+      mergePreferences(base, {
+        debug: false,
+        effects: false,
+        audioMeter: false,
+        ignoreSilenceLyrics: false,
+      }),
     ).toMatchObject({
       debug: false,
       effects: false,
       audioMeter: false,
+      ignoreSilenceLyrics: false,
     })
   })
 })
@@ -105,11 +117,24 @@ describe("sanitizePreferences", () => {
   })
 
   it("keeps well-typed scalars", () => {
-    expect(sanitizePreferences({ debug: true, effects: false, audioMeter: true })).toEqual({
+    expect(
+      sanitizePreferences({
+        debug: true,
+        effects: false,
+        audioMeter: true,
+        ignoreSilenceLyrics: false,
+      }),
+    ).toEqual({
       debug: true,
       effects: false,
       audioMeter: true,
+      ignoreSilenceLyrics: false,
     })
+  })
+
+  it("keeps silence lyric filtering enabled by default", () => {
+    expect(DEFAULT_PREFERENCES.ignoreSilenceLyrics).toBe(true)
+    expect(mergePreferences(DEFAULT_PREFERENCES, {}).ignoreSilenceLyrics).toBe(true)
   })
 
   it("keeps only a supported language", () => {

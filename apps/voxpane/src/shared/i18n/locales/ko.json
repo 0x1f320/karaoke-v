@@ -136,6 +136,10 @@
         "overwriteWarning": "같은 이름의 프리셋이 이미 있습니다. 덮어쓰게 됩니다.",
         "overwrite": "덮어쓰기"
       },
+      "ignoreSilenceLyrics": {
+        "label": "br/sil/cl 노트 무시",
+        "description": "호흡, 무음, 자음 표시용 노트에는 노트 이펙트를 그리지 않습니다."
+      },
       "image": {
         "source": {
           "label": "그리는 방식",
