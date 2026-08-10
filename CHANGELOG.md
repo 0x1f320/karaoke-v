@@ -1,3 +1,9 @@
+## [1.0.0-dev.10](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.9...v1.0.0-dev.10) (2026-08-10)
+
+### ✨ Features
+
+* **toolbar:** add custom button hints ([#107](https://github.com/0x1f320/voxpane/issues/107)) ([3a94fe7](https://github.com/0x1f320/voxpane/commit/3a94fe7bd95a3ff92618e3b0dc1612def0e17054))
+
 ## [1.0.0-dev.9](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.8...v1.0.0-dev.9) (2026-08-10)
 
 ### ✨ Features
