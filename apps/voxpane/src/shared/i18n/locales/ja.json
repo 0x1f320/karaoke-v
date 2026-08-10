@@ -136,6 +136,10 @@
         "overwriteWarning": "同じ名前のプリセットが既にあります。上書きされます。",
         "overwrite": "上書き"
       },
+      "ignoreSilenceLyrics": {
+        "label": "br/sil/cl ノートを無視",
+        "description": "ブレス、無音、子音を示すノートにはノートエフェクトを描画しません。"
+      },
       "image": {
         "source": {
           "label": "描画方法",

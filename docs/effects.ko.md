@@ -48,6 +48,11 @@ y &= \text{hit}_y + \tfrac{1}{2}\,\text{hit}_h - s \cdot \text{hit}_h \\
 - **trail은 자기 점을 따로 받는다.** `emit`은 사용자가 원할 때만 pitch를 따라가고,
   `trailEmit`은 언제나 따라간다. sung curve를 그리는 것이 trail *자체*이기 때문이다.
 
+note를 rect에 매칭하기 전에 frame loop는 SynthV helper lyric인 `br`, `sil`, `cl`을 버릴 수
+있다. 이 filter는 기본으로 켜진 공유 effect 옵션이다. 그 note들은 사용자가 effect가 따라가길
+기대하는 목소리 목표가 아니라 breath, silence, consonant 구조를 표시하기 때문이다. 끄면 overlay는
+그 note들도 다른 scheduled note처럼 다룬다.
+
 ## Pitch following
 
 `playback/pitch.ts`가 "지금 목소리가 note 자기 pitch에서 얼마나 떨어져 있고, 그것이 얼마나
@@ -310,6 +315,10 @@ context가 영영 사라지므로, HMR 리로드를 넘어 살아남은 canvas�
 `id`를 갖는다. `activePreset`은 "이 값들이 어디서 왔는가"에 답하는데, 그건 "어느 preset과
 값이 같은가"와 *다른* 질문이다 — 불러온 뒤 편집하면 값은 아무것과도 일치하지 않게 되고, 저장은
 여전히 무엇을 덮어쓸지 알아야 한다.
+
+`br`/`sil`/`cl` filter는 의도적으로 preset에 들어가지 않는다. 어떤 scheduled note가 애초에
+tracking 대상이 되는가에 대한 공유 옵션이고, preset은 대상이 된 note effect가 어떻게 보이는지를
+설명하기 때문이다.
 
 **이미지**는 main을 통해 import되어 `userData/effect-assets`에 해시 이름으로 복사되고, 권한이
 부여된 `asset://` scheme으로 다시 제공된다. preferences는 파일 이름만 나르므로 바이너리가

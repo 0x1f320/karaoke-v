@@ -409,6 +409,17 @@ function EffectsSection({
         {/* Extra room at the bottom while the bar is up, so the last row can
             still be scrolled out from under it. */}
         <div className={`px-6 ${drifted ? "pb-20" : "pb-5"}`}>
+          <SettingRow
+            label={t("settings.effects.ignoreSilenceLyrics.label")}
+            description={t("settings.effects.ignoreSilenceLyrics.description")}
+          >
+            <Switch
+              aria-label={t("settings.effects.ignoreSilenceLyrics.label")}
+              checked={prefs.ignoreSilenceLyrics}
+              onCheckedChange={(ignoreSilenceLyrics) => update({ ignoreSilenceLyrics })}
+            />
+          </SettingRow>
+
           <EffectAccordion
             title={t("settings.effects.glow.title")}
             description={t("settings.effects.glow.description")}
