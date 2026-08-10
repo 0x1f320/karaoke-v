@@ -1,3 +1,9 @@
+## [1.0.0-dev.9](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.8...v1.0.0-dev.9) (2026-08-10)
+
+### ✨ Features
+
+* **effects:** ignore SynthV helper lyrics ([#105](https://github.com/0x1f320/voxpane/issues/105)) ([50a5e2b](https://github.com/0x1f320/voxpane/commit/50a5e2b5d1b1d2c75ed1ec14920332379c8a7bbe))
+
 ## [1.0.0-dev.8](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.7...v1.0.0-dev.8) (2026-08-09)
 
 ### ✨ Features

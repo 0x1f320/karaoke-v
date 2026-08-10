@@ -1,6 +1,6 @@
 {
   "name": "@voxpane/app",
-  "version": "1.0.0-dev.8",
+  "version": "1.0.0-dev.9",
   "private": true,
   "description": "Electron + React app (hello world).",
   "main": "./out/main/index.js",
