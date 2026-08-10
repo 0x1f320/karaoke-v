@@ -1,6 +1,8 @@
 import { Gauge, Settings, Sparkles, X } from "lucide-react"
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { Tooltip } from "radix-ui"
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { type ToolbarTooltipSide, toolbarTooltipSide } from "./toolbarTooltip"
 import { IconButton } from "./ui/IconButton"
 
 // The narrow sticky-toolbar panel docked beside the SynthV window.
@@ -52,51 +54,91 @@ export function Toolbar() {
     window.preferences.update({ audioMeter: next })
   }
 
+  const effectsLabel = t("toolbar.effects")
+  const audioMeterLabel = t("toolbar.audioMeter")
+  const settingsLabel = t("toolbar.settings")
+  const quitLabel = t("toolbar.quit")
+  const itemCount = 4
+
   return (
     <div
       ref={rootRef}
       className="flex w-full flex-col overflow-hidden rounded-xl bg-app text-fg antialiased"
     >
-      <main className="flex flex-col items-center gap-4 px-3 py-5">
-        <IconButton
-          className="w-3/4"
-          on={effects}
-          aria-pressed={effects}
-          title={t("toolbar.effects")}
-          aria-label={t("toolbar.effects")}
-          onClick={toggleEffects}
-        >
-          <Sparkles size={20} strokeWidth={1.5} />
-        </IconButton>
-        <IconButton
-          className="w-3/4"
-          on={audioMeter}
-          aria-pressed={audioMeter}
-          title={t("toolbar.audioMeter")}
-          aria-label={t("toolbar.audioMeter")}
-          onClick={toggleAudioMeter}
-        >
-          <Gauge size={20} strokeWidth={1.5} />
-        </IconButton>
-        <div className="my-1 h-px w-1/2 bg-white/25" />
-        <IconButton
-          className="w-3/4"
-          title={t("toolbar.settings")}
-          aria-label={t("toolbar.settings")}
-          onClick={() => window.settings.open()}
-        >
-          <Settings size={20} strokeWidth={1.5} />
-        </IconButton>
-        <IconButton
-          className="w-3/4"
-          tone="danger"
-          title={t("toolbar.quit")}
-          aria-label={t("toolbar.quit")}
-          onClick={() => window.app.quit()}
-        >
-          <X size={20} strokeWidth={1.5} />
-        </IconButton>
-      </main>
+      <Tooltip.Provider delayDuration={350} skipDelayDuration={100} disableHoverableContent>
+        <main className="flex flex-col items-center gap-4 px-3 py-5">
+          <ToolbarHint label={effectsLabel} side={toolbarTooltipSide(0, itemCount)}>
+            <IconButton
+              className="w-3/4"
+              on={effects}
+              aria-pressed={effects}
+              aria-label={effectsLabel}
+              onClick={toggleEffects}
+            >
+              <Sparkles size={20} strokeWidth={1.5} />
+            </IconButton>
+          </ToolbarHint>
+          <ToolbarHint label={audioMeterLabel} side={toolbarTooltipSide(1, itemCount)}>
+            <IconButton
+              className="w-3/4"
+              on={audioMeter}
+              aria-pressed={audioMeter}
+              aria-label={audioMeterLabel}
+              onClick={toggleAudioMeter}
+            >
+              <Gauge size={20} strokeWidth={1.5} />
+            </IconButton>
+          </ToolbarHint>
+          <div className="my-1 h-px w-1/2 bg-white/25" />
+          <ToolbarHint label={settingsLabel} side={toolbarTooltipSide(2, itemCount)}>
+            <IconButton
+              className="w-3/4"
+              aria-label={settingsLabel}
+              onClick={() => window.settings.open()}
+            >
+              <Settings size={20} strokeWidth={1.5} />
+            </IconButton>
+          </ToolbarHint>
+          <ToolbarHint label={quitLabel} side={toolbarTooltipSide(3, itemCount)}>
+            <IconButton
+              className="w-3/4"
+              tone="danger"
+              aria-label={quitLabel}
+              onClick={() => window.app.quit()}
+            >
+              <X size={20} strokeWidth={1.5} />
+            </IconButton>
+          </ToolbarHint>
+        </main>
+      </Tooltip.Provider>
     </div>
+  )
+}
+
+function ToolbarHint({
+  label,
+  side,
+  children,
+}: {
+  label: string
+  side: ToolbarTooltipSide
+  children: ReactNode
+}) {
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Content
+          side={side}
+          align="center"
+          sideOffset={5}
+          collisionPadding={4}
+          className="pointer-events-none z-50 max-w-16 select-none rounded-md border border-white/10 bg-titlebar px-1.5 py-1 text-center text-2xs text-fg leading-tight shadow-xl outline-none break-words"
+        >
+          {label}
+          <Tooltip.Arrow width={8} height={4} className="fill-titlebar" />
+        </Tooltip.Content>
+      </Tooltip.Portal>
+    </Tooltip.Root>
   )
 }
